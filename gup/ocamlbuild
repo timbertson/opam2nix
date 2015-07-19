@@ -1,0 +1,4 @@
+#!bash -eu
+ocamlbuild -use-ocamlfind -cflag -warn-error -cflag A "$2"
+gup --always
+touch "$2"

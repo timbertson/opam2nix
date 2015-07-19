@@ -1,0 +1,3 @@
+ocamlbuild:
+	*.byte
+	*.native
