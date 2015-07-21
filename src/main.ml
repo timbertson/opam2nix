@@ -93,4 +93,5 @@ let () =
 		Nix_expr.write oc expr;
 		close_out oc
 	);
-	Printf.eprintf "generated deps: %s\n" (deps#to_string)
+	(* Printf.eprintf "generated deps: %s\n" (deps#to_string) *)
+	()

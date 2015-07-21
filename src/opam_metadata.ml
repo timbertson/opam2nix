@@ -10,7 +10,19 @@ type dependency =
 	| ExternalDependencies of OpamTypes.tags
 	| PackageDependencies of OpamTypes.ext_formula
 
-type requirement = Required of dependency | Optional of dependency
+type importance = Required | Optional
+type requirement = importance * dependency
+
+let rec iter_formula : 'a . (importance -> 'a -> unit) -> importance -> 'a OpamFormula.formula -> unit =
+	fun iter_atom importance formula ->
+		let recurse = iter_formula iter_atom in
+		let open OpamFormula in
+		match formula with
+			| Empty -> ()
+			| Atom a -> iter_atom importance a
+			| Block b -> recurse importance b
+			| And (a,b) -> recurse importance a; recurse importance b
+			| Or(a,b) -> recurse Optional a; recurse Optional b
 
 let string_of_dependency = function
 	| NixDependency dep -> "nix:"^dep
@@ -22,29 +34,37 @@ let string_of_dependency = function
 			"external:" ^
 				(OpamMisc.StringSetMap.to_string (OpamMisc.StringSet.to_string) tags)
 	| PackageDependencies formula ->
-	(* of OpamTypes.ext_formula *)
-			"package:<TODO>"
+		(* of OpamTypes.ext_formula *)
+		"package:<TODO>"
 
 let string_of_requirement = function
-	| Required dep -> string_of_dependency dep
-	| Optional dep -> "{" ^ (string_of_dependency dep) ^ "}"
+	| Required, dep -> string_of_dependency dep
+	| Optional, dep -> "{" ^ (string_of_dependency dep) ^ "}"
 
-let add_nix_inputs ~add_input dep =
-	let dep, add_input = match dep with
-		| Required dep -> dep, fun name -> add_input (`Id name)
-		| Optional dep -> dep, fun name -> add_input (`Default (name, `Null))
+let add_nix_inputs ~add_input importance dep =
+	let desc = match importance with
+		| Required -> "dep"
+		| Optional -> "optional dep"
 	in
+	let depend_on = add_input importance in
 	match dep with
-		| NixDependency name -> add_input name
-		| OcamlDependency _dep -> add_input "ocaml" (* XXX ocaml version *)
-		| OsDependency _dep -> Printf.eprintf "TODO: OsDependency\n"
+		| NixDependency name ->
+				Printf.eprintf "  adding nix %s: %s\n" desc name;
+				depend_on name
+		| OcamlDependency _dep ->
+				Printf.eprintf "  adding ocaml %s: %s\n" desc "ocaml";
+				depend_on "ocaml" (* XXX ocaml version *)
+		| OsDependency _dep ->
+				Printf.eprintf "  adding OS %s: <TODO>\n" desc;
+				Printf.eprintf "TODO: OsDependency\n"
 		| ExternalDependencies externals ->
 				let has_nix = ref false in
 				OpamMisc.StringSetMap.iter (fun environments packages ->
 					if OpamMisc.StringSet.mem "nixpkgs" environments then (
 						has_nix := true;
 						OpamMisc.StringSet.iter (fun dep ->
-							add_input dep
+							Printf.eprintf "  adding nix %s: %s\n" desc dep;
+							depend_on dep
 						) packages
 					)
 				) externals;
@@ -52,8 +72,29 @@ let add_nix_inputs ~add_input dep =
 					Printf.eprintf
 						"Note: package has depexts, but none of them `nixpkgs`:\n%s\n"
 						(OpamMisc.StringSetMap.to_string (OpamMisc.StringSet.to_string) externals)
-		| PackageDependencies _formula ->
-				add_input "TODO_formula"
+		| PackageDependencies formula ->
+			let iter_dep importance (dep:OpamPackage.Name.t * (package_dep_flag list * OpamFormula.version_formula)) =
+				let (name, (flags, version_formula)) = dep in
+				let name = OpamPackage.Name.to_string name in
+				let needed_for_build = if List.length flags = 0
+					then true
+					else flags |> List.fold_left (fun required flag ->
+						required || (match flag with Depflag_Build -> true | _ -> false)) false
+				in
+				if needed_for_build then begin
+					let version_desc = ref "" in
+					version_formula |> iter_formula (fun _importance (relop, version) ->
+						version_desc := !version_desc ^ (
+							(OpamFormula.string_of_relop relop) ^
+							(OpamPackage.Version.to_string version)
+						)
+					) importance;
+					Printf.eprintf "  adding %s: %s%s\n" desc name !version_desc;
+					add_input importance name
+				end else
+					Printf.eprintf "  skipping non-build %s on %s\n" desc name
+			in
+			iter_formula iter_dep importance formula
 
 (* type opam_package_id = { *)
 (* 	opam_name: string; *)
@@ -256,12 +297,12 @@ let nix_of_url ~add_input ~cache (url:url) =
 				]
 
 let attrs_of_opam ~add_dep (opam:OPAM.t) =
-	add_dep (Required (match (OPAM.ocaml_version opam) with
+	add_dep Required (match (OPAM.ocaml_version opam) with
 		| None -> NixDependency "ocaml"
 		| Some constr -> OcamlDependency constr
-	));
-	add_dep (Required (PackageDependencies (OPAM.depends opam)));
-	add_dep (Optional (PackageDependencies (OPAM.depopts opam)));
+	);
+	add_dep Required (PackageDependencies (OPAM.depends opam));
+	add_dep Optional (PackageDependencies (OPAM.depopts opam));
 	[]
 
 
@@ -290,33 +331,54 @@ let nix_of_opam ~name ~version ~cache ~deps path : Nix_expr.t =
 		(OpamPackage.Version.of_string version)
 	in
 	let open Nix_expr in
-	let inputs : Nix_expr.arg list ref = ref [ `Id "stdenv" ] in
-	let add_input = fun x -> inputs := x :: !inputs in
-	let add_mandatory_input = fun name -> add_input (`Id name) in
+	let inputs : (importance * string) list ref = ref [ Required, "stdenv" ] in
+	let add_input = fun importance name -> inputs := (importance,name) :: !inputs in
+	let add_mandatory_input = add_input Required in
 
 	let url = load_url (Filename.concat path "url") in
 	let src = nix_of_url ~add_input:add_mandatory_input ~cache url in
 
 	deps#init_package pkgid;
 
-	let add_dep = fun dep ->
-		Printf.eprintf "  adding dep: %s\n" (string_of_requirement dep);
-		deps#add_dep pkgid dep;
-		add_nix_inputs ~add_input dep
+	let add_dep = fun importance dep ->
+		(* deps#add_dep pkgid dep; *)
+		add_nix_inputs ~add_input importance dep
 	in
 
 	let opam = load_opam (Filename.concat path "opam") in
 	let buildAttrs = attrs_of_opam ~add_dep opam in
 
+	(* clean up potentially-duplicate `inputs` *)
+	let inputs =
+		let mandatory, optional = !inputs |> List.partition (fun (i,_) -> i = Required) in
+		let snd = fun (a,b) -> b in
+		let mandatory = mandatory |> List.map snd in
+		let optional = optional |> List.map snd |> List.filter (fun name ->
+			not (List.mem name mandatory)
+		) in
+		let export = fun importance items ->
+			items |> List.sort compare |> List.map (fun name -> (importance, name))
+		in
+		(export Required mandatory @ export Optional optional)
+	in
+
+	let input_args = inputs |> List.map (function
+		| Required, name -> `Id name
+		| Optional, name -> `Default (name, `Null)
+	) in
+
+
 	(`Function (
-		(`NamedArguments !inputs),
+		(`NamedArguments input_args),
 		(`Call [
 			`Id "stdenv.mkDerivation";
 			(`Attrs (AttrSet.build (buildAttrs @ [
 				"src", src;
-				"buildInputs", `List (!inputs |> List.map (fun input -> str (
-					match input with `Id name -> name | `Default (name, _) -> name)
-				));
+				"buildInputs", `Call [
+					`Id "filter";
+					`Lit "(item: item != null)";
+					`List (inputs |> List.map (fun (dep, name) -> `Id name));
+				];
 				"createFindlibDestdir", `Lit "true";
 			])))
 		])
