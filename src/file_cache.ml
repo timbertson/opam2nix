@@ -13,6 +13,7 @@ let fetch ~dest url =
 		Curl.global_init Curl.CURLINIT_GLOBALALL;
 		let errbuf = ref "" in
 		Printf.eprintf " [ downloading %s ]\n" url;
+		flush stderr;
 		begin
 			try
 				let connection = Curl.init () in

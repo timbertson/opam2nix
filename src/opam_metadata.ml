@@ -41,19 +41,22 @@ let string_of_requirement = function
 	| Required, dep -> string_of_dependency dep
 	| Optional, dep -> "{" ^ (string_of_dependency dep) ^ "}"
 
-let add_nix_inputs ~add_input importance dep =
+let add_nix_inputs
+	~(add_native: importance -> string -> unit)
+	~(add_opam:importance -> string -> unit)
+	importance dep =
 	let desc = match importance with
 		| Required -> "dep"
 		| Optional -> "optional dep"
 	in
-	let depend_on = add_input importance in
+	(* let depend_on = add_input importance in *)
 	match dep with
 		| NixDependency name ->
 				Printf.eprintf "  adding nix %s: %s\n" desc name;
-				depend_on name
+				add_native importance name
 		| OcamlDependency _dep ->
 				Printf.eprintf "  adding ocaml %s: %s\n" desc "ocaml";
-				depend_on "ocaml" (* XXX ocaml version *)
+				add_native importance "ocaml" (* XXX ocaml version *)
 		| OsDependency _dep ->
 				Printf.eprintf "  adding OS %s: <TODO>\n" desc;
 				Printf.eprintf "TODO: OsDependency\n"
@@ -64,7 +67,7 @@ let add_nix_inputs ~add_input importance dep =
 						has_nix := true;
 						OpamMisc.StringSet.iter (fun dep ->
 							Printf.eprintf "  adding nix %s: %s\n" desc dep;
-							depend_on dep
+							add_native importance dep
 						) packages
 					)
 				) externals;
@@ -90,7 +93,7 @@ let add_nix_inputs ~add_input importance dep =
 						)
 					) importance;
 					Printf.eprintf "  adding %s: %s%s\n" desc name !version_desc;
-					add_input importance name
+					add_opam importance name
 				end else
 					Printf.eprintf "  skipping non-build %s on %s\n" desc name
 			in
@@ -331,24 +334,41 @@ let nix_of_opam ~name ~version ~cache ~deps path : Nix_expr.t =
 		(OpamPackage.Version.of_string version)
 	in
 	let open Nix_expr in
-	let inputs : (importance * string) list ref = ref [ Required, "stdenv" ] in
-	let add_input = fun importance name -> inputs := (importance,name) :: !inputs in
-	let add_mandatory_input = add_input Required in
+	let inputs = ref [ Required, "stdenv"; Required, "opamSelection" ] in
+	let add_input = fun importance name -> inputs := (importance, name) :: !inputs in
 
 	let url = load_url (Filename.concat path "url") in
-	let src = nix_of_url ~add_input:add_mandatory_input ~cache url in
+	let src = nix_of_url ~add_input:(add_input Required) ~cache url in
 
 	deps#init_package pkgid;
 
+	let opam_inputs = ref [ ] in
+	let add_opam_input importance name = opam_inputs := (importance, name) :: !opam_inputs in
 	let add_dep = fun importance dep ->
 		(* deps#add_dep pkgid dep; *)
-		add_nix_inputs ~add_input importance dep
+		add_nix_inputs
+			~add_native:add_input
+			~add_opam:add_opam_input
+			importance dep
 	in
 
 	let opam = load_opam (Filename.concat path "opam") in
 	let buildAttrs = attrs_of_opam ~add_dep opam in
 
 	(* clean up potentially-duplicate `inputs` *)
+	let opam_inputs =
+		let rv = ref AttrSet.empty in
+		let mandatory, optional = !opam_inputs |> List.partition (fun (i,_) -> i = Required) in
+		let snd = fun (a,b) -> b in
+		optional |> List.map snd |> List.iter (fun name ->
+			rv := AttrSet.add name (`Property_or (`Id "opamSelection", name, `Null)) !rv
+		);
+		mandatory |> List.map snd |> List.iter (fun name ->
+			rv := AttrSet.add name (`Property (`Id "opamSelection", name)) !rv
+		);
+		rv
+	in
+
 	let inputs =
 		let mandatory, optional = !inputs |> List.partition (fun (i,_) -> i = Required) in
 		let snd = fun (a,b) -> b in
@@ -367,21 +387,25 @@ let nix_of_opam ~name ~version ~cache ~deps path : Nix_expr.t =
 		| Optional, name -> `Default (name, `Null)
 	) in
 
-
 	(`Function (
 		(`NamedArguments input_args),
-		(`Call [
-			`Id "stdenv.mkDerivation";
-			(`Attrs (AttrSet.build (buildAttrs @ [
-				"src", src;
-				"buildInputs", `Call [
-					`Id "filter";
-					`Lit "(item: item != null)";
-					`List (inputs |> List.map (fun (dep, name) -> `Id name));
-				];
-				"createFindlibDestdir", `Lit "true";
-			])))
-		])
+		(`Let_bindings (!opam_inputs,
+			(`Call [
+				`Id "stdenv.mkDerivation";
+				(`Attrs (AttrSet.build (buildAttrs @ [
+					"src", src;
+					"buildInputs", `Call [
+						`Id "filter";
+						`Lit "(item: item != null)";
+						`List (
+							(inputs |> List.map (fun (dep, name) -> `Id name)) @
+							(AttrSet.keys !opam_inputs |> List.map (fun name -> `Id name))
+						);
+					];
+					"createFindlibDestdir", `Lit "true";
+				])))
+			])
+		))
 	))
 
 
