@@ -1,7 +1,11 @@
+open Util
 module URL = OpamFile.URL
 module OPAM = OpamFile.OPAM
 module Descr = OpamFile.Descr
 open OpamTypes
+module StringMap = Map.Make(String)
+
+let var_prefix = "opam_var_"
 
 type dependency =
 	| NixDependency of string
@@ -139,91 +143,6 @@ class dependency_map =
 			PackageMap.to_string reqs_to_string !map
 	end
 
-(* let maybe_string s = match s with *)
-(* 	| Some s -> `String s *)
-(* 	| None -> `Null *)
-(*  *)
-(* let dump_json data = *)
-(* 	let json_str = OpamJson.to_string data in *)
-(* 	print_endline json_str *)
-(*  *)
-(* type json_obj = [`O of (string * OpamJson.t) list] *)
-(*  *)
-(* let json_of_os_constr cons : json_obj = *)
-(* 	let (bool, str) = cons in *)
-(* 	`O [ *)
-(* 		("type", `String "os_constraint"); *)
-(* 		("value", `A [ *)
-(* 			`Bool bool; *)
-(* 			`String str; *)
-(* 		]); *)
-(* 	] *)
-(*  *)
-(* let json_of_compiler_version_constraint cons : json_obj = *)
-(* 	let (relop, ver) = cons in *)
-(* 	`O [ *)
-(* 		("type", `String "version"); *)
-(* 		("op", `String (OpamFormula.string_of_relop relop)); *)
-(* 		("version", OpamCompiler.Version.to_json ver); *)
-(* 	] *)
-(*  *)
-(* let json_of_version_constraint (cons:OpamFormula.version_constraint) : json_obj = *)
-(* 	let (relop, ver) = cons in *)
-(* 	`O [ *)
-(* 		("type", `String "version"); *)
-(* 		("op", `String (OpamFormula.string_of_relop relop)); *)
-(* 		("version", OpamPackage.Version.to_json ver); *)
-(* 	] *)
-(*  *)
-(* type dep = (OpamPackage.Name.t * OpamFormula.version_formula) *)
-(* let rec json_of_dependency (dep:dep) : json_obj = *)
-(* 	let (name, version) = dep in *)
-(* 	`O [ *)
-(* 		("type", `String "dependency"); *)
-(* 		("name", OpamPackage.Name.to_json name); *)
-(* 		("constraints", json_of_formula json_of_version_constraint version); *)
-(* 	] *)
-(*  *)
-(* and json_of_formula : 'a . ('a -> json_obj) -> 'a OpamFormula.formula -> OpamJson.t = *)
-(* 	fun atom_to_json formula -> *)
-(* 	let recurse = json_of_formula atom_to_json in *)
-(* 	let open OpamFormula in *)
-(* 	match formula with *)
-(* 		| Empty -> `Null *)
-(* 		| Atom f -> ((atom_to_json f):>OpamJson.t) *)
-(* 		| Block f -> recurse f *)
-(* 		| And (a,b) -> `A [`String "&&"; (recurse a); (recurse b)] *)
-(* 		| Or (a,b) -> `A [`String "||"; (recurse a); (recurse b)] *)
-(*  *)
-(* let json_of_depends : dep OpamFormula.formula -> OpamJson.t = *)
-(* 	json_of_formula json_of_dependency *)
-(*  *)
-(* let info_opam ic = *)
-(* 	let file = OPAM.read_from_channel ic in *)
-(* 	`O [ *)
-(* 		("type", `String "opam"); *)
-(* 		("ocaml_version", match (OPAM.ocaml_version file) with *)
-(* 			| None -> `Null *)
-(* 			| Some constr -> json_of_formula json_of_compiler_version_constraint constr *)
-(* 		); *)
-(* 		("os", json_of_formula json_of_os_constr (OPAM.os file)); *)
-(* 		("depends", json_of_depends (OPAM.depends file)); *)
-(* 		("depends_optional", json_of_depends (OPAM.depopts file)); *)
-(* 		("depends_external", match OPAM.depexts file with *)
-(* 			| None -> `Null *)
-(* 			| Some deps -> *)
-(* 				OpamMisc.StringSetMap.to_json OpamMisc.StringSet.to_json deps; *)
-(* 		); *)
-(* 		("conflicts", json_of_depends (OPAM.conflicts file)); *)
-(* 	] *)
-(*  *)
-(* let info_descr ic = *)
-(* 	let file = Descr.read_from_channel ic in *)
-(* 	`O [ *)
-(* 		("type", `String "descr"); *)
-(* 		("summary", `String (Descr.synopsis file)); *)
-(* 		("description", `String (Descr.body file)); *)
-(* 	] *)
 
 type url = [
 	| `http of string
@@ -263,7 +182,7 @@ let string_of_url url =
 
 let sha256_of_path p =
 	let open Lwt in
-	lwt lines = Lwt_process.with_process_in ("", [|"nix-hash"; "--type";"sha256"; p|]) (fun proc ->
+	lwt lines = Lwt_process.with_process_in ("", [|"nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p|]) (fun proc ->
 		lwt lines = proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list in
 		lwt status = proc#close in
 		let open Unix in
@@ -299,6 +218,10 @@ let nix_of_url ~add_input ~cache (url:url) =
 					]);
 				]
 
+let unsafe_envvar_chars = Str.regexp "[^0-9a-zA-Z_]"
+let envvar_of_ident name =
+	var_prefix ^ (Str.global_replace unsafe_envvar_chars "_" name)
+
 let attrs_of_opam ~add_dep (opam:OPAM.t) =
 	add_dep Required (match (OPAM.ocaml_version opam) with
 		| None -> NixDependency "ocaml"
@@ -306,7 +229,101 @@ let attrs_of_opam ~add_dep (opam:OPAM.t) =
 	);
 	add_dep Required (PackageDependencies (OPAM.depends opam));
 	add_dep Optional (PackageDependencies (OPAM.depopts opam));
-	[]
+	add_dep Required (OsDependency (OPAM.os opam));
+
+	(* let mkCommands steps = `MultilineString (steps *)
+	(* 	|> List.map (fun step -> [step; `Lit "\n"]) *)
+	(* 	|> List.concat) *)
+	(* in *)
+
+	(* let mkCommands2 steps = `MultilineString (steps *)
+	(* 	|> List.map (fun args -> `Lit ((String.concat " " args) ^ "\n"))) *)
+	(* in *)
+
+	(* let rec evaluate_filter = function *)
+	(* 	| FBool b -> "bool " ^ (string_of_bool b) *)
+	(* 	| FString s -> s *)
+	(* 	| FIdent (packages,var, -> "$" ^ (envvar_of_ident s) *)
+	(* 	| FNot f -> "!" ^ (evaluate_filter f) *)
+	(* 	| FOp (a, op, b) -> *)
+	(* 		let a = evaluate_filter a *)
+	(* 		and b = evaluate_filter b in *)
+	(* 		(match op with *)
+	(* 			| `Eq -> a^"=="^b *)
+	(* 			| `Neq -> a^"!="^b *)
+	(* 			| `Geq -> a^">="^b *)
+	(* 			| `Gt -> a^">"^b *)
+	(* 			| `Leq -> a^"<="^b *)
+	(* 			| `Lt -> a^"<"^b *)
+	(* 		) *)
+	(* 	| FAnd (a,b) -> (evaluate_filter a) ^ "&&" ^ (evaluate_filter b) *)
+	(* 	| FOr (a,b) -> (evaluate_filter a) ^ "||" ^ (evaluate_filter b) *)
+	(* in *)
+
+	(* let env s = *)
+	(* 	try Some (OpamVariable.Full.Map.find s state) *)
+	(* 	with Not_found -> None *)
+	(* in *)
+	(* let string_of_arg (arg, filter) = *)
+	(* 	let argstr = match arg with *)
+	(* 		(* XXX do we need to bash-escape these? *) *)
+	(* 		| CString s -> s *)
+	(* 		| CIdent s -> "\"$" ^ (envvar_of_ident s) ^ "\"" *)
+	(* 	in *)
+	(* 	(match filter with *)
+	(* 		| Some filter -> "("^argstr ^ ")["^(evaluate_filter filter)^"]" *)
+	(* 		| None -> argstr) *)
+	(* in *)
+	(* let string_of_command (args, filter) = *)
+	(* 	let cmd = args |> List.map string_of_arg |> String.concat " " in *)
+	(* 	`Lit (match filter with *)
+	(* 		| Some filter -> *)
+	(* 				let filtered = OpamFilter.eval env filter in *)
+	(* 				"("^cmd ^ ")["^(evaluate_filter filter)^"->"^(string_of_bool filtered)^"]" *)
+	(* 		| None -> cmd) *)
+	(* in *)
+	(* let string_of_patch (basename, filter) = *)
+	(* 	(* patches live in `files`, which is copied into source root. *)
+	(* 	 * So we can just use strings, not path references *) *)
+	(* 	let path = Nix_expr.str (OpamFilename.Base.to_string basename) in *)
+	(* 	match filter with *)
+	(* 		| None -> Some path *)
+	(* 		| Some filter -> (match OpamFilter.eval env filter with *)
+	(* 			| S str -> failwith ("Expected `patch` filter to return a bool; got " ^ str) *)
+	(* 			| B true -> Some path *)
+	(* 			| B false -> None *)
+	(* 		) *)
+	(* in *)
+	[
+		(* "preConfigure", mkCommands (List.concat [ *)
+		(* 	(OPAM.substs opam |> List.map (fun subst -> failwith "TODO: OPAM.substs")); *)
+		(* 	(OPAM.build_env opam |> List.map (fun env -> failwith "TODO: build_env")); *)
+		(* ]); *)
+		"configurePhase", Nix_expr.str "true"; (* configuration is done in build commands *)
+		"buildPhase", `Lit "\"${opam2nix}/bin/_opam2nix_invoke build\"";
+		"installPhase", `Lit "\"${opam2nix}/bin/_opam2nix_invoke install\"";
+		(* mkCommands2 ( *)
+		(* 	let () = OPAM.build opam |> OpamFilter.commands_variables |> List.map OpamVariable.Full.to_string |> String.concat " " |> Printf.eprintf "XXX vars: %s\n" in *)
+		(* 	(OPAM.build opam |> OpamFilter.commands env) *)
+		(* ); *)
+		(* "installCommand", mkCommands (List.concat [ *)
+		(* 	(OPAM.install opam |> List.map (string_of_command)) *)
+		(* ]); *)
+		(* "prePatch", Nix_expr.str "export patches \"$(opam2nix-invoke print-patches)\""; *)
+		(* "patches", `List (OPAM.patches opam |> filter_map (string_of_patch)); *)
+	]
+	(* @ ( *)
+	(* 	match files with [] -> [] | files -> [ *)
+	(* 		"prePatch", `String ( *)
+	(* 			[`Lit "cp  "] *)
+	(* 			@ (files |> List.map (fun filename -> *)
+	(* 				[ `Expr (`Lit ("./files/" ^ filename)); `Lit " " ] *)
+	(* 			) |> List.concat) *)
+	(* 			@ [ `Lit "./"] *)
+	(* 		) *)
+	(* 	] *)
+	(* ) *)
+;;
 
 
 
@@ -328,14 +345,17 @@ let attrs_of_opam ~add_dep (opam:OPAM.t) =
 (* 		("conflicts", json_of_depends (OPAM.conflicts file)); *)
 (* 	] *)
 
-let nix_of_opam ~name ~version ~cache ~deps path : Nix_expr.t =
+
+let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let pkgid = OpamPackage.create
 		(OpamPackage.Name.of_string name)
 		(OpamPackage.Version.of_string version)
 	in
 	let open Nix_expr in
-	let inputs = ref [ Required, "stdenv"; Required, "opamSelection" ] in
-	let add_input = fun importance name -> inputs := (importance, name) :: !inputs in
+	let inputs = ref [ Required, "stdenv"; Required, "pkgs"; Required, "opamSelection"; Required, "opam2nix" ] in
+	let additional_env_vars = ref [] in
+	let adder r = fun importance name -> r := (importance, name) :: !r in
+	let add_input = adder inputs in
 
 	let url = load_url (Filename.concat path "url") in
 	let src = nix_of_url ~add_input:(add_input Required) ~cache url in
@@ -343,17 +363,27 @@ let nix_of_opam ~name ~version ~cache ~deps path : Nix_expr.t =
 	deps#init_package pkgid;
 
 	let opam_inputs = ref [ ] in
-	let add_opam_input importance name = opam_inputs := (importance, name) :: !opam_inputs in
+	let nix_deps = ref [] in
+	let add_native = adder nix_deps in
+	let add_opam_input importance name =
+		(* let envvar = envvar_of_ident ("enabled_"^name) in *)
+		(* state := OpamVariable.Full.Map.add *)
+		(* 	(OpamVariable.Full.of_string (name ^ ":enabled")) *)
+		(* 	(S ("$" ^ envvar)) *)
+		(* 	!state; *)
+		(* additional_env_vars := (envvar, (`BinaryOp (`Id name, "!=", `Lit "null"))) :: !additional_env_vars; *)
+		opam_inputs := (importance, name) :: !opam_inputs
+	in
 	let add_dep = fun importance dep ->
 		(* deps#add_dep pkgid dep; *)
 		add_nix_inputs
-			~add_native:add_input
+			~add_native
 			~add_opam:add_opam_input
 			importance dep
 	in
 
 	let opam = load_opam (Filename.concat path "opam") in
-	let buildAttrs = attrs_of_opam ~add_dep opam in
+	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep opam in
 
 	(* clean up potentially-duplicate `inputs` *)
 	let opam_inputs =
@@ -382,24 +412,50 @@ let nix_of_opam ~name ~version ~cache ~deps path : Nix_expr.t =
 		(export Required mandatory @ export Optional optional)
 	in
 
-	let input_args = inputs |> List.map (function
+	let nix_deps =
+		let mandatory, optional = !nix_deps |> List.partition (fun (i,_) -> i = Required) in
+		let snd = fun (a,b) -> b in
+		let mandatory = mandatory |> List.map snd in
+		let optional = optional |> List.map snd |> List.filter (fun name ->
+			not (List.mem name mandatory)
+		) in
+		let export = fun importance items ->
+			items |> List.sort compare |> List.map (fun name -> (importance, name))
+		in
+		(export Required mandatory @ export Optional optional)
+	in
+
+	let input_args = (inputs @ nix_deps) |> List.map (function
 		| Required, name -> `Id name
 		| Optional, name -> `Default (name, `Null)
 	) in
 
 	(`Function (
 		(`NamedArguments input_args),
-		(`Let_bindings (!opam_inputs,
+		(`Let_bindings (
+			(AttrSet.build [
+				"lib", `Lit "pkgs.lib";
+				"opamDeps", `Attrs !opam_inputs;
+			]),
 			(`Call [
 				`Id "stdenv.mkDerivation";
-				(`Attrs (AttrSet.build (buildAttrs @ [
+				(`Attrs (AttrSet.build (buildAttrs @ !additional_env_vars @ [
+					"name", Nix_expr.str (name ^ "-" ^ version);
 					"src", src;
+					"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
+						"spec", `Lit "./opam";
+						"deps", `Lit "opamDeps";
+						"files", if has_files then `Lit "./files" else `Null;
+					])];
 					"buildInputs", `Call [
-						`Id "filter";
-						`Lit "(item: item != null)";
-						`List (
-							(inputs |> List.map (fun (dep, name) -> `Id name)) @
-							(AttrSet.keys !opam_inputs |> List.map (fun name -> `Id name))
+						`Id "lib.remove";
+						`Null;
+						`BinaryOp (
+							`List (
+								(nix_deps |> List.map (fun (dep, name) -> `Id name))
+							),
+							"++",
+							`Lit "(lib.attrValues opamDeps)"
 						);
 					];
 					"createFindlibDestdir", `Lit "true";

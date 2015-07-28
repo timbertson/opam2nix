@@ -29,6 +29,7 @@ and t = [
 	| `Call of t list
 	| `Template of string_component list
 	| `Lit of string
+	| `BinaryOp of t * string * t
 	| `Null
 ]
 
@@ -56,7 +57,7 @@ let escape_multiline_string (s:string) : string =
 	] s
 
 let keysafe s =
-	Str.string_match (Str.regexp "^[a-zA-Z][a-zA-Z0-9]*$") s 0
+	Str.string_match (Str.regexp "^[a-zA-Z_][a-zA-Z_0-9]*$") s 0
 
 let write dest (t:t) =
 	let open Format in
@@ -75,7 +76,7 @@ let write dest (t:t) =
 		let parens_if_needed part =
 			match part with
 				(* for neatness, we don't bother enclosing simple expressions in parens *)
-				| `Id _ | `String _ | `MultilineString _ | `List _ | `Attrs _ -> _write part
+				| `Id _ | `Lit _ | `String _ | `MultilineString _ | `List _ | `Attrs _ -> _write part
 				| _ -> put "("; _write part; put ")"
 		in
 
@@ -102,6 +103,7 @@ let write dest (t:t) =
 			| `Id id -> put id
 			| `Lit str -> put str
 			| `Null -> put "null"
+			| `BinaryOp (a, op, b) -> _write a; put op; _write b
 			| `Property (src, name) -> parens_if_needed src; put ("." ^ name)
 			| `Property_or (src, name, alt) ->
 					_write (`Property (src, name));
@@ -116,7 +118,7 @@ let write dest (t:t) =
 			| `Call args ->
 					args |> List.iteri (fun i arg ->
 						if i > 0 then space ();
-						_write arg;
+						parens_if_needed arg;
 					)
 			| `Let_bindings (vars, expr) ->
 				put "let";

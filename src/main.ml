@@ -1,5 +1,5 @@
 open Printf
-
+open Util
 
 let without_leading prefix s =
 	let prefix_len = String.length prefix in
@@ -24,13 +24,6 @@ let decreasing_version_order versions =
 	versions |> List.sort compare
 
 let latest_version versions = List.hd (decreasing_version_order versions)
-
-let rec filter_map fn lst =
-	lst |> List.fold_left (fun acc item ->
-		match fn item with
-			| None -> acc
-			| Some result -> result :: acc
-	) [] |> List.rev
 
 let rec mkdirp_in base dirs =
 	let relpath = String.concat Filename.dir_sep dirs in
@@ -167,15 +160,32 @@ let () =
 	in
 
 	traverse_repo ~repo ~packages (fun package version path ->
-		mkdirp_in dest [package];
-		let dest_path = String.concat Filename.dir_sep [dest; package; version ^ ".nix"] in
+		let dest_parts = [package; version] in
+		mkdirp_in dest dest_parts;
+		let version_dir = String.concat Filename.dir_sep (dest :: dest_parts) in
+		let dest_path = Filename.concat version_dir "default.nix" in
+		let files_src = (Filename.concat path "files") in
+		let has_files = try let (_:Unix.stats) = Unix.stat files_src in true with Unix.Unix_error (Unix.ENOENT, _, _) -> false in
+		let open FileUtil in
+		cp [Filename.concat path "opam"] (Filename.concat version_dir "opam");
+		let () =
+			let filenames = try ls files_src with FileDoesntExist _ -> [] in
+			match filenames with
+				| [] -> ()
+				| filenames ->
+					(* copy all the files *)
+					let files_dest = Filename.concat version_dir "files" in
+					mkdirp_in version_dir ["files"];
+					cp filenames files_dest;
+		in
+
 		write_expr dest_path (fun () ->
-			Opam_metadata.nix_of_opam ~cache ~deps ~name:package ~version path
+			Opam_metadata.nix_of_opam ~cache ~deps ~has_files ~name:package ~version path
 		)
 	);
 
 	traverse_nix_files ~root:dest (fun package impls base ->
-		let path_of_version = (fun ver -> `Lit ("./" ^ ver ^ ".nix")) in
+		let path_of_version = (fun ver -> `Lit ("import ./" ^ ver)) in
 		let path = Filename.concat base "default.nix" in
 		write_expr path (fun () ->
 			`Attrs (Nix_expr.AttrSet.build (
@@ -187,7 +197,7 @@ let () =
 
 	let () =
 		let packages = list_dirs dest in
-		let path_of_package = (fun p -> `Lit ("./" ^ p)) in
+		let path_of_package = (fun p -> `Lit ("import ./" ^ p)) in
 		let path = Filename.concat dest "default.nix" in
 		write_expr path (fun () ->
 			`Attrs (Nix_expr.AttrSet.build (
