@@ -103,28 +103,7 @@ let add_nix_inputs
 			in
 			iter_formula iter_dep importance formula
 
-(* type opam_package_id = { *)
-(* 	opam_name: string; *)
-(* 	opam_version: OpamTypes.version; *)
-(* } *)
-(*  *)
-(* module OpamPackageOrd = struct *)
-(* 	type t = opam_package_id *)
-(* 	let compare a b = *)
-(* 		let name_diff = String.compare a.opam_name b.opam_name in *)
-(* 		if name_diff <> 0 *)
-(* 			then name_diff *)
-(* 			else OpamPackage.Version.compare (a.opam_version) (b.opam_version) *)
-(* end *)
-
 module PackageMap = OpamPackage.Map
-
-(* module Deps = struct *)
-(* 	type t = dependency list PackageMap.t *)
-(* 	let add t package_id dep = *)
-(* 		let existing = try PackageMap.find package_id with Not_found -> [] in *)
-(* 		PackageMap.add package_id (dep :: existing) t *)
-(* end *)
 
 class dependency_map =
 	let map : requirement list PackageMap.t ref = ref PackageMap.empty in
@@ -231,119 +210,13 @@ let attrs_of_opam ~add_dep (opam:OPAM.t) =
 	add_dep Optional (PackageDependencies (OPAM.depopts opam));
 	add_dep Required (OsDependency (OPAM.os opam));
 
-	(* let mkCommands steps = `MultilineString (steps *)
-	(* 	|> List.map (fun step -> [step; `Lit "\n"]) *)
-	(* 	|> List.concat) *)
-	(* in *)
-
-	(* let mkCommands2 steps = `MultilineString (steps *)
-	(* 	|> List.map (fun args -> `Lit ((String.concat " " args) ^ "\n"))) *)
-	(* in *)
-
-	(* let rec evaluate_filter = function *)
-	(* 	| FBool b -> "bool " ^ (string_of_bool b) *)
-	(* 	| FString s -> s *)
-	(* 	| FIdent (packages,var, -> "$" ^ (envvar_of_ident s) *)
-	(* 	| FNot f -> "!" ^ (evaluate_filter f) *)
-	(* 	| FOp (a, op, b) -> *)
-	(* 		let a = evaluate_filter a *)
-	(* 		and b = evaluate_filter b in *)
-	(* 		(match op with *)
-	(* 			| `Eq -> a^"=="^b *)
-	(* 			| `Neq -> a^"!="^b *)
-	(* 			| `Geq -> a^">="^b *)
-	(* 			| `Gt -> a^">"^b *)
-	(* 			| `Leq -> a^"<="^b *)
-	(* 			| `Lt -> a^"<"^b *)
-	(* 		) *)
-	(* 	| FAnd (a,b) -> (evaluate_filter a) ^ "&&" ^ (evaluate_filter b) *)
-	(* 	| FOr (a,b) -> (evaluate_filter a) ^ "||" ^ (evaluate_filter b) *)
-	(* in *)
-
-	(* let env s = *)
-	(* 	try Some (OpamVariable.Full.Map.find s state) *)
-	(* 	with Not_found -> None *)
-	(* in *)
-	(* let string_of_arg (arg, filter) = *)
-	(* 	let argstr = match arg with *)
-	(* 		(* XXX do we need to bash-escape these? *) *)
-	(* 		| CString s -> s *)
-	(* 		| CIdent s -> "\"$" ^ (envvar_of_ident s) ^ "\"" *)
-	(* 	in *)
-	(* 	(match filter with *)
-	(* 		| Some filter -> "("^argstr ^ ")["^(evaluate_filter filter)^"]" *)
-	(* 		| None -> argstr) *)
-	(* in *)
-	(* let string_of_command (args, filter) = *)
-	(* 	let cmd = args |> List.map string_of_arg |> String.concat " " in *)
-	(* 	`Lit (match filter with *)
-	(* 		| Some filter -> *)
-	(* 				let filtered = OpamFilter.eval env filter in *)
-	(* 				"("^cmd ^ ")["^(evaluate_filter filter)^"->"^(string_of_bool filtered)^"]" *)
-	(* 		| None -> cmd) *)
-	(* in *)
-	(* let string_of_patch (basename, filter) = *)
-	(* 	(* patches live in `files`, which is copied into source root. *)
-	(* 	 * So we can just use strings, not path references *) *)
-	(* 	let path = Nix_expr.str (OpamFilename.Base.to_string basename) in *)
-	(* 	match filter with *)
-	(* 		| None -> Some path *)
-	(* 		| Some filter -> (match OpamFilter.eval env filter with *)
-	(* 			| S str -> failwith ("Expected `patch` filter to return a bool; got " ^ str) *)
-	(* 			| B true -> Some path *)
-	(* 			| B false -> None *)
-	(* 		) *)
-	(* in *)
 	[
-		(* "preConfigure", mkCommands (List.concat [ *)
-		(* 	(OPAM.substs opam |> List.map (fun subst -> failwith "TODO: OPAM.substs")); *)
-		(* 	(OPAM.build_env opam |> List.map (fun env -> failwith "TODO: build_env")); *)
-		(* ]); *)
 		"configurePhase", Nix_expr.str "true"; (* configuration is done in build commands *)
 		"buildPhase", `Lit "\"${opam2nix}/bin/_opam2nix_invoke build\"";
 		"installPhase", `Lit "\"${opam2nix}/bin/_opam2nix_invoke install\"";
-		(* mkCommands2 ( *)
-		(* 	let () = OPAM.build opam |> OpamFilter.commands_variables |> List.map OpamVariable.Full.to_string |> String.concat " " |> Printf.eprintf "XXX vars: %s\n" in *)
-		(* 	(OPAM.build opam |> OpamFilter.commands env) *)
-		(* ); *)
-		(* "installCommand", mkCommands (List.concat [ *)
-		(* 	(OPAM.install opam |> List.map (string_of_command)) *)
-		(* ]); *)
-		(* "prePatch", Nix_expr.str "export patches \"$(opam2nix-invoke print-patches)\""; *)
-		(* "patches", `List (OPAM.patches opam |> filter_map (string_of_patch)); *)
 	]
-	(* @ ( *)
-	(* 	match files with [] -> [] | files -> [ *)
-	(* 		"prePatch", `String ( *)
-	(* 			[`Lit "cp  "] *)
-	(* 			@ (files |> List.map (fun filename -> *)
-	(* 				[ `Expr (`Lit ("./files/" ^ filename)); `Lit " " ] *)
-	(* 			) |> List.concat) *)
-	(* 			@ [ `Lit "./"] *)
-	(* 		) *)
-	(* 	] *)
-	(* ) *)
 ;;
 
-
-
-(* let info_opam ic = *)
-(* 	`O [ *)
-(* 		("type", `String "opam"); *)
-(* 		("ocaml_version", match (OPAM.ocaml_version file) with *)
-(* 			| None -> `Null *)
-(* 			| Some constr -> json_of_formula json_of_compiler_version_constraint constr *)
-(* 		); *)
-(* 		("os", json_of_formula json_of_os_constr (OPAM.os file)); *)
-(* 		("depends", json_of_depends (OPAM.depends file)); *)
-(* 		("depends_optional", json_of_depends (OPAM.depopts file)); *)
-(* 		("depends_external", match OPAM.depexts file with *)
-(* 			| None -> `Null *)
-(* 			| Some deps -> *)
-(* 				OpamMisc.StringSetMap.to_json OpamMisc.StringSet.to_json deps; *)
-(* 		); *)
-(* 		("conflicts", json_of_depends (OPAM.conflicts file)); *)
-(* 	] *)
 
 
 let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
@@ -366,16 +239,9 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let nix_deps = ref [] in
 	let add_native = adder nix_deps in
 	let add_opam_input importance name =
-		(* let envvar = envvar_of_ident ("enabled_"^name) in *)
-		(* state := OpamVariable.Full.Map.add *)
-		(* 	(OpamVariable.Full.of_string (name ^ ":enabled")) *)
-		(* 	(S ("$" ^ envvar)) *)
-		(* 	!state; *)
-		(* additional_env_vars := (envvar, (`BinaryOp (`Id name, "!=", `Lit "null"))) :: !additional_env_vars; *)
 		opam_inputs := (importance, name) :: !opam_inputs
 	in
 	let add_dep = fun importance dep ->
-		(* deps#add_dep pkgid dep; *)
 		add_nix_inputs
 			~add_native
 			~add_opam:add_opam_input
