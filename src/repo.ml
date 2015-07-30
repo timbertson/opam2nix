@@ -62,18 +62,12 @@ let traverse repo_type ~repo ~packages emit =
 	)
 
 
-let traverse_nix_files ~root emit =
+let traverse_versions ~root emit =
 	let dirs = list_dirs root in
 	dirs |> List.iter (fun pkg ->
 		let pkg_path = Filename.concat root pkg in
-		let nix_files = Sys.readdir pkg_path
-			|> Array.to_list
-			|> filter_map (fun name ->
-				match name |> without_trailing ".nix" with
-					| Some "default" -> None
-					| other -> other
-		) in
-		match nix_files with
+		let versions = list_dirs pkg_path in
+		match versions with
 			| [] -> ()
-			| files -> emit pkg (decreasing_version_order nix_files) pkg_path
+			| versions -> emit pkg (decreasing_version_order versions) pkg_path
 	)

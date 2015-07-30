@@ -1,3 +1,4 @@
+open Util
 open OpamTypes
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
@@ -41,13 +42,17 @@ let build_universe ~repo ~packages () =
 
 let () =
 	let repo = ref "" in
+	let dest = ref "" in
 	let opts = Arg.align [
 		("--repo", Arg.Set_string repo, "Repository root");
+		("--dest", Arg.Set_string dest, "Destination .nix file");
 	]; in
 	let packages = ref [] in
 	let add_package x = packages := x :: !packages in
 	Arg.parse opts add_package "TODO: usage...";
 
+	if !packages = [] then failwith "At least one package required";
+	let dest = nonempty !dest "--dest" in
 	let package_names = !packages |> List.map OpamPackage.Name.of_string in
 
 	let universe = build_universe ~repo:!repo ~packages:!packages () in
@@ -66,7 +71,32 @@ let () =
 					~rewrite:(fun x -> x)
 					~requested:(package_names |> OpamPackage.Name.Set.of_list)
 					solution;
-
+				let open Nix_expr in
+				let selection = OpamPackage.Set.fold (fun pkg map ->
+					print_endline ("install: " ^ (OpamPackage.to_string pkg));
+					AttrSet.add (OpamPackage.name pkg |> Name.to_string)
+						(`Call [
+							`Id "builder";
+							`Id "selection";
+							`PropertyPath (`Id "opamPackages", [
+								pkg |> OpamPackage.name |> Name.to_string;
+								pkg |> OpamPackage.version |> Version.to_string;
+							]);
+						])
+						map
+				) (OpamSolver.new_packages solution) AttrSet.empty in
+				let expr = (`Function (
+					`NamedArguments [`Id "pkgs"; `Id "opam2nix"; `Id "opamPackages"; `Default ("builder",
+						`Lit "opamSelection: pkg: pkgs.callPackage pkg { inherit opamSelection opam2nix; }"
+					)],
+					`Let_bindings (
+						AttrSet.build ([ "selection", `Attrs selection ]),
+						`Id "selection"
+					)
+				)) in
+				let oc = open_out dest in
+				Nix_expr.write oc expr;
+				close_out oc
 		| Conflicts conflict ->
 			prerr_endline (
 				OpamCudf.string_of_conflict

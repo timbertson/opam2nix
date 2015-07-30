@@ -35,12 +35,9 @@ let () =
 	Arg.parse opts add_package "TODO: usage...";
 
 	let packages = List.rev !packages in
-	let nonempty value arg =
-		let rv = !value in
-		if rv = "" then failwith (arg ^ " required") else rv in
-	let repo = nonempty repo "--repo" in
-	let dest = nonempty dest "--dest" in
-	let cache = nonempty cache "--cache" in
+	let repo = nonempty !repo "--repo" in
+	let dest = nonempty !dest "--dest" in
+	let cache = nonempty !cache "--cache" in
 
 	let mkdir dest = Unix.mkdir dest 0o750 in
 	let () = try
@@ -96,7 +93,7 @@ let () =
 		)
 	);
 
-	Repo.traverse_nix_files ~root:dest (fun package impls base ->
+	Repo.traverse_versions ~root:dest (fun package impls base ->
 		let path_of_version = (fun ver -> `Lit ("import ./" ^ ver)) in
 		let path = Filename.concat base "default.nix" in
 		write_expr path (fun () ->

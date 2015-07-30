@@ -20,6 +20,7 @@ and t = [
 	| `MultilineString of string_component list
 	| `List of t list
 	| `Property of t * string
+	| `PropertyPath of t * string list
 	| `Property_or of t * string * t
 	| `Attrs of t AttrSet.t
 	| `NamedArguments of arg list
@@ -59,6 +60,8 @@ let escape_multiline_string (s:string) : string =
 let keysafe s =
 	Str.string_match (Str.regexp "^[a-zA-Z_][a-zA-Z_0-9]*$") s 0
 
+let escape_key s = if keysafe s then s else "\"" ^ (escape_string s) ^ "\""
+
 let write dest (t:t) =
 	let open Format in
 	let formatter = formatter_of_out_channel dest in
@@ -79,6 +82,7 @@ let write dest (t:t) =
 				| `Id _ | `Lit _ | `String _ | `MultilineString _ | `List _ | `Attrs _ -> _write part
 				| _ -> put "("; _write part; put ")"
 		in
+		let property name = put ("." ^ (escape_key name)) in
 
 		match t with
 			| `String parts ->
@@ -104,7 +108,8 @@ let write dest (t:t) =
 			| `Lit str -> put str
 			| `Null -> put "null"
 			| `BinaryOp (a, op, b) -> _write a; put op; _write b
-			| `Property (src, name) -> parens_if_needed src; put ("." ^ name)
+			| `Property (src, name) -> parens_if_needed src; property name
+			| `PropertyPath (src, path) -> parens_if_needed src; path |> List.iter property
 			| `Property_or (src, name, alt) ->
 					_write (`Property (src, name));
 					put " or ";

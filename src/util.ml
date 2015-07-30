@@ -25,3 +25,8 @@ let list_dirs root =
 		Sys.is_directory (Filename.concat root name)
 	)
 
+
+let nonempty value arg =
+	if value = ""
+	then failwith (arg ^ " required")
+	else value
