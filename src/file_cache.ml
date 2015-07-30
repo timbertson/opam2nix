@@ -8,7 +8,7 @@ let unsafe_chars = Str.regexp "[^-a-zA-Z0-9_.]+"
 let safe str = Str.global_replace unsafe_chars "-" str
 
 let fetch ~dest url =
-	let get url = 
+	let get url =
 		let dest = open_out dest in
 		Curl.global_init Curl.CURLINIT_GLOBALALL;
 		let errbuf = ref "" in
@@ -30,9 +30,34 @@ let fetch ~dest url =
 		Curl.global_cleanup ()
 	in
 
+	(* let clone addr = *)
+	(* 	let addr = Opam_metadata.concat_address addr in *)
+	(* 	prerr_endline ("Cloning: " ^ addr); *)
+	(* 	let open Lwt in *)
+	(* 	let lines = Lwt_process.with_process_in ("", [|"nix-prefetch-git"; addr|]) (fun proc -> *)
+	(* 		lwt lines = proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list in *)
+	(* 		lwt status = proc#close in *)
+	(* 		let open Unix in *)
+	(* 		match status with *)
+	(* 			| WEXITED 0 -> return lines *)
+	(* 			| _ -> failwith "nix-prefetch-git failed" *)
+	(* 	) |> Lwt_main.run in *)
+	(* 	let nix_path = match lines with *)
+	(* 		| [line] -> line *)
+	(* 		| _ -> failwith ("Unexpected nix-prefetch-git output:\n" ^ (String.concat "\n" lines)) *)
+	(* 	in *)
+	(* 	let tmp = dest ^ ".tmp" in *)
+	(* 	let oc = open_out tmp in *)
+	(* 	output_string oc (nix_path ^ "\n"); *)
+	(* 	close_out oc; *)
+	(* 	Unix.rename tmp dest *)
+	(* in *)
+
 	match url with
 		| `http url -> get url
-		| `git addr -> failwith "todo: nix-prefetch-git?"
+		| `git addr -> failwith
+			("Note: git dependencies not yet supported (trying to clone "
+				^(Opam_metadata.concat_address addr)^")")
 
 (* let fetch ~dest url = *)
 (* 	let open Cohttp in *)
