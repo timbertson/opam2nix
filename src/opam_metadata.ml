@@ -60,10 +60,11 @@ let add_nix_inputs
 				add_native importance name
 		| OcamlDependency _dep ->
 				Printf.eprintf "  adding ocaml %s: %s\n" desc "ocaml";
-				add_native importance "ocaml" (* XXX ocaml version *)
-		| OsDependency _dep ->
-				Printf.eprintf "  adding OS %s: <TODO>\n" desc;
-				Printf.eprintf "TODO: OsDependency\n"
+				add_native importance "ocaml" (* XXX include version *)
+		| OsDependency formula ->
+				iter_formula (fun importance (b, str) ->
+					Printf.eprintf "TODO: OS %s (%b,%s)\n" desc b str
+				) importance formula
 		| ExternalDependencies externals ->
 				let has_nix = ref false in
 				OpamMisc.StringSetMap.iter (fun environments packages ->

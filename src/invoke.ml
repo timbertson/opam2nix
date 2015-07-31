@@ -37,7 +37,15 @@ let load_env () =
 	let add_var name v = state := !state |> OpamVariable.Full.Map.add (OpamVariable.Full.of_string name) v in
 	add_var "os" (S (os ()));
 	add_var "make" (S "make");
-	add_var "prefix" (S (Unix.getenv "out"));
+	let destDir = (Unix.getenv "out") in
+	add_var "prefix" (S destDir);
+
+	let dir name = S (Filename.concat destDir name) in
+	add_var "bin" (dir "bin");
+	add_var "lib" (dir "lib");
+	add_var "man" (dir "man");
+	add_var "preinstalled" (B true); (* well, it's not installed by OPAM ... *)
+
 
 	let spec = ref None in
 	let files = ref None in
