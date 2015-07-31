@@ -40,7 +40,7 @@ let build_universe ~repo ~packages () =
 		(* u_doc       = false; *)
 	}
 
-let () =
+let main idx args =
 	let repo = ref "" in
 	let dest = ref "" in
 	let opts = Arg.align [
@@ -49,7 +49,7 @@ let () =
 	]; in
 	let packages = ref [] in
 	let add_package x = packages := x :: !packages in
-	Arg.parse opts add_package "TODO: usage...";
+	Arg.parse_argv ~current:(ref idx) args opts add_package "TODO: usage...";
 
 	if !packages = [] then failwith "At least one package required";
 	let dest = nonempty !dest "--dest" in

@@ -84,7 +84,6 @@ let lookup env key =
 
 let run env get_commands =
 	let commands = get_commands env.spec in
-	(* let () = commands |> OpamFilter.commands_variables |> List.map OpamVariable.Full.to_string |> String.concat " " |> Printf.eprintf "XXX vars: %s\n" in *)
 	let commands = commands |> OpamFilter.commands (lookup env) in
 	commands |> List.iter (fun args ->
 		match args with
@@ -105,11 +104,13 @@ let run env get_commands =
 let build env = run env OPAM.build
 let install env = run env OPAM.install
 
-let () =
-	let action = match Sys.argv with
-		| [| _; "build" |] -> build
-		| [| _; "install" |] -> install
-		| _ -> failwith "UsageError"
+let main idx args =
+	let action = try Some (Array.get args (idx+1)) with Not_found -> None in
+	let action = match action with
+		| Some "build" -> build
+		| Some "install"-> install
+		| Some other -> failwith ("Unknown action: " ^ other)
+		| None -> failwith "No action given"
 	in
 	action (load_env ())
 
