@@ -188,7 +188,7 @@ let main idx args =
 						`Id "pkgs";
 						`Id "opam2nix";
 						`Id "opamPackages";
-						`Default ("builder", `Lit "opamSelection: pkg: pkgs.callPackage pkg { inherit opamSelection opam2nix; }");
+						`Default ("builder", `Lit "opamSelection: pkg: pkgs.callPackage pkg.impl { inherit opamSelection opam2nix; }");
 					],
 					`Let_bindings (
 						AttrSet.build ([ "selection", `Attrs selection ]),

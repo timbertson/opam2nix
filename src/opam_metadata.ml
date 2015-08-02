@@ -312,49 +312,83 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 			| name, Optional -> `Default (name, `Null)
 		) in
 
-	(`Function (
-		(`NamedArguments input_args),
-		(`Let_bindings (
-			(AttrSet.build [
-				"lib", `Lit "pkgs.lib";
-				"opamDeps", `Attrs opam_inputs;
-			]),
-			(`Call [
-				`Id "stdenv.mkDerivation";
-				(`Attrs (AttrSet.build (!additional_env_vars @ [
-					"name", Nix_expr.str (name ^ "-" ^ version);
-					"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
-						"spec", `Lit "./opam";
-						"deps", `Lit "opamDeps";
-						"files", if has_files then `Lit "./files" else `Null;
-					])];
-					"buildInputs", `Call [
-						`Id "lib.remove";
-						`Null;
-						`BinaryOp (
-							`List (
-								(nix_deps |> List.map (fun (name, _importance) -> `Id name))
-							),
-							"++",
-							`Lit "(lib.attrValues opamDeps)"
-						);
-					];
-					"createFindlibDestdir", `Lit "true";
-					"OCAML_SITELIB",
-				] @ (
-					match src with
-						| Some src -> buildAttrs @ ["src", src]
-						| None -> let open Nix_expr in [
-							(* psuedo-package. We need it to exist in `opamSelection`, but
-							 * it doesn't really do anything *)
-							"unpackPhase", str "true";
-							"buildPhase", str "true";
-							"installPhase", str "touch $out";
+	`Let_bindings (
+		AttrSet.build [
+			"identity", `Lit "x: x";
+			"buildWithOverride", `Function (
+				`Id "override",
+				`Function (
+					(`NamedArguments input_args),
+					(`Let_bindings (
+						(AttrSet.build [
+							"lib", `Lit "pkgs.lib";
+							"opamDeps", `Attrs opam_inputs;
+						]),
+						`Call [ `Id "stdenv.mkDerivation";
+							`Call [ 
+								`Id "override";
+								(`Attrs (AttrSet.build (!additional_env_vars @ [
+									"name", Nix_expr.str (name ^ "-" ^ version);
+									"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
+										"spec", `Lit "./opam";
+										"deps", `Lit "opamDeps";
+										"files", if has_files then `Lit "./files" else `Null;
+									])];
+									"buildInputs", `Call [
+										`Id "lib.remove";
+										`Null;
+										`BinaryOp (
+											`List (
+												(nix_deps |> List.map (fun (name, _importance) -> `Id name))
+											),
+											"++",
+											`Lit "(lib.attrValues opamDeps)"
+										);
+									];
+									"createFindlibDestdir", `Lit "true";
+									"passthru", `Attrs (AttrSet.build [
+										"opamSelection", `Id "opamSelection";
+										"ocaml", `Id "ocaml";
+									]);
+								] @ (
+									match src with
+										| Some src -> buildAttrs @ ["src", src]
+										| None -> let open Nix_expr in [
+											(* psuedo-package. We need it to exist in `opamSelection`, but
+											* it doesn't really do anything *)
+											"unpackPhase", str "true";
+											"buildPhase", str "true";
+											"installPhase", str "touch $out";
+										]
+								))))
+							]
 						]
-				))))
-			])
-		))
-	))
+					))
+				)
+			);
+			"wrap", `Function (`Id "buildWithOverride", `Attrs (AttrSet.build [
+				"impl", `Call [`Id "buildWithOverride"; `Id "identity"];
+				"withOverride", `Function (`Id "override",
+					`Call [`Id "wrap";
+						`Function (`Id "additionalOverride",
+							`Call [`Id "buildWithOverride";
+								`Function (`Id "attrs",
+									`Call [`Id "additionalOverride"; `Call [`Id "override"; `Id "attrs"]]
+								)
+							]
+						)
+					]
+				);
+			]));
+				(* "buildWithOverride: { *)
+				(* 	impl = buildWithOverride identity; *)
+				(* 	withOverride = override: wrap ( *)
+				(* 		additionalOverride: (buildWithOverride (attrs: additionalOverride (override attrs))) *)
+				(* 	); *)
+				(* }"; *)
+		],
+		`Call [`Id "wrap"; `Id "buildWithOverride"]
+	)
 
 
 let os_string () = OpamGlobals.os_string ()

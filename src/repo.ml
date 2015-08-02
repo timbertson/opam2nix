@@ -15,7 +15,7 @@ let traverse repo_type ~repo ~packages emit =
 	let sep = Str.regexp "@" in
 	let version_sep = "." in
 	let version_join = match repo_type with `Nix -> fun package version -> version | `Opam -> fun package version -> package ^ version_sep ^ version in
-	let pkgroot = match repo_type with | `Nix -> repo | `Opam -> Filename.concat repo "packages" in
+	let pkgroot = Filename.concat repo "packages" in
 
 	let packages = match packages with
 		| [] -> ["*"]
