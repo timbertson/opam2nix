@@ -332,6 +332,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 									"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
 										"spec", `Lit "./opam";
 										"deps", `Lit "opamDeps";
+										"name", Nix_expr.str name;
 										"files", if has_files then `Lit "./files" else `Null;
 									])];
 									"buildInputs", `Call [
@@ -380,12 +381,6 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 					]
 				);
 			]));
-				(* "buildWithOverride: { *)
-				(* 	impl = buildWithOverride identity; *)
-				(* 	withOverride = override: wrap ( *)
-				(* 		additionalOverride: (buildWithOverride (attrs: additionalOverride (override attrs))) *)
-				(* 	); *)
-				(* }"; *)
 		],
 		`Call [`Id "wrap"; `Id "buildWithOverride"]
 	)
