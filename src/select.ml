@@ -3,49 +3,139 @@ open OpamTypes
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 
-let build_universe ~repo ~packages () =
+(* consistent_* functions adapted from opamState.ml implementation *)
+let consistent_ocaml_version ~ocaml_version opam =
+	let atom (r,v) =
+		OpamCompiler.Version.eval_relop r (ocaml_version) v
+	in
+	match OpamFile.OPAM.ocaml_version opam with
+	| None -> true
+	| Some constr -> OpamFormula.eval atom constr
+
+let consistent_os ~target_os opam =
+	match OpamFile.OPAM.os opam with
+	| Empty -> true
+	| f ->
+		let atom (b, os) =
+			let ($) = if b then (=) else (<>) in
+			os $ target_os in
+		OpamFormula.eval atom f
+
+
+let resolve_variable ~ocaml_version ~global_vars v =
+	let string s = Some (S s)
+	and bool b = Some (B b) in
+
+	let lookup = Opam_metadata.lookup_var global_vars in
+
+	let get_env_var v =
+		let var_str =
+			OpamVariable.Full.to_string v
+			|> OpamMisc.string_map (function '-' -> '_' | c -> c) in
+		try match OpamMisc.getenv ("OPAMVAR_" ^ var_str) with
+			| "true"  | "1" -> bool true
+			| "false" | "0" -> bool false
+			| s             -> string s
+		with Not_found -> None
+	in
+
+	let get_global_var v =
+		let ocaml_version = OpamCompiler.Version.to_string ocaml_version in
+		match OpamVariable.Full.to_string v with
+		| "ocaml-version" -> string ocaml_version
+		| "compiler" -> string ocaml_version (* XXX does this differ from version? *)
+		| _ -> None
+	in
+	let contents =
+		try
+			List.fold_left
+				(function None -> (fun (f,v) -> f v) | r -> (fun _ -> r))
+				None
+				[
+					get_env_var, v;
+					(* read_var, v; *)
+					get_global_var, v;
+					lookup, v;
+					(* get_package_var, v'; *)
+				]
+		with Exit -> None
+	in
+	contents
+
+
+let consistent_available_field ~ocaml_version ~vars opam =
+	OpamFilter.eval_to_bool ~default:false (resolve_variable ~ocaml_version ~global_vars:vars)
+		(OpamFile.OPAM.available opam)
+
+
+let build_universe ~repo ~packages ~ocaml_version ~base_packages ~target_os () =
 	let empty = OpamPackage.Set.empty in
 	let names n = Name.Set.of_list (n |> List.map Name.of_string) in
-	let all_packages = ref empty in
+	let available_packages = ref empty in
 	let opams = ref OpamPackage.Map.empty in
+
+	let opam_vars = Opam_metadata.init_variables () in
+
+	let availability opam =
+		let ocaml_version = OpamCompiler.Version.of_string ocaml_version in
+		let rec check = function
+			| (fn, rejection) :: remaining ->
+					if fn opam
+						then check remaining
+						else `Unavailable rejection
+			| [] -> `Available
+		in
+		check [
+			consistent_ocaml_version ~ocaml_version, "OCaml version";
+			consistent_os ~target_os, "OS";
+			consistent_available_field ~ocaml_version ~vars:opam_vars, "`available` constraints";
+		]
+	in
+
 	Repo.traverse `Nix ~repo ~packages:[] (fun package version path ->
 		let opam = Opam_metadata.load_opam (Filename.concat path "opam") in
-		let pkg = OpamPackage.create (Name.of_string package) (Version.of_string version) in
-		all_packages := OpamPackage.Set.add pkg !all_packages;
-		opams := OpamPackage.Map.add pkg opam !opams;
+		match availability opam with
+			| `Available ->
+				let pkg = OpamPackage.create (Name.of_string package) (Version.of_string version) in
+				available_packages := OpamPackage.Set.add pkg !available_packages;
+				opams := OpamPackage.Map.add pkg opam !opams
+			| `Unavailable reason ->
+				Printf.eprintf "  # Ignoring package %s-%s (incomatible with %s)\n" package version reason
 	);
 	let opams = !opams in
+	let ocaml_version = Version.of_string ocaml_version in
 	{
-		u_packages  = empty;
-		u_action    = Install (names packages); (* XXX this duplicates "atom request" below *)
+		u_packages	= empty;
+		u_action		= Install (names packages); (* XXX this duplicates "atom request" below *)
 		u_installed = empty;
-		u_available = !all_packages;
-		u_depends   = OpamPackage.Map.map OpamFile.OPAM.depends opams;
-		u_depopts   = OpamPackage.Map.map OpamFile.OPAM.depopts opams;
+		u_available = !available_packages;
+		u_depends		= OpamPackage.Map.map OpamFile.OPAM.depends opams;
+		u_depopts		= OpamPackage.Map.map OpamFile.OPAM.depopts opams;
 		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams;
 		u_installed_roots = empty;
-		u_pinned    = empty;
-		(* u_dev       = empty; *)
-		u_base      = [
-			(* XXX hardcoded *)
-			"base-unix";
-			"base-bigarray";
-			"base-threads";
-		] |> List.map
-				(* XXX is a real version useful? *)
-				(fun name -> OpamPackage.create (Name.of_string name) (Version.of_string "0.0.0"))
-			|> OpamPackage.Set.of_list; (* XXX *)
-		(* u_attrs     = []; *)
-		(* u_test      = false; *)
-		(* u_doc       = false; *)
+		u_pinned		= empty;
+		(* u_dev			 = empty; *)
+		u_base			= base_packages
+			|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
+			|> OpamPackage.Set.of_list;
+		(* u_attrs		 = []; *)
+		(* u_test			 = false; *)
+		(* u_doc			 = false; *)
 	}
 
 let main idx args =
 	let repo = ref "" in
 	let dest = ref "" in
+	(* XXX this should be more integrated... *)
+	let ocaml_version = ref "" in
+	let base_packages = ref "" in
+	let target_os = ref (Opam_metadata.os_string ()) in
 	let opts = Arg.align [
 		("--repo", Arg.Set_string repo, "Repository root");
 		("--dest", Arg.Set_string dest, "Destination .nix file");
+		("--os", Arg.Set_string target_os, "Target OS");
+		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version");
+		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated)");
 	]; in
 	let packages = ref [] in
 	let add_package x = packages := x :: !packages in
@@ -55,14 +145,22 @@ let main idx args =
 	let dest = nonempty !dest "--dest" in
 	let package_names = !packages |> List.map OpamPackage.Name.of_string in
 
-	let universe = build_universe ~repo:!repo ~packages:!packages () in
+	let ocaml_version = nonempty !ocaml_version "--ocaml-version" in
+	let base_packages = nonempty !base_packages "--base-packages" |> Str.split (Str.regexp ",") in
+
+	let universe = build_universe
+		~repo:!repo
+		~packages:!packages
+		~base_packages
+		~ocaml_version
+		~target_os:!target_os
+		() in
 	let request = {
 		wish_install = package_names |> List.map (fun name -> name, None); (* XXX version *)
 		wish_remove = [];
 		wish_upgrade = [];
 		criteria = `Default;
 	} in
-	(* ignore (request, universe); *)
 	let () = match OpamSolver.resolve ~verbose:true universe ~orphans:OpamPackage.Set.empty request with
 		| Success solution ->
 				prerr_endline "Solved!";
@@ -86,9 +184,12 @@ let main idx args =
 						map
 				) (OpamSolver.new_packages solution) AttrSet.empty in
 				let expr = (`Function (
-					`NamedArguments [`Id "pkgs"; `Id "opam2nix"; `Id "opamPackages"; `Default ("builder",
-						`Lit "opamSelection: pkg: pkgs.callPackage pkg { inherit opamSelection opam2nix; }"
-					)],
+					`NamedArguments [
+						`Id "pkgs";
+						`Id "opam2nix";
+						`Id "opamPackages";
+						`Default ("builder", `Lit "opamSelection: pkg: pkgs.callPackage pkg { inherit opamSelection opam2nix; }");
+					],
 					`Let_bindings (
 						AttrSet.build ([ "selection", `Attrs selection ]),
 						`Id "selection"

@@ -39,8 +39,8 @@ let traverse repo_type ~repo ~packages emit =
 			in
 
 		let versions = match version with
-			| None | Some "latest" -> [list_versions () |> latest_version]
-			| Some "*" -> list_versions ()
+			| None | Some "*" -> list_versions ()
+			| Some "latest" -> [list_versions () |> latest_version]
 			| Some version -> [version]
 		in
 		versions |> List.iter (fun version ->
@@ -54,7 +54,7 @@ let traverse repo_type ~repo ~packages emit =
 		let pkg, version = match Str.split sep spec with
 			| [package] -> (package, None)
 			| [package; version] -> (package, Some version)
-			| _ -> failwith "Invalid package specifier"
+			| _ -> failwith ("Invalid package specifier: " ^ spec)
 		in
 		match pkg with
 			| "*" -> list_packages () |> List.iter (fun pkg -> process_package pkg version)

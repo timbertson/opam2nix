@@ -13,7 +13,7 @@ let () =
 		(commands |> List.map (fun (name, _) -> name) |> String.concat ", ");
 		exit 1
 	) else (
-		let commandName = Sys.argv.(0) in
+		let commandName = Sys.argv.(1) in
 		let command =
 			try Some (commands |> List.find (fun (name, action) -> name = commandName))
 			with Not_found -> None in

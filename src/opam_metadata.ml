@@ -3,7 +3,12 @@ module URL = OpamFile.URL
 module OPAM = OpamFile.OPAM
 module Descr = OpamFile.Descr
 open OpamTypes
-module StringMap = Map.Make(String)
+
+module StringMap = struct
+	include Map.Make(String)
+	let from_list items = List.fold_right (fun (k,v) map -> add k v map) items empty
+end
+
 
 let var_prefix = "opam_var_"
 
@@ -16,6 +21,17 @@ type dependency =
 
 type importance = Required | Optional
 type requirement = importance * dependency
+
+module ImportanceOrd = struct
+	type t = importance
+
+	let compare a b = match (a,b) with
+		| Required, Required | Optional, Optional -> 0
+		| Required, _ -> 1
+		| Optional, _ -> -1
+
+	let more_important a b = (compare a b) > 0
+end
 
 let rec iter_formula : 'a . (importance -> 'a -> unit) -> importance -> 'a OpamFormula.formula -> unit =
 	fun iter_atom importance formula ->
@@ -67,19 +83,29 @@ let add_nix_inputs
 				) importance formula
 		| ExternalDependencies externals ->
 				let has_nix = ref false in
+				let add_all importance packages =
+					OpamMisc.StringSet.iter (fun dep ->
+						Printf.eprintf "  adding nix %s: %s\n" desc dep;
+						add_native importance dep
+					) packages
+				in
+
 				OpamMisc.StringSetMap.iter (fun environments packages ->
 					if OpamMisc.StringSet.mem "nixpkgs" environments then (
 						has_nix := true;
-						OpamMisc.StringSet.iter (fun dep ->
-							Printf.eprintf "  adding nix %s: %s\n" desc dep;
-							add_native importance dep
-						) packages
+						add_all importance packages
 					)
 				) externals;
-				if not !has_nix then
+				if not !has_nix then begin
 					Printf.eprintf
-						"Note: package has depexts, but none of them `nixpkgs`:\n%s\n"
-						(OpamMisc.StringSetMap.to_string (OpamMisc.StringSet.to_string) externals)
+						"  Note: package has depexts, but none of them `nixpkgs`:\n    %s\n"
+						(OpamMisc.StringSetMap.to_string (OpamMisc.StringSet.to_string) externals);
+					Printf.eprintf "  Adding them all as `optional` deps, with fingers firmly crossed.\n";
+					OpamMisc.StringSetMap.iter (fun _environments packages ->
+						add_all Optional packages
+					) externals;
+				end
+
 		| PackageDependencies formula ->
 			let iter_dep importance (dep:OpamPackage.Name.t * (package_dep_flag list * OpamFormula.version_formula)) =
 				let (name, (flags, version_formula)) = dep in
@@ -138,10 +164,12 @@ let url file = match (URL.kind file, URL.url file) with
 	| `hg, _ -> failwith "TODO: hg"
 
 let load_url path =
-	let url_file = open_in path in
-	let rv = URL.read_from_channel url_file in
-	close_in url_file;
-	url rv
+	if Sys.file_exists path then begin
+		let url_file = open_in path in
+		let rv = URL.read_from_channel url_file in
+		close_in url_file;
+		Some (url rv)
+	end else None
 
 let load_opam path =
 	Printf.eprintf "  Loading opam info from %s\n" path;
@@ -207,18 +235,30 @@ let attrs_of_opam ~add_dep (opam:OPAM.t) =
 		| None -> NixDependency "ocaml"
 		| Some constr -> OcamlDependency constr
 	);
-	add_dep Required (PackageDependencies (OPAM.depends opam));
 	add_dep Optional (PackageDependencies (OPAM.depopts opam));
+	add_dep Required (PackageDependencies (OPAM.depends opam));
 	add_dep Required (OsDependency (OPAM.os opam));
+	let () = match OPAM.depexts opam with
+		| None -> ()
+		| Some deps -> add_dep Required (ExternalDependencies deps);
+	in
 
 	[
 		"configurePhase", Nix_expr.str "true"; (* configuration is done in build commands *)
-		"buildPhase", `Lit "\"${opam2nix}/bin/_opam2nix_invoke build\"";
-		"installPhase", `Lit "\"${opam2nix}/bin/_opam2nix_invoke install\"";
+		"buildPhase", `Lit "\"${opam2nix}/bin/opam2nix invoke build\"";
+		"installPhase", `Lit "\"${opam2nix}/bin/opam2nix invoke install\"";
 	]
 ;;
 
-
+module InputMap = struct
+	include StringMap
+	(* override `add` to keep the "most required" entry *)
+	let add k v map =
+		let existing = try Some (find k map) with Not_found -> None in
+		match existing with
+			| Some existing when (ImportanceOrd.more_important existing v) -> map
+			| _ -> add k v map
+end
 
 let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let pkgid = OpamPackage.create
@@ -226,22 +266,25 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 		(OpamPackage.Version.of_string version)
 	in
 	let open Nix_expr in
-	let inputs = ref [ Required, "stdenv"; Required, "pkgs"; Required, "opamSelection"; Required, "opam2nix" ] in
+	let inputs = ref (InputMap.from_list [
+		"stdenv", Required;
+		"pkgs", Required;
+		"opamSelection", Required;
+		"opam2nix", Required;
+	]) in
 	let additional_env_vars = ref [] in
-	let adder r = fun importance name -> r := (importance, name) :: !r in
+	let adder r = fun importance name -> r := InputMap.add name importance !r in
 	let add_input = adder inputs in
 
 	let url = load_url (Filename.concat path "url") in
-	let src = nix_of_url ~add_input:(add_input Required) ~cache url in
+	let src = Option.map (nix_of_url ~add_input:(add_input Required) ~cache) url in
 
 	deps#init_package pkgid;
 
-	let opam_inputs = ref [ ] in
-	let nix_deps = ref [] in
+	let opam_inputs = ref InputMap.empty in
+	let nix_deps = ref InputMap.empty in
 	let add_native = adder nix_deps in
-	let add_opam_input importance name =
-		opam_inputs := (importance, name) :: !opam_inputs
-	in
+	let add_opam_input = adder opam_inputs in
 	let add_dep = fun importance dep ->
 		add_nix_inputs
 			~add_native
@@ -252,63 +295,34 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let opam = load_opam (Filename.concat path "opam") in
 	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep opam in
 
-	(* clean up potentially-duplicate `inputs` *)
-	let opam_inputs =
-		let rv = ref AttrSet.empty in
-		let mandatory, optional = !opam_inputs |> List.partition (fun (i,_) -> i = Required) in
-		let snd = fun (a,b) -> b in
-		optional |> List.map snd |> List.iter (fun name ->
-			rv := AttrSet.add name (`Property_or (`Id "opamSelection", name, `Null)) !rv
-		);
-		mandatory |> List.map snd |> List.iter (fun name ->
-			rv := AttrSet.add name (`Property (`Id "opamSelection", name)) !rv
-		);
-		rv
-	in
-
-	let inputs =
-		let mandatory, optional = !inputs |> List.partition (fun (i,_) -> i = Required) in
-		let snd = fun (a,b) -> b in
-		let mandatory = mandatory |> List.map snd in
-		let optional = optional |> List.map snd |> List.filter (fun name ->
-			not (List.mem name mandatory)
-		) in
-		let export = fun importance items ->
-			items |> List.sort compare |> List.map (fun name -> (importance, name))
-		in
-		(export Required mandatory @ export Optional optional)
-	in
-
-	let nix_deps =
-		let mandatory, optional = !nix_deps |> List.partition (fun (i,_) -> i = Required) in
-		let snd = fun (a,b) -> b in
-		let mandatory = mandatory |> List.map snd in
-		let optional = optional |> List.map snd |> List.filter (fun name ->
-			not (List.mem name mandatory)
-		) in
-		let export = fun importance items ->
-			items |> List.sort compare |> List.map (fun name -> (importance, name))
-		in
-		(export Required mandatory @ export Optional optional)
-	in
-
-	let input_args = (inputs @ nix_deps) |> List.map (function
-		| Required, name -> `Id name
-		| Optional, name -> `Default (name, `Null)
+	let opam_inputs : Nix_expr.t AttrSet.t = !opam_inputs |> InputMap.mapi (fun name importance ->
+		match importance with
+			| Optional -> `Property_or (`Id "opamSelection", name, `Null)
+			| Required -> `Property (`Id "opamSelection", name)
 	) in
+
+	(* let swap (a, b) = (b, a) in *)
+	let inputs = !inputs |> InputMap.bindings in
+	let nix_deps = !nix_deps |> InputMap.bindings in
+
+	let input_args = (inputs @ nix_deps)
+		|> List.sort (fun (a,_) (b,_) -> String.compare a b)
+		|> List.map (function
+			| name, Required -> `Id name
+			| name, Optional -> `Default (name, `Null)
+		) in
 
 	(`Function (
 		(`NamedArguments input_args),
 		(`Let_bindings (
 			(AttrSet.build [
 				"lib", `Lit "pkgs.lib";
-				"opamDeps", `Attrs !opam_inputs;
+				"opamDeps", `Attrs opam_inputs;
 			]),
 			(`Call [
 				`Id "stdenv.mkDerivation";
-				(`Attrs (AttrSet.build (buildAttrs @ !additional_env_vars @ [
+				(`Attrs (AttrSet.build (!additional_env_vars @ [
 					"name", Nix_expr.str (name ^ "-" ^ version);
-					"src", src;
 					"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
 						"spec", `Lit "./opam";
 						"deps", `Lit "opamDeps";
@@ -319,16 +333,53 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 						`Null;
 						`BinaryOp (
 							`List (
-								(nix_deps |> List.map (fun (dep, name) -> `Id name))
+								(nix_deps |> List.map (fun (name, _importance) -> `Id name))
 							),
 							"++",
 							`Lit "(lib.attrValues opamDeps)"
 						);
 					];
 					"createFindlibDestdir", `Lit "true";
-				])))
+					"OCAML_SITELIB",
+				] @ (
+					match src with
+						| Some src -> buildAttrs @ ["src", src]
+						| None -> let open Nix_expr in [
+							(* psuedo-package. We need it to exist in `opamSelection`, but
+							 * it doesn't really do anything *)
+							"unpackPhase", str "true";
+							"buildPhase", str "true";
+							"installPhase", str "touch $out";
+						]
+				))))
 			])
 		))
 	))
 
 
+let os_string () = OpamGlobals.os_string ()
+
+let add_var name v vars =
+	vars |> OpamVariable.Full.Map.add (OpamVariable.Full.of_string name) v
+
+let init_variables () =
+	let state = OpamVariable.Full.Map.empty in
+	state
+		|> add_var "os" (S (os_string ()))
+		|> add_var "make" (S "make")
+		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
+		|> add_var "preinstalled" (B false) (* XXX ? *)
+		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
+		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
+		(* XXX best guesses... *)
+		|> add_var "ocaml-native" (B true)
+		|> add_var "ocaml-native-tools" (B true)
+		|> add_var "ocaml-native-dynlink" (B true)
+		|> add_var "arch" (S (OpamGlobals.arch ()))
+
+let lookup_var vars key =
+	try Some (OpamVariable.Full.Map.find key vars)
+	with Not_found -> begin
+		prerr_endline ("WARN: opam var " ^ (OpamVariable.Full.to_string key) ^ " not found...");
+		None
+	end

@@ -27,16 +27,14 @@ let os () =
 
 
 let unexpected_json desc j =
-	failwith ("Unexpected " ^ desc ^ ": " ^ (JSON.pretty_to_string ~std:true j))
+	failwith ("Unexpected " ^ desc ^ ": " ^ (JSON.pretty_to_string j))
 
 let load_env () =
 	let json_str = Unix.getenv "opamEnv" in
 	let json = JSON.from_string json_str in
 	let open OpamTypes in
-	let state = ref OpamVariable.Full.Map.empty in
-	let add_var name v = state := !state |> OpamVariable.Full.Map.add (OpamVariable.Full.of_string name) v in
-	add_var "os" (S (os ()));
-	add_var "make" (S "make");
+	let state = ref (Opam_metadata.init_variables ()) in
+	let add_var name v = state := !state |> Opam_metadata.add_var name v in
 	let destDir = (Unix.getenv "out") in
 	add_var "prefix" (S destDir);
 
@@ -44,7 +42,6 @@ let load_env () =
 	add_var "bin" (dir "bin");
 	add_var "lib" (dir "lib");
 	add_var "man" (dir "man");
-	add_var "preinstalled" (B true); (* well, it's not installed by OPAM ... *)
 
 
 	let spec = ref None in
@@ -62,8 +59,15 @@ let load_env () =
 								| other -> unexpected_json "`deps`" other
 						)
 					end
+					| "deps", other -> unexpected_json "deps" other
+
 					| "files", `String path -> files := Some path
+					| "files", `Null -> ()
+					| "files", other -> unexpected_json "files" other
+
 					| "spec", `String path -> spec := Some (Opam_metadata.load_opam path)
+					| "spec", other -> unexpected_json "spec" other
+
 					| other, _ -> failwith ("unexpected opamEnv key: " ^ other)
 			)
 		end
@@ -75,16 +79,9 @@ let load_env () =
 		files = !files;
 	}
 
-let lookup env key =
-	try Some (OpamVariable.Full.Map.find key env.opam_vars)
-	with Not_found -> begin
-		prerr_endline ("WARN: opam var " ^ (OpamVariable.Full.to_string key) ^ " not found...");
-		None
-	end
-
 let run env get_commands =
 	let commands = get_commands env.spec in
-	let commands = commands |> OpamFilter.commands (lookup env) in
+	let commands = commands |> OpamFilter.commands (Opam_metadata.lookup_var env.opam_vars) in
 	commands |> List.iter (fun args ->
 		match args with
 			| [] -> ()
