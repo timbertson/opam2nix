@@ -3,3 +3,5 @@
 /*.native
 /dest/
 /.envrc
+/src/.stamp
+/all

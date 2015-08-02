@@ -1,3 +1,2 @@
 #!bash -eu
-# XXX .native needed only until we sort out linking stuff in nix...
-gup -u main.byte main.native
+gup -u bin

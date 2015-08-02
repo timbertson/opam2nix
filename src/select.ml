@@ -86,8 +86,8 @@ let build_universe ~repo ~packages ~ocaml_version ~base_packages ~target_os () =
 			| [] -> `Available
 		in
 		check [
-			consistent_ocaml_version ~ocaml_version, "OCaml version";
-			consistent_os ~target_os, "OS";
+			consistent_ocaml_version ~ocaml_version, "OCaml version " ^ (OpamCompiler.Version.to_string ocaml_version);
+			consistent_os ~target_os, "OS " ^ (Opam_metadata.os_string ());
 			consistent_available_field ~ocaml_version ~vars:opam_vars, "`available` constraints";
 		]
 	in

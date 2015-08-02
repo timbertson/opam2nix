@@ -32,7 +32,13 @@ The above step generates "pure" package definitions based only on the informatio
 
 The generated `.nix` files are pretty dumb - they know about mandatory dependencies, and they know about all possible optional dependencies. But they rely on you giving them a valid set of dependencies which satisfy all versioning constraints, conflicts, etc. Conveniently, this is exactly what `opam`'s solver does - but instead of actually installing everything, let's just get it to create a `nix` expression of the packages it _would_ install:
 
-    $ opam2nix select --repo lwt --dest selection.nix
+    $ opam2nix select \
+      --repo <dest>/nix \
+      --dest <dest>/selection.nix
+      --ocaml-version 0.4.01 \
+      --base-packages 'base-unix,base-bigarray,base-threads' \
+      lwt
+
 
 I'd recommend not modifying that file, so that you can regenerate it fearlessly.
 
@@ -40,7 +46,7 @@ You can use it like so:
 
     { pkgs ? import <nixpkgs> {}}:
     let
-      selection = pkgs.callPackage ./selection.nix {
+      selection = pkgs.callPackage ./dest/selection.nix {
         # one day, both of these may be rolled into `nixpkgs`, making them optional:
         opam2nix = /path/to/opam2nix/default.nix;
         opamPackages = import ./<dest>/nix;

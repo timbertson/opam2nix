@@ -1,0 +1,12 @@
+#!bash -eu
+gup --always
+function include {
+	echo "$1"
+	cat "$1"
+}
+
+find . -type f -a -name '*.ml' | sort | while read f; do
+	include "$f"
+done > "$1"
+include "../_tags" >> "$1"
+gup --contents "$1"
