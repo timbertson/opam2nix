@@ -6,6 +6,11 @@ let rec filter_map fn lst =
 	) [] |> List.rev
 
 
+let ends_with suffix s =
+	let suffix_len = String.length suffix in
+	let len = String.length s in
+	len >= suffix_len && String.sub s (len - suffix_len) (suffix_len) = suffix
+
 let without_leading prefix s =
 	let prefix_len = String.length prefix in
 	let len = String.length s in

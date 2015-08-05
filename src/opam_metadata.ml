@@ -230,7 +230,7 @@ let unsafe_envvar_chars = Str.regexp "[^0-9a-zA-Z_]"
 let envvar_of_ident name =
 	var_prefix ^ (Str.global_replace unsafe_envvar_chars "_" name)
 
-let attrs_of_opam ~add_dep (opam:OPAM.t) =
+let attrs_of_opam ~add_dep ~name (opam:OPAM.t) =
 	add_dep Required (match (OPAM.ocaml_version opam) with
 		| None -> NixDependency "ocaml"
 		| Some constr -> OcamlDependency constr
@@ -246,6 +246,7 @@ let attrs_of_opam ~add_dep (opam:OPAM.t) =
 	[
 		"configurePhase", Nix_expr.str "true"; (* configuration is done in build commands *)
 		"buildPhase", `Lit "\"${opam2nix}/bin/opam2nix invoke build\"";
+
 		"installPhase", `Lit "\"${opam2nix}/bin/opam2nix invoke install\"";
 	]
 ;;
@@ -285,6 +286,11 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let nix_deps = ref InputMap.empty in
 	let add_native = adder nix_deps in
 	let add_opam_input = adder opam_inputs in
+
+	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
+	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)
+	if name <> "ocamlfind" then add_opam_input Optional "ocamlfind";
+
 	let add_dep = fun importance dep ->
 		add_nix_inputs
 			~add_native
@@ -293,7 +299,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	in
 
 	let opam = load_opam (Filename.concat path "opam") in
-	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep opam in
+	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep ~name opam in
 
 	let opam_inputs : Nix_expr.t AttrSet.t = !opam_inputs |> InputMap.mapi (fun name importance ->
 		match importance with
@@ -361,6 +367,12 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 											"buildPhase", str "true";
 											"installPhase", str "touch $out";
 										]
+								) @ (
+									match url with
+										| Some (`http href)
+											when ends_with ".tbz" href ->
+											["unpackCmd", Nix_expr.str "tar -xf \"$curSrc\""]
+										| _ -> []
 								))))
 							]
 						]
@@ -399,7 +411,6 @@ let init_variables () =
 		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
 		|> add_var "preinstalled" (B false) (* XXX ? *)
 		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
-		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
 		(* XXX best guesses... *)
 		|> add_var "ocaml-native" (B true)
 		|> add_var "ocaml-native-tools" (B true)

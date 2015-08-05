@@ -18,13 +18,13 @@ in impl // {
 
 	setupHook = pkgs.writeText "setupHook.sh" ''
 		addOCamlPath () {
-				if test -d "''$1/lib/ocaml/${ocaml_version}/site-lib"; then
-						export OCAMLPATH="''${OCAMLPATH}''${OCAMLPATH:+:}''$1/lib/ocaml/${ocaml_version}/site-lib/"
-				fi
-				export OCAMLFIND_DESTDIR="''$out/lib/ocaml/${ocaml_version}/site-lib/"
-				if test -n "$createFindlibDestdir"; then
-					mkdir -p $OCAMLFIND_DESTDIR
-				fi
+			if test -d "''$1/lib/ocaml/${ocaml_version}/site-lib"; then
+					export OCAMLPATH="''${OCAMLPATH}''${OCAMLPATH:+:}''$1/lib/ocaml/${ocaml_version}/site-lib/"
+			fi
+			export OCAMLFIND_DESTDIR="''$out/lib/ocaml/${ocaml_version}/site-lib/"
+			if test -n "$createFindlibDestdir"; then
+				mkdir -p $OCAMLFIND_DESTDIR
+			fi
 		}
 		envHooks+=(addOCamlPath)
 	'';

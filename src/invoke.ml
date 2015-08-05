@@ -9,9 +9,13 @@ type env = {
 }
 
 let destDir () = (Unix.getenv "out")
+let ocamlfindDestDir () =
+	try Some (Unix.getenv "OCAMLFIND_DESTDIR")
+	with Not_found -> None
 let libDestDir () =
-	try Unix.getenv "OCAMLFIND_DESTDIR"
-	with Not_found -> (Filename.concat (destDir ()) "lib")
+	match ocamlfindDestDir () with
+		| Some dest -> dest
+		| None -> Filename.concat (destDir ()) "lib"
 
 let os () =
 	let os =
@@ -204,8 +208,40 @@ let execute_install_file state =
 		failwith msg
 	)
 
+let isdir path =
+	let open Unix in
+	try (stat path).st_kind = S_DIR
+	with Unix_error(ENOENT, _, _) -> false
+
+let fixup_opam_install env =
+	Printf.eprintf "Running post-opam install fixup ...\n";
+	let name = env.pkgname in
+	let unwanted = Filename.concat (Filename.concat (destDir ()) "lib") name in
+	let fixed = ocamlfindDestDir () in
+	match fixed with
+		| None -> Printf.eprintf "$OCAMLFIND_DESTDIR not set, skipping\n"; ()
+		| Some dest -> (
+			if isdir unwanted then (
+				let dest = Filename.concat dest name in
+				if Sys.file_exists dest then
+					Printf.eprintf
+						"WARN: Looks like incorrectly-installed ocaml libraries in %s\n - but dest (%s) already exists; ignoring...\n"
+						unwanted dest
+				else (
+					Printf.eprintf
+						"WARN: Found incorrectly-installed ocaml libraries in %s\n - moving them to %s\n"
+						unwanted dest;
+					Unix.rename unwanted dest
+				)
+			) else (
+				Printf.eprintf "No unwanted files found in %s\n" unwanted;
+			)
+		)
+
 let build env = run env OPAM.build (fun _ -> ())
-let install env = run env OPAM.install execute_install_file
+let install env =
+	run env OPAM.install execute_install_file;
+	fixup_opam_install env
 
 let main idx args =
 	let action = try Some (Array.get args (idx+1)) with Not_found -> None in
