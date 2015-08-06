@@ -4,11 +4,13 @@ I'm hoping to make it stable and a future part of `nixpkgs`. But for now, it's j
 
 ## Building:
 
-    $ nix-build
+    # build the current workspace:
+    $ nix-build shell.nix
 
-(of course)
-
-If you'd like to hack, use `nix-shell` and just run `gup`.
+    # or, hop in an interactive shell:
+    $ nix-shell
+    # and build it
+    $ gup
 
 ## Usage:
 
