@@ -1,7 +1,7 @@
 {pkgs}:
 impl:
 let
-	ocaml_version = (builtins.parseDrvName impl.passthru.ocaml.name).version;
+	ocaml_version = (builtins.parseDrvName impl.passthru.opamSelection.ocaml.name).version;
 in impl // {
 	patches = [ ./ldconf.patch ./install_topfind.patch ];
 	buildPhase = ''

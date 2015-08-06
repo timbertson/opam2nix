@@ -30,19 +30,20 @@ The above step generates "pure" package definitions based only on the informatio
 
 ### Step 3: select exact versions of each dependency
 
-The generated `.nix` files are pretty dumb - they know about mandatory dependencies, and they know about all possible optional dependencies. But they rely on you giving them a valid set of dependencies which satisfy all versioning constraints, conflicts, etc. Conveniently, this is exactly what `opam`'s solver does - but instead of actually installing everything, let's just get it to create a `nix` expression of the packages it _would_ install:
+The generated `.nix` files are pretty dumb - they know the difference between mandatory and optional dependencies, but that's about all. They rely on you giving them a valid set of dependencies which satisfy all versioning constraints, conflicts, etc. Conveniently, this is exactly what `opam`'s solver does - but instead of actually installing everything, let's just get it to create a `nix` expression of the packages it _would_ install:
 
     $ opam2nix select \
       --repo <dest>/nix \
       --dest <dest>/selection.nix
       --ocaml-version 0.4.01 \
+      --ocaml-attr ocaml \
       --base-packages 'base-unix,base-bigarray,base-threads' \
       lwt
 
+(TODO: don't make users specify ocaml version, attr & base packages explicitly)
 
-I'd recommend not modifying that file, so that you can regenerate it fearlessly.
-
-You can use it like so:
+You shouldn't modify this `selections.nix` file directly, as you'll regenerate it whenever your dependencies change.
+Instead, you should call it from your main `.nix` file like so:
 
     { pkgs ? import <nixpkgs> {}}:
     let

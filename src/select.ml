@@ -128,6 +128,7 @@ let main idx args =
 	let dest = ref "" in
 	(* XXX this should be more integrated... *)
 	let ocaml_version = ref "" in
+	let ocaml_attr = ref "ocaml" in
 	let base_packages = ref "" in
 	let target_os = ref (Opam_metadata.os_string ()) in
 	let opts = Arg.align [
@@ -135,6 +136,7 @@ let main idx args =
 		("--dest", Arg.Set_string dest, "Destination .nix file");
 		("--os", Arg.Set_string target_os, "Target OS");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version");
+		("--ocaml-attr", Arg.Set_string ocaml_attr, "Ocaml nixpkgs attribute (e.g `ocaml`, `ocaml_4_00_01`)");
 		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated)");
 	]; in
 	let packages = ref [] in
@@ -146,6 +148,7 @@ let main idx args =
 	let package_names = !packages |> List.map OpamPackage.Name.of_string in
 
 	let ocaml_version = nonempty !ocaml_version "--ocaml-version" in
+	let ocaml_attr = !ocaml_attr in
 	let base_packages = nonempty !base_packages "--base-packages" |> Str.split (Str.regexp ",") in
 
 	let universe = build_universe
@@ -183,15 +186,20 @@ let main idx args =
 						])
 						map
 				) (OpamSolver.new_packages solution) AttrSet.empty in
+				let selection = AttrSet.add "ocaml" (`Id "ocaml") selection in
+
 				let expr = (`Function (
 					`NamedArguments [
 						`Id "pkgs";
 						`Id "opam2nix";
 						`Id "opamPackages";
+						`Default ("ocaml", `Property (`Id "pkgs", ocaml_attr));
 						`Default ("builder", `Lit "opamSelection: pkg: pkgs.callPackage pkg.impl { inherit opamSelection opam2nix; }");
 					],
 					`Let_bindings (
-						AttrSet.build ([ "selection", `Attrs selection ]),
+						AttrSet.build ([
+							"selection", `Attrs selection;
+						]),
 						`Id "selection"
 					)
 				)) in

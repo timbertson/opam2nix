@@ -14,7 +14,6 @@ let var_prefix = "opam_var_"
 
 type dependency =
 	| NixDependency of string
-	| OcamlDependency of OpamTypes.compiler_constraint
 	| OsDependency of (bool * string) OpamTypes.generic_formula
 	| ExternalDependencies of OpamTypes.tags
 	| PackageDependencies of OpamTypes.ext_formula
@@ -46,7 +45,6 @@ let rec iter_formula : 'a . (importance -> 'a -> unit) -> importance -> 'a OpamF
 
 let string_of_dependency = function
 	| NixDependency dep -> "nix:"^dep
-	| OcamlDependency _ -> "ocaml:<TODO>"
 	| OsDependency formula ->
 			"os:" ^
 				(OpamFormula.string_of_formula (fun (b,s) -> (string_of_bool b) ^","^s) formula)
@@ -74,9 +72,6 @@ let add_nix_inputs
 		| NixDependency name ->
 				Printf.eprintf "  adding nix %s: %s\n" desc name;
 				add_native importance name
-		| OcamlDependency _dep ->
-				Printf.eprintf "  adding ocaml %s: %s\n" desc "ocaml";
-				add_native importance "ocaml" (* XXX include version *)
 		| OsDependency formula ->
 				iter_formula (fun importance (b, str) ->
 					Printf.eprintf "TODO: OS %s (%b,%s)\n" desc b str
@@ -231,10 +226,6 @@ let envvar_of_ident name =
 	var_prefix ^ (Str.global_replace unsafe_envvar_chars "_" name)
 
 let attrs_of_opam ~add_dep ~name (opam:OPAM.t) =
-	add_dep Required (match (OPAM.ocaml_version opam) with
-		| None -> NixDependency "ocaml"
-		| Some constr -> OcamlDependency constr
-	);
 	add_dep Optional (PackageDependencies (OPAM.depopts opam));
 	add_dep Required (PackageDependencies (OPAM.depends opam));
 	add_dep Required (OsDependency (OPAM.os opam));
@@ -244,10 +235,9 @@ let attrs_of_opam ~add_dep ~name (opam:OPAM.t) =
 	in
 
 	[
-		"configurePhase", Nix_expr.str "true"; (* configuration is done in build commands *)
-		"buildPhase", `Lit "\"${opam2nix}/bin/opam2nix invoke build\"";
-
-		"installPhase", `Lit "\"${opam2nix}/bin/opam2nix invoke install\"";
+		"configurePhase",  Nix_expr.str "true"; (* configuration is done in build commands *)
+		"buildPhase",      `Lit "\"${opam2nix}/bin/opam2nix invoke build\"";
+		"installPhase",    `Lit "\"${opam2nix}/bin/opam2nix invoke install\"";
 	]
 ;;
 
@@ -290,6 +280,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
 	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)
 	if name <> "ocamlfind" then add_opam_input Optional "ocamlfind";
+	add_opam_input Required "ocaml"; (* pretend this is an `opam` input for convenience *)
 
 	let add_dep = fun importance dep ->
 		add_nix_inputs
@@ -358,7 +349,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 									"createFindlibDestdir", `Lit "true";
 									"passthru", `Attrs (AttrSet.build [
 										"opamSelection", `Id "opamSelection";
-										"ocaml", `Id "ocaml";
+										(* "ocaml", `Id "ocaml"; *)
 									]);
 								] @ (
 									match src with
