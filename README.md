@@ -37,7 +37,7 @@ The generated `.nix` files are pretty dumb - they know the difference between ma
     $ opam2nix select \
       --repo <dest>/nix \
       --dest <dest>/selection.nix
-      --ocaml-version 0.4.01 \
+      --ocaml-version 4.01.0 \
       --ocaml-attr ocaml \
       --base-packages 'base-unix,base-bigarray,base-threads' \
       lwt

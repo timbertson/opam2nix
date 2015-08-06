@@ -17,25 +17,6 @@ let libDestDir () =
 		| Some dest -> dest
 		| None -> Filename.concat (destDir ()) "lib"
 
-let os () =
-	let os =
-		let open Lwt in
-		lwt lines = Lwt_process.with_process_in ("", [|"uname"; "-s"|]) (fun proc ->
-			lwt lines = proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list in
-			lwt status = proc#close in
-			let open Unix in
-			match status with
-				| WEXITED 0 -> return lines
-				| _ -> failwith "uname -s failed"
-		) in
-		return (match lines with
-			| [line] -> String.lowercase line
-			| _ -> failwith ("Unexpected uname output:\n" ^ (String.concat "\n" lines))
-		)
-	in
-	Lwt_main.run os
-
-
 let unexpected_json desc j =
 	failwith ("Unexpected " ^ desc ^ ": " ^ (JSON.pretty_to_string j))
 

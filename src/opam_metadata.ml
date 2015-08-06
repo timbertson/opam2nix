@@ -298,7 +298,6 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 			| Required -> `Property (`Id "opamSelection", name)
 	) in
 
-	(* let swap (a, b) = (b, a) in *)
 	let inputs = !inputs |> InputMap.bindings in
 	let nix_deps = !nix_deps |> InputMap.bindings in
 
