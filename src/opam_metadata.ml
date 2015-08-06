@@ -329,9 +329,20 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 						(AttrSet.build [
 							"lib", `Lit "pkgs.lib";
 							"opamDeps", `Attrs opam_inputs;
+							"inputs", `Call [
+									`Id "lib.remove";
+									`Null;
+									`BinaryOp (
+										`List (
+											(nix_deps |> List.map (fun (name, _importance) -> `Id name))
+										),
+										"++",
+										`Lit "(lib.attrValues opamDeps)"
+									);
+							];
 						]),
 						`Call [ `Id "stdenv.mkDerivation";
-							`Call [ 
+							`Call [
 								`Id "override";
 								(`Attrs (AttrSet.build (!additional_env_vars @ [
 									"name", Nix_expr.str (name ^ "-" ^ version);
@@ -341,17 +352,9 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 										"name", Nix_expr.str name;
 										"files", if has_files then `Lit "./files" else `Null;
 									])];
-									"buildInputs", `Call [
-										`Id "lib.remove";
-										`Null;
-										`BinaryOp (
-											`List (
-												(nix_deps |> List.map (fun (name, _importance) -> `Id name))
-											),
-											"++",
-											`Lit "(lib.attrValues opamDeps)"
-										);
-									];
+									"buildInputs", `Lit "inputs";
+									(* TODO: don't include build-only deps *)
+									"propagatedBuildInputs", `Lit "inputs";
 									"createFindlibDestdir", `Lit "true";
 									"passthru", `Attrs (AttrSet.build [
 										"opamSelection", `Id "opamSelection";
