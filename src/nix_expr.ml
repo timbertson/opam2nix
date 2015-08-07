@@ -58,7 +58,7 @@ let escape_multiline_string (s:string) : string =
 	] s
 
 let keysafe s =
-	Str.string_match (Str.regexp "^[a-zA-Z_][a-zA-Z_0-9]*$") s 0
+	Str.string_match (Str.regexp "^[-a-zA-Z_][-a-zA-Z_0-9]*$") s 0
 
 let escape_key s = if keysafe s then s else "\"" ^ (escape_string s) ^ "\""
 

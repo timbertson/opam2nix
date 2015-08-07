@@ -28,7 +28,7 @@ let without_trailing suffix s =
 let list_dirs root =
 	Sys.readdir root |> Array.to_list |> List.filter (fun name ->
 		Sys.is_directory (Filename.concat root name)
-	)
+	) |> List.sort String.compare
 
 
 let nonempty value arg =

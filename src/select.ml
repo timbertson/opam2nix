@@ -187,6 +187,7 @@ let main idx args =
 						map
 				) (OpamSolver.new_packages solution) AttrSet.empty in
 				let selection = AttrSet.add "ocaml" (`Id "ocaml") selection in
+				let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
 
 				let expr = (`Function (
 					`NamedArguments [

@@ -48,6 +48,10 @@ let load_env () =
 							match value with
 								| `Null -> add_var enabled_var (B false)
 								| `String _ -> add_var enabled_var (B true)
+
+								(* Bool is only used for base packages,
+								 * (although it's only ever `true`) *)
+								| `Bool b -> add_var enabled_var (B b)
 								| other -> unexpected_json "`deps`" other
 						)
 					end

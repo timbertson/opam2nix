@@ -351,6 +351,10 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 										(* "ocaml", `Id "ocaml"; *)
 									]);
 								] @ (
+									if has_files then [
+										"postUnpack", `String [`Lit "cp -r "; `Expr (`Lit "./files"); `Lit "/* \"$sourceRoot/\""];
+									] else []
+								) @ (
 									match src with
 										| Some src -> buildAttrs @ ["src", src]
 										| None -> let open Nix_expr in [
