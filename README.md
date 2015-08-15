@@ -5,12 +5,17 @@ I'm hoping to make it stable and a future part of `nixpkgs`. But for now, it's j
 ## Building:
 
     # build the current workspace:
-    $ nix-build shell.nix
+    $ ./build-nix.sh
 
     # or, hop in an interactive shell:
     $ nix-shell
-    # and build it
+    # and compile it
     $ gup
+
+*NOTE*: if you're building or importing `./default.nix`, your local changes won't
+take effect until you run `./build-nix.sh` (or just `gup local`).
+
+Also note that local changes are whatever `git` knows about - this includes uncommitted changes, but does not include new files that haven't been added to `git`.
 
 ## Usage:
 
@@ -51,8 +56,8 @@ Instead, you should call it from your main `.nix` file like so:
     let
       selection = pkgs.callPackage ./dest/selection.nix {
         # one day, both of these may be rolled into `nixpkgs`, making them optional:
-        opam2nix = /path/to/opam2nix/default.nix;
-        opamPackages = import ./<dest>/nix;
+        opam2nix = pkgs.callPackage /path/to/opam2nix/default.nix {};
+        opamPackages = import ./<dest>/nix { inherit pkgs; };
       };
     in
     {

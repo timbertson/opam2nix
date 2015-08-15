@@ -1,0 +1,2 @@
+#!bash -eu
+rm -rf _build

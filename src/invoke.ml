@@ -34,6 +34,7 @@ let load_env () =
 	add_var "bin" (dir "bin");
 	add_var "lib" (dir "lib");
 	add_var "man" (dir "man");
+	add_var "doc" (dir "share/doc");
 
 
 	let spec = ref None in
@@ -100,6 +101,12 @@ let run env get_commands fallback_action =
 				end
 		)
 
+let ensure_dir_exists d =
+	if not (OpamFilename.exists_dir d) then (
+		Printf.eprintf "creating %s\n" (OpamFilename.Dir.to_string d);
+		OpamFilename.mkdir d;
+	)
+
 let execute_install_file state =
 	let name = state.pkgname in
 	let open OpamTypes in
@@ -134,10 +141,7 @@ let execute_install_file state =
 		match files with
 			| [] -> ()
 			| files ->
-				if not (OpamFilename.exists_dir destDir) then (
-					Printf.eprintf "creating %s\n" (OpamFilename.Dir.to_string destDir);
-					OpamFilename.mkdir destDir;
-				);
+				ensure_dir_exists destDir;
 				List.iter (fun (base, dst) ->
 					let src_file = OpamFilename.create build_dir base.c in
 					let dst_file = match dst with
@@ -223,7 +227,10 @@ let fixup_opam_install env =
 			)
 		)
 
-let build env = run env OPAM.build (fun _ -> ())
+let build env =
+	let destDir = destDir () |> OpamFilename.Dir.of_string in
+	ensure_dir_exists destDir;
+	run env OPAM.build (fun _ -> ())
 let install env =
 	run env OPAM.install execute_install_file;
 	fixup_opam_install env

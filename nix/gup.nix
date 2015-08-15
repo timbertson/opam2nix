@@ -1,4 +1,5 @@
-{stdenv, fetchurl, python }:
+{pkgs ? import <nixpkgs> {}}:
+with pkgs;
 let version = "0.5.0"; in
 stdenv.mkDerivation {
 	name = "gup-${version}";

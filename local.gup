@@ -1,0 +1,3 @@
+#!bash -eux
+gup -u nix/local.tgz
+nix-build --out-link "$1" nix/local.nix --show-trace

@@ -22,7 +22,7 @@ let main arg_idx args =
 	let repo = ref "" in
 	let dest = ref "" in
 	let cache = ref "" in
-	let max_age = ref (7*24) in
+	let max_age = ref (14*24) in
 	let merge_existing = ref false in
 	let opts = Arg.align [
 		("--src", Arg.Set_string repo, "Opam repository");

@@ -144,16 +144,18 @@ let main idx args =
 	Arg.parse_argv ~current:(ref idx) args opts add_package "TODO: usage...";
 
 	if !packages = [] then failwith "At least one package required";
+	let packages = !packages in
 	let dest = nonempty !dest "--dest" in
-	let package_names = !packages |> List.map OpamPackage.Name.of_string in
+	let repo = nonempty !repo "--repo" in
+	let package_names = packages |> List.map OpamPackage.Name.of_string in
 
 	let ocaml_version = nonempty !ocaml_version "--ocaml-version" in
 	let ocaml_attr = !ocaml_attr in
 	let base_packages = nonempty !base_packages "--base-packages" |> Str.split (Str.regexp ",") in
 
 	let universe = build_universe
-		~repo:!repo
-		~packages:!packages
+		~repo:repo
+		~packages:packages
 		~base_packages
 		~ocaml_version
 		~target_os:!target_os

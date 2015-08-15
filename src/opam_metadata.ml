@@ -320,8 +320,8 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 							"lib", `Lit "pkgs.lib";
 							"opamDeps", `Attrs opam_inputs;
 							"inputs", `Call [
-									`Id "lib.remove";
-									`Null;
+									`Id "lib.filter";
+									`Lit "(dep: dep != true && dep != null)";
 									`BinaryOp (
 										`List (
 											(nix_deps |> List.map (fun (name, _importance) -> `Id name))
@@ -345,7 +345,6 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 									"buildInputs", `Lit "inputs";
 									(* TODO: don't include build-only deps *)
 									"propagatedBuildInputs", `Lit "inputs";
-									"createFindlibDestdir", `Lit "true";
 									"passthru", `Attrs (AttrSet.build [
 										"opamSelection", `Id "opamSelection";
 										(* "ocaml", `Id "ocaml"; *)
@@ -356,13 +355,16 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 									] else []
 								) @ (
 									match src with
-										| Some src -> buildAttrs @ ["src", src]
+										| Some src -> buildAttrs @ [
+											"src", src;
+											"createFindlibDestdir", `Lit "true";
+										]
 										| None -> let open Nix_expr in [
 											(* psuedo-package. We need it to exist in `opamSelection`, but
 											* it doesn't really do anything *)
 											"unpackPhase", str "true";
 											"buildPhase", str "true";
-											"installPhase", str "touch $out";
+											"installPhase", str "mkdir -p $out";
 										]
 								) @ (
 									match url with

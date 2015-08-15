@@ -5,3 +5,5 @@
 /.envrc
 /src/.stamp
 /all
+/nix/local.tgz
+/local
