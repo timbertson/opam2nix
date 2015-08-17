@@ -198,10 +198,11 @@ let main idx args =
 						`Id "opamPackages";
 						`Default ("ocaml", `Property (`Id "pkgs", ocaml_attr));
 						`Default ("builder", `Lit "opamSelection: pkg: pkgs.callPackage pkg.impl { inherit opamSelection opam2nix; }");
+						`Default ("overrideSelections", `Lit "sels: sels");
 					],
 					`Let_bindings (
 						AttrSet.build ([
-							"selection", `Attrs selection;
+							"selection", `Call [ `Id "overrideSelections"; `Attrs selection ];
 						]),
 						`Id "selection"
 					)

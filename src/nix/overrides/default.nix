@@ -16,4 +16,5 @@ defs // {
 	# TODO: should this be automated?
 	biniou = addBinDir defs.biniou;
 	yojson = addBinDir defs.yojson;
+	fat-filesystem = addBinDir defs.fat-filesystem;
 }

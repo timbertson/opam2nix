@@ -211,19 +211,27 @@ let fixup_opam_install env =
 		| None -> Printf.eprintf "$OCAMLFIND_DESTDIR not set, skipping\n"; ()
 		| Some dest -> (
 			if isdir unwanted then (
-				let dest = Filename.concat dest name in
-				if Sys.file_exists dest then
+				(* XXX is installing under lib/ocaml/version/pkg instead of just lib/ really worth all this hassle? *)
+				let ocamlfind_dest = Filename.concat dest name in
+				if Sys.file_exists ocamlfind_dest then
 					Printf.eprintf
 						"WARN: Looks like incorrectly-installed ocaml libraries in %s\n - but dest (%s) already exists; ignoring...\n"
-						unwanted dest
+						unwanted ocamlfind_dest
 				else (
 					Printf.eprintf
 						"WARN: Found incorrectly-installed ocaml libraries in %s\n - moving them to %s\n"
-						unwanted dest;
-					Unix.rename unwanted dest
+						unwanted ocamlfind_dest;
+					Unix.rename unwanted ocamlfind_dest
 				)
 			) else (
 				Printf.eprintf "No unwanted files found in %s\n" unwanted;
+			);
+
+			(* If we have `lib/pkgconfig`, make a symlink `lib/<pkgname>` to `lib/ocaml/<...>/pkgname` *)
+			let pkgconfig = Filename.concat dest "pkgconfig" in
+			if isdir pkgconfig && not (Sys.file_exists unwanted) then (
+				Printf.eprintf "NOTE: linking %s -> %s for the benefit of pkgconfig\n" unwanted dest;
+				Unix.symlink dest unwanted
 			)
 		)
 
@@ -243,5 +251,6 @@ let main idx args =
 		| Some other -> failwith ("Unknown action: " ^ other)
 		| None -> failwith "No action given"
 	in
+	Unix.putenv "PREFIX" (destDir ());
 	action (load_env ())
 

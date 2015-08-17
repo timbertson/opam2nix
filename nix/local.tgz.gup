@@ -8,14 +8,19 @@ set -eu
 
 function get_commit() {
 	(
-	env \
+	commit="$(env \
 		GIT_AUTHOR_NAME="nobody" \
 		GIT_AUTHOR_EMAIL="nobody@example.org" \
 		GIT_AUTHOR_DATE='1970-01-01T00:00:00Z' \
 		GIT_COMMITTER_NAME="nobody" \
 		GIT_COMMITTER_EMAIL="nobody@example.org" \
 		GIT_COMMITTER_DATE='1970-01-01T00:00:00Z' \
-		git stash create || git rev-parse HEAD
+		git stash create || true)"
+	if [ -z "$commit" ]; then
+		git rev-parse HEAD
+	else
+		echo "$commit"
+	fi
 	)
 }
 
