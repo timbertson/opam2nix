@@ -27,7 +27,8 @@ let fetch ~dest url =
 				Printf.eprintf "Curl error: %s\n" !errbuf;
 				raise e
 		end;
-		Curl.global_cleanup ()
+		Curl.global_cleanup ();
+		close_out dest
 	in
 
 	(* let clone addr = *)
