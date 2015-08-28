@@ -104,23 +104,20 @@ let build_universe ~repo ~packages ~ocaml_version ~base_packages ~target_os () =
 	);
 	let opams = !opams in
 	let ocaml_version = Version.of_string ocaml_version in
+	let base_packages = base_packages
+		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
+		|> OpamPackage.Set.of_list in
 	{
 		u_packages	= empty;
 		u_action		= Install (names packages); (* XXX this duplicates "atom request" below *)
-		u_installed = empty;
+		u_installed = base_packages;
 		u_available = !available_packages;
 		u_depends		= OpamPackage.Map.map OpamFile.OPAM.depends opams;
 		u_depopts		= OpamPackage.Map.map OpamFile.OPAM.depopts opams;
 		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams;
 		u_installed_roots = empty;
 		u_pinned		= empty;
-		(* u_dev			 = empty; *)
-		u_base			= base_packages
-			|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
-			|> OpamPackage.Set.of_list;
-		(* u_attrs		 = []; *)
-		(* u_test			 = false; *)
-		(* u_doc			 = false; *)
+		u_base			= base_packages;
 	}
 
 let main idx args =
