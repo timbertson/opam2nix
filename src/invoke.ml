@@ -12,10 +12,7 @@ let destDir () = (Unix.getenv "out")
 let ocamlfindDestDir () =
 	try Some (Unix.getenv "OCAMLFIND_DESTDIR")
 	with Not_found -> None
-let libDestDir () =
-	match ocamlfindDestDir () with
-		| Some dest -> dest
-		| None -> Filename.concat (destDir ()) "lib"
+let libDestDir () = Filename.concat (destDir ()) "lib"
 
 let unexpected_json desc j =
 	failwith ("Unexpected " ^ desc ^ ": " ^ (JSON.pretty_to_string j))
@@ -80,26 +77,24 @@ let load_env () =
 		files = !files;
 	}
 
-let run env get_commands fallback_action =
+let run env get_commands =
 	let commands = get_commands env.spec in
 	let commands = commands |> OpamFilter.commands (Opam_metadata.lookup_var env.opam_vars) in
-	match commands with
-		| [] -> fallback_action env
-		| commands -> commands |> List.iter (fun args ->
-			match args with
-				| [] -> ()
-				| command :: _ -> begin
-					let open Unix in
-					prerr_endline ("+ " ^ String.concat " " args);
-					let pid = create_process command (args |> Array.of_list) stdin stdout stderr in
-					let (_, status) = waitpid [] pid in
-					let quit code = prerr_endline "Command failed."; exit code in
-					match status with
-						| WEXITED 0 -> ()
-						| WEXITED code -> quit code
-						| _ -> quit 1
-				end
-		)
+	commands |> List.iter (fun args ->
+		match args with
+			| [] -> ()
+			| command :: _ -> begin
+				let open Unix in
+				prerr_endline ("+ " ^ String.concat " " args);
+				let pid = create_process command (args |> Array.of_list) stdin stdout stderr in
+				let (_, status) = waitpid [] pid in
+				let quit code = prerr_endline "Command failed."; exit code in
+				match status with
+					| WEXITED 0 -> ()
+					| WEXITED code -> quit code
+					| _ -> quit 1
+			end
+	)
 
 let ensure_dir_exists d =
 	if not (OpamFilename.exists_dir d) then (
@@ -202,17 +197,19 @@ let isdir path =
 	try (stat path).st_kind = S_DIR
 	with Unix_error(ENOENT, _, _) -> false
 
+(* NOTE: unused - delete if we don't want to go back to using this *)
 let fixup_opam_install env =
 	Printf.eprintf "Running post-opam install fixup ...\n";
 	let name = env.pkgname in
-	let unwanted = Filename.concat (Filename.concat (destDir ()) "lib") name in
+	let lib_dest = Filename.concat (destDir ()) "lib" in
+	let unwanted = Filename.concat lib_dest name in
 	let fixed = ocamlfindDestDir () in
 	match fixed with
 		| None -> Printf.eprintf "$OCAMLFIND_DESTDIR not set, skipping\n"; ()
-		| Some dest -> (
+		| Some ocamlfind_dest -> (
+			let ocamlfind_dest = Filename.concat ocamlfind_dest name in
 			if isdir unwanted then (
 				(* XXX is installing under lib/ocaml/version/pkg instead of just lib/ really worth all this hassle? *)
-				let ocamlfind_dest = Filename.concat dest name in
 				if Sys.file_exists ocamlfind_dest then
 					Printf.eprintf
 						"WARN: Looks like incorrectly-installed ocaml libraries in %s\n - but dest (%s) already exists; ignoring...\n"
@@ -228,20 +225,25 @@ let fixup_opam_install env =
 			);
 
 			(* If we have `lib/pkgconfig`, make a symlink `lib/<pkgname>` to `lib/ocaml/<...>/pkgname` *)
-			let pkgconfig = Filename.concat dest "pkgconfig" in
-			if isdir pkgconfig && not (Sys.file_exists unwanted) then (
-				Printf.eprintf "NOTE: linking %s -> %s for the benefit of pkgconfig\n" unwanted dest;
-				Unix.symlink dest unwanted
+			let pkgconfig = Filename.concat lib_dest "pkgconfig" in
+			if isdir pkgconfig then (
+				if not (Sys.file_exists unwanted) then (
+					Printf.eprintf "NOTE: linking %s -> %s for the benefit of pkgconfig\n" unwanted ocamlfind_dest;
+					Unix.symlink ocamlfind_dest unwanted
+				) else (
+					Printf.eprintf "NOTE: can't create link %s -> %s\n" unwanted ocamlfind_dest;
+				)
 			)
 		)
 
 let build env =
 	let destDir = destDir () |> OpamFilename.Dir.of_string in
 	ensure_dir_exists destDir;
-	run env OPAM.build (fun _ -> ())
+	run env OPAM.build
+
 let install env =
-	run env OPAM.install execute_install_file;
-	fixup_opam_install env
+	run env OPAM.install;
+	execute_install_file env
 
 let main idx args =
 	let action = try Some (Array.get args (idx+1)) with Not_found -> None in

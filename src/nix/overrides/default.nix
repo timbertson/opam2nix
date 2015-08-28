@@ -13,6 +13,15 @@ defs // {
 		installPhase = "make install JS_DEST=$OCAMLFIND_DESTDIR";
 	}) defs.cstruct;
 
+	gmp-xen = overrideAll (impl: impl // {
+		# this is a plain C lib
+		configurePhase = "unset OCAMLFIND_DESTDIR";
+	}) defs.gmp-xen;
+
+	zarith-xen = overrideAll (impl: impl // {
+		buildPhase = "${pkgs.bash}/bin/bash ${./zarith-xen}/install.sh";
+	}) defs.zarith-xen;
+
 	# TODO: should this be automated?
 	biniou = addBinDir defs.biniou;
 	yojson = addBinDir defs.yojson;

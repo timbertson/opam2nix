@@ -8,7 +8,7 @@ in impl // {
 		./configure \
 			-bindir $out/bin \
 			-mandir $out/share/man \
-			-sitelib $out/lib/ocaml/${ocaml_version}/site-lib \
+			-sitelib $out/lib \
 			-no-topfind \
 			-config $out/etc/findlib.conf
 		make all
@@ -18,13 +18,11 @@ in impl // {
 
 	setupHook = pkgs.writeText "setupHook.sh" ''
 		addOCamlPath () {
-			if test -d "''$1/lib/ocaml/${ocaml_version}/site-lib"; then
-					export OCAMLPATH="''${OCAMLPATH}''${OCAMLPATH:+:}''$1/lib/ocaml/${ocaml_version}/site-lib/"
+			if test -d "''$1/lib"; then
+					export OCAMLPATH="''${OCAMLPATH}''${OCAMLPATH:+:}''$1/lib"
 			fi
-			export OCAMLFIND_DESTDIR="''$out/lib/ocaml/${ocaml_version}/site-lib/"
-			if test -n "$createFindlibDestdir"; then
-				mkdir -p $OCAMLFIND_DESTDIR
-			fi
+			export OCAMLFIND_DESTDIR="''$out/lib/"
+			mkdir -p "''$out/lib"
 		}
 		envHooks+=(addOCamlPath)
 	'';
