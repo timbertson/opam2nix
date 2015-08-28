@@ -25,7 +25,7 @@ There are a few parts. One day, steps 1 and 2 may be done in `nixpkgs` proper. T
 
 (One day, this may be done as part of `nixpkgs`. But this is not that day.)
 
-    $ opam2nix repo --src ~/.opam/repo/ocaml.org --dest <dest>/nix --cache <dest>/cache '*@latest'
+    $ opam2nix repo --src ~/.opam/repo/ocaml.org --dest <dest>/nix/packages --cache <dest>/cache '*@latest'
 
 This traverses the repo, scans the packages you've selected, downloads sources that it hasn't cached, reads `opam` files for dependencies, and spits out a `.nix` file for each version of each package.
 

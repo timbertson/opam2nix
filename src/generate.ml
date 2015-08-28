@@ -42,14 +42,7 @@ let main arg_idx args =
 
 	let mkdir dest = Unix.mkdir dest 0o750 in
 
-	(* first, make `dest` (don't care if it exists) *)
-	let () =
-		try mkdir dest
-		with Unix.Unix_error(Unix.EEXIST, _, _) -> ()
-	in
-
 	(* then make `dest/packages` (only use existing if --unclean specified) *)
-	let dest = Filename.concat dest "packages" in
 	let () = try
 		mkdir dest
 	with Unix.Unix_error(Unix.EEXIST, _, _) -> (
