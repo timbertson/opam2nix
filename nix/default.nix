@@ -14,7 +14,7 @@ in
 stdenv.mkDerivation {
 	name = "opam2nix";
 	inherit src;
-	unpackCmd = "tar xzf $src";
+	# unpackCmd = "tar xzf $src";
 	buildPhase = "gup all";
 	installPhase = ''
 		mkdir $out

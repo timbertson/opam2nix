@@ -1,2 +1,2 @@
 { pkgs ? import <nixpkgs> {} }:
-pkgs.callPackage ./opam2nix.nix { src = ./local.tgz; }
+pkgs.callPackage ./default.nix { src = ./local.tgz; }
