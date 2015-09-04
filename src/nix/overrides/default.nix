@@ -22,6 +22,12 @@ defs // {
 		buildPhase = "${pkgs.bash}/bin/bash ${./zarith-xen}/install.sh";
 	}) defs.zarith-xen;
 
+	"0install" = overrideAll (impl:
+		# disable tests, beause they require additional setup
+		let deps = lib.remove impl.passthru.opamSelection.ounit impl.buildInputs; in
+		impl // { buildInputs = deps; propagatedBuildInputs = deps; }
+	) defs."0install";
+
 	# TODO: should this be automated?
 	biniou = addBinDir defs.biniou;
 	yojson = addBinDir defs.yojson;
