@@ -1,2 +1,2 @@
 { pkgs ? import <nixpkgs> {} }:
-pkgs.callPackage ./default.nix { src = ./local.tgz; }
+pkgs.callPackage ./default.nix {} { src = ./local.tgz; }

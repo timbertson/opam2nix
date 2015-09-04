@@ -1,6 +1,5 @@
-{ pkgs, stdenv, lib, ocamlPackages, callPackage, newScope, libev, fetchurl,
-	src ? null
-}:
+{ pkgs, stdenv, lib, ocamlPackages, callPackage, newScope, libev, fetchurl }:
+{ src ? null }:
 let
 	gup = pkgs.callPackage ./gup.nix {};
 	ocamlPackages = pkgs.ocamlPackages // rec {
