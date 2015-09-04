@@ -1,5 +1,2 @@
 { pkgs ? import <nixpkgs> {} }:
-with pkgs;
-lib.overrideDerivation (callPackage ./opam2nix.nix {}) (base: {
-	src = ./local.tgz;
-})
+pkgs.callPackage ./opam2nix.nix { src = ./local.tgz; }

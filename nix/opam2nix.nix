@@ -1,4 +1,6 @@
-{ pkgs, stdenv, lib, ocamlPackages, callPackage, newScope, libev, fetchurl }:
+{ pkgs, stdenv, lib, ocamlPackages, callPackage, newScope, libev, fetchurl,
+	src ? null
+}:
 let
 	gup = pkgs.callPackage ./gup.nix {};
 	ocamlPackages = pkgs.ocamlPackages // rec {
@@ -11,10 +13,7 @@ let
 in
 stdenv.mkDerivation {
 	name = "opam2nix";
-	src = fetchurl {
-		url = "https://github.com/gfxmonk/opam2nix/tarball/53e22cecc606fcf7ad87e8f997568501ca5871e5";
-		sha256 = "1i2n5v7dp71dsfw1jp8wcvnivaj3kzih3h7vs2nggw1x22h4abl7";
-	};
+	inherit src;
 	unpackCmd = "tar xzf $src";
 	buildPhase = "gup all";
 	installPhase = ''
