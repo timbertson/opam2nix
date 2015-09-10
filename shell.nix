@@ -1,2 +1,1 @@
-{ pkgs ? import <nixpkgs> {} }:
-pkgs.callPackage ./nix/default.nix {}
+import nix/local.nix
