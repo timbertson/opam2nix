@@ -1,2 +1,2 @@
 #!bash -eu
-rm -rf _build
+rm -rf _build main.{byte,native}

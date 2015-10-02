@@ -37,6 +37,7 @@ stdenv.mkDerivation {
 		re
 		jsonm
 		ocaml_extlib
+		pkgs.libssh2
 	];
 
 	# XXX this seems to be necessary for .byte targets only
