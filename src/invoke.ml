@@ -87,7 +87,11 @@ let run env get_commands =
 				let open Unix in
 				prerr_endline ("+ " ^ String.concat " " args);
 				let pid = create_process command (args |> Array.of_list) stdin stdout stderr in
-				let (_, status) = waitpid [] pid in
+				let rec keep_waiting pid =
+					try waitpid [] pid
+					with Unix.Unix_error(EINTR, _, _) -> keep_waiting pid
+				in
+				let (_, status) = keep_waiting pid in
 				let quit code = prerr_endline "Command failed."; exit code in
 				match status with
 					| WEXITED 0 -> ()
