@@ -257,18 +257,13 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 		(OpamPackage.Version.of_string version)
 	in
 	let open Nix_expr in
-	let inputs = ref (InputMap.from_list [
-		"stdenv", Required;
-		"pkgs", Required;
-		"opamSelection", Required;
-		"opam2nix", Required;
+	let pkgs_expression_inputs = ref (InputMap.from_list [
+		"lib", Required;
 	]) in
 	let additional_env_vars = ref [] in
 	let adder r = fun importance name -> r := InputMap.add name importance !r in
-	let add_input = adder inputs in
 
 	let url = load_url (Filename.concat path "url") in
-	let src = Option.map (nix_of_url ~add_input:(add_input Required) ~cache) url in
 
 	deps#init_package pkgid;
 
@@ -276,6 +271,9 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let nix_deps = ref InputMap.empty in
 	let add_native = adder nix_deps in
 	let add_opam_input = adder opam_inputs in
+	let add_expression_input = adder pkgs_expression_inputs in
+
+	let src = Option.map (nix_of_url ~add_input:(add_expression_input Required) ~cache) url in
 
 	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
 	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)
@@ -292,108 +290,95 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let opam = load_opam (Filename.concat path "opam") in
 	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep ~name opam in
 
-	let opam_inputs : Nix_expr.t AttrSet.t = !opam_inputs |> InputMap.mapi (fun name importance ->
+
+	let property_of_input src (name, importance) : Nix_expr.t =
 		match importance with
-			| Optional -> `Property_or (`Id "opamSelection", name, `Null)
-			| Required -> `Property (`Id "opamSelection", name)
-	) in
-
-	let inputs = !inputs |> InputMap.bindings in
-	let nix_deps = !nix_deps |> InputMap.bindings in
-
-	let input_args = (inputs @ nix_deps)
+			| Optional -> `Property_or (src, name, `Null)
+			| Required -> `Property (src, name)
+	in
+	let attr_of_input src (name, importance) : string * Nix_expr.t =
+		(name, property_of_input src (name, importance))
+	in
+	let sorted_bindings_of_input input = input
+		|> InputMap.bindings
 		|> List.sort (fun (a,_) (b,_) -> String.compare a b)
-		|> List.map (function
-			| name, Required -> `Id name
-			| name, Optional -> `Default (name, `Null)
-		) in
+	in
 
-	`Let_bindings (
-		AttrSet.build [
-			"identity", `Lit "x: x";
-			"buildWithOverride", `Function (
-				`Id "override",
-				`Function (
-					(`NamedArguments input_args),
-					(`Let_bindings (
-						(AttrSet.build [
-							"lib", `Lit "pkgs.lib";
-							"opamDeps", `Attrs opam_inputs;
-							"inputs", `Call [
-									`Id "lib.filter";
-									`Lit "(dep: dep != true && dep != null)";
-									`BinaryOp (
-										`List (
-											(nix_deps |> List.map (fun (name, _importance) -> `Id name))
-										),
-										"++",
-										`Lit "(lib.attrValues opamDeps)"
-									);
-							];
-						]),
-						`Call [ `Id "stdenv.mkDerivation";
-							`Call [
-								`Id "override";
-								(`Attrs (AttrSet.build (!additional_env_vars @ [
-									"name", Nix_expr.str (name ^ "-" ^ version);
-									"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
-										"spec", `Lit "./opam";
-										"deps", `Lit "opamDeps";
-										"name", Nix_expr.str name;
-										"files", if has_files then `Lit "./files" else `Null;
-									])];
-									"buildInputs", `Lit "inputs";
-									(* TODO: don't include build-only deps *)
-									"propagatedBuildInputs", `Lit "inputs";
-									"passthru", `Attrs (AttrSet.build [
-										"opamSelection", `Id "opamSelection";
-										(* "ocaml", `Id "ocaml"; *)
-									]);
-								] @ (
-									if has_files then [
-										"postUnpack", `String [`Lit "cp -r "; `Expr (`Lit "./files"); `Lit "/* \"$sourceRoot/\""];
-									] else []
-								) @ (
-									match src with
-										| Some src -> buildAttrs @ [
-											"src", src;
-											"createFindlibDestdir", `Lit "true";
-										]
-										| None -> let open Nix_expr in [
-											(* psuedo-package. We need it to exist in `opamSelection`, but
-											* it doesn't really do anything *)
-											"unpackPhase", str "true";
-											"buildPhase", str "true";
-											"installPhase", str "mkdir -p $out";
-										]
-								) @ (
-									match url with
-										| Some (`http href)
-											when ends_with ".tbz" href ->
-											["unpackCmd", Nix_expr.str "tar -xf \"$curSrc\""]
-										| _ -> []
-								))))
-							]
+	let opam_inputs : Nix_expr.t AttrSet.t =
+		!opam_inputs |> InputMap.mapi (fun name importance ->
+			property_of_input (`Id "opamSelection") (name, importance)) in
+
+	let nix_deps = !nix_deps
+		|> sorted_bindings_of_input
+		|> List.map (property_of_input (`Id "pkgs"))
+	in
+	let expression_args : (string * Nix_expr.t) list = !pkgs_expression_inputs
+		|> sorted_bindings_of_input
+		|> List.map (attr_of_input (`Id "pkgs"))
+	in
+
+	`Function (
+		`Id "world",
+		`Let_bindings (
+			(AttrSet.build ([
+				"lib", `Lit "world.pkgs.lib";
+				"opamSelection", `Property (`Id "world", "opamSelection");
+				"opam2nix", `Property (`Id "world", "opam2nix");
+				"pkgs", `Property (`Id "world", "pkgs");
+				"opamDeps", `Attrs opam_inputs;
+				"inputs", `Call [
+						`Id "lib.filter";
+						`Lit "(dep: dep != true && dep != null)";
+						`BinaryOp (
+							`List nix_deps,
+							"++",
+							`Lit "(lib.attrValues opamDeps)"
+						);
+				];
+			] @ expression_args) ),
+			`Call [
+				`Id "pkgs.stdenv.mkDerivation";
+				`Attrs (AttrSet.build (!additional_env_vars @ [
+					"name", Nix_expr.str (name ^ "-" ^ version);
+					"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
+						"spec", `Lit "./opam";
+						"deps", `Lit "opamDeps";
+						"name", Nix_expr.str name;
+						"files", if has_files then `Lit "./files" else `Null;
+					])];
+					"buildInputs", `Lit "inputs";
+					(* TODO: don't include build-only deps *)
+					"propagatedBuildInputs", `Lit "inputs";
+					"passthru", `Attrs (AttrSet.build [
+						"opamSelection", `Id "opamSelection";
+						(* "ocaml", `Id "ocaml"; *)
+					]);
+				] @ (
+					if has_files then [
+						"postUnpack", `String [`Lit "cp -r "; `Expr (`Lit "./files"); `Lit "/* \"$sourceRoot/\""];
+					] else []
+				) @ (
+					match src with
+						| Some src -> buildAttrs @ [
+							"src", src;
+							"createFindlibDestdir", `Lit "true";
 						]
-					))
-				)
-			);
-			"wrap", `Function (`Id "buildWithOverride", `Attrs (AttrSet.build [
-				"impl", `Call [`Id "buildWithOverride"; `Id "identity"];
-				"withOverride", `Function (`Id "override",
-					`Call [`Id "wrap";
-						`Function (`Id "additionalOverride",
-							`Call [`Id "buildWithOverride";
-								`Function (`Id "attrs",
-									`Call [`Id "additionalOverride"; `Call [`Id "override"; `Id "attrs"]]
-								)
-							]
-						)
-					]
-				);
-			]));
-		],
-		`Call [`Id "wrap"; `Id "buildWithOverride"]
+						| None -> let open Nix_expr in [
+							(* psuedo-package. We need it to exist in `opamSelection`, but
+							* it doesn't really do anything *)
+							"unpackPhase", str "true";
+							"buildPhase", str "true";
+							"installPhase", str "mkdir -p $out";
+						]
+				) @ (
+					match url with
+						| Some (`http href)
+							when ends_with ".tbz" href ->
+							["unpackCmd", Nix_expr.str "tar -xf \"$curSrc\""]
+						| _ -> []
+				)))
+			]
+		)
 	)
 
 

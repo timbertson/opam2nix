@@ -175,35 +175,21 @@ let main idx args =
 				let selection = OpamPackage.Set.fold (fun pkg map ->
 					print_endline ("install: " ^ (OpamPackage.to_string pkg));
 					AttrSet.add (OpamPackage.name pkg |> Name.to_string)
-						(`Call [
-							`Id "builder";
-							`Id "selection";
-							`PropertyPath (`Id "opamPackages", [
-								pkg |> OpamPackage.name |> Name.to_string;
-								pkg |> OpamPackage.version |> Version.to_string;
-							]);
-						])
+						(`PropertyPath (`Id "opamPackages", [
+							pkg |> OpamPackage.name |> Name.to_string;
+							pkg |> OpamPackage.version |> Version.to_string;
+						]))
 						map
 				) (OpamSolver.new_packages solution) AttrSet.empty in
-				let selection = AttrSet.add "ocaml" (`Id "ocaml") selection in
+				let selection = AttrSet.add "ocaml" (`Property (`Id "world.pkgs", ocaml_attr)) selection in
 				let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
 
-				let expr = (`Function (
-					`NamedArguments [
-						`Id "pkgs";
-						`Id "opam2nix";
-						`Id "opamPackages";
-						`Default ("ocaml", `Property (`Id "pkgs", ocaml_attr));
-						`Default ("builder", `Lit "opamSelection: pkg: pkgs.callPackage pkg.impl { inherit opamSelection opam2nix; }");
-						`Default ("overrideSelections", `Lit "sels: sels");
-					],
-					`Let_bindings (
-						AttrSet.build ([
-							"selection", `Call [ `Id "overrideSelections"; `Attrs selection ];
-						]),
-						`Id "selection"
-					)
-				)) in
+				let expr = `Function (
+					`Id "world",
+					`Let_bindings (AttrSet.build [
+						"opamPackages", `Property (`Id "world", "opamPackages");
+					], `Attrs selection);
+				) in
 				let oc = open_out dest in
 				Nix_expr.write oc expr;
 				close_out oc

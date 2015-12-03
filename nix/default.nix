@@ -11,7 +11,7 @@ let
 	ocVersion = (builtins.parseDrvName (ocamlPackages.ocaml.name)).version;
 in
 stdenv.mkDerivation {
-	name = "opam2nix";
+	name = "opam2nix-${lib.removeSuffix "\n" (builtins.readFile ../VERSION)}";
 	inherit src;
 	# unpackCmd = "tar xzf $src";
 	buildPhase = "gup all";
@@ -19,6 +19,9 @@ stdenv.mkDerivation {
 		mkdir $out
 		cp -r --dereference bin $out/bin
 	'';
+	passthru = {
+		format_version = import ./format_version.nix;
+	};
 	buildInputs = with ocamlPackages; [
 		ocaml
 		findlib

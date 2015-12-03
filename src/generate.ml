@@ -97,24 +97,28 @@ let main arg_idx args =
 	);
 
 	Repo.traverse_versions ~root:dest (fun package impls base ->
-		let path_of_version = (fun ver -> `Lit ("import ./" ^ ver)) in
+		let path_of_version = (fun ver -> `Lit ("import ./" ^ ver ^ " world")) in
 		let path = Filename.concat base "default.nix" in
 		write_expr path (fun () ->
-			`Attrs (Nix_expr.AttrSet.build (
-				("latest", impls |> Repo.latest_version |> path_of_version) ::
-				(impls |> List.map (fun ver -> ver, path_of_version ver))
-			))
+			`Function (`Id "world",
+				`Attrs (Nix_expr.AttrSet.build (
+					("latest", impls |> Repo.latest_version |> path_of_version) ::
+					(impls |> List.map (fun ver -> ver, path_of_version ver))
+				))
+			)
 		)
 	);
 
 	let () =
 		let packages = list_dirs dest in
-		let path_of_package = (fun p -> `Lit ("import ./" ^ p)) in
+		let path_of_package = (fun p -> `Lit ("import ./" ^ p ^ " world")) in
 		let path = Filename.concat dest "default.nix" in
 		write_expr path (fun () ->
-			`Attrs (Nix_expr.AttrSet.build (
-				packages |> List.map (fun ver -> ver, path_of_package ver)
-			))
+			`Function (`Id "world",
+				`Attrs (Nix_expr.AttrSet.build (
+					packages |> List.map (fun ver -> ver, path_of_package ver)
+				))
+			)
 		)
 	in
 
