@@ -345,6 +345,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 						"deps", `Lit "opamDeps";
 						"name", Nix_expr.str name;
 						"files", if has_files then `Lit "./files" else `Null;
+						"ocaml-version", `Property (`Id "world", "ocamlVersion");
 					])];
 					"buildInputs", `Lit "inputs";
 					(* TODO: don't include build-only deps *)

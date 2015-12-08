@@ -65,6 +65,9 @@ let load_env () =
 					| "spec", `String path -> spec := Some (Opam_metadata.load_opam path)
 					| "spec", other -> unexpected_json "spec" other
 
+					| "ocaml-version", `String version -> add_var "ocaml-version" (S version)
+					| "ocaml-version", other -> unexpected_json "ocaml-version" other
+
 					| other, _ -> failwith ("unexpected opamEnv key: " ^ other)
 			)
 		end
