@@ -68,9 +68,8 @@ let consistent_available_field ~ocaml_version ~vars opam =
 		(OpamFile.OPAM.available opam)
 
 
-let build_universe ~repo ~packages ~ocaml_version ~base_packages ~target_os () =
+let build_universe ~repo ~package_names ~ocaml_version ~base_packages ~target_os () =
 	let empty = OpamPackage.Set.empty in
-	let names n = Name.Set.of_list (n |> List.map Name.of_string) in
 	let available_packages = ref empty in
 	let opams = ref OpamPackage.Map.empty in
 
@@ -108,16 +107,16 @@ let build_universe ~repo ~packages ~ocaml_version ~base_packages ~target_os () =
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
 		|> OpamPackage.Set.of_list in
 	{
-		u_packages	= empty;
-		u_action		= Install (names packages); (* XXX this duplicates "atom request" below *)
+		u_packages  = empty;
+		u_action    = Install (OpamPackage.Name.Set.of_list package_names);
 		u_installed = base_packages;
 		u_available = !available_packages;
-		u_depends		= OpamPackage.Map.map OpamFile.OPAM.depends opams;
-		u_depopts		= OpamPackage.Map.map OpamFile.OPAM.depopts opams;
+		u_depends   = OpamPackage.Map.map OpamFile.OPAM.depends opams;
+		u_depopts   = OpamPackage.Map.map OpamFile.OPAM.depopts opams;
 		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams;
 		u_installed_roots = empty;
-		u_pinned		= empty;
-		u_base			= base_packages;
+		u_pinned    = empty;
+		u_base      = base_packages;
 	}
 
 let main idx args =
@@ -144,7 +143,18 @@ let main idx args =
 	let packages = !packages in
 	let dest = nonempty !dest "--dest" in
 	let repo = nonempty !repo "--repo" in
-	let package_names = packages |> List.map OpamPackage.Name.of_string in
+
+	let requested_packages : OpamFormula.atom list = packages |> List.map (fun spec ->
+		let relop_re = Str.regexp "[!<=>]+" in
+		match Str.full_split relop_re spec with
+			| [Str.Text name; Str.Delim relop; Str.Text ver] ->
+				let relop = OpamFormula.relop_of_string relop in
+				let ver = OpamPackage.Version.of_string ver in
+				(OpamPackage.Name.of_string name, Some (relop, ver))
+			| [Str.Text name] -> (OpamPackage.Name.of_string name, None)
+			| _ -> failwith ("Invalid version spec: " ^ spec)
+	) in
+	let package_names : OpamPackage.Name.t list = requested_packages |> List.map (fun (name, _) -> name) in
 
 	let ocaml_version = nonempty !ocaml_version "--ocaml-version" in
 	let ocaml_attr = !ocaml_attr in
@@ -152,13 +162,13 @@ let main idx args =
 
 	let universe = build_universe
 		~repo:repo
-		~packages:packages
+		~package_names
 		~base_packages
 		~ocaml_version
 		~target_os:!target_os
 		() in
 	let request = {
-		wish_install = package_names |> List.map (fun name -> name, None); (* XXX version *)
+		wish_install = requested_packages;
 		wish_remove = [];
 		wish_upgrade = [];
 		criteria = `Default;
