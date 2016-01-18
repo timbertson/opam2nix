@@ -167,7 +167,7 @@ let load_url path =
 	end else None
 
 let load_opam path =
-	Printf.eprintf "  Loading opam info from %s\n" path;
+	(* Printf.eprintf "  Loading opam info from %s\n" path; *)
 	let file = open_in path in
 	let rv = OPAM.read_from_channel file in
 	close_in file;

@@ -62,7 +62,9 @@ let load_env () =
 					| "files", `Null -> ()
 					| "files", other -> unexpected_json "files" other
 
-					| "spec", `String path -> spec := Some (Opam_metadata.load_opam path)
+					| "spec", `String path ->
+							Printf.eprintf "Loading %s\n" path;
+							spec := Some (Opam_metadata.load_opam path)
 					| "spec", other -> unexpected_json "spec" other
 
 					| "ocaml-version", `String version -> add_var "ocaml-version" (S version)

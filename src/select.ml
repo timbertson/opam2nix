@@ -68,7 +68,7 @@ let consistent_available_field ~ocaml_version ~vars opam =
 		(OpamFile.OPAM.available opam)
 
 
-let build_universe ~repo ~package_names ~ocaml_version ~base_packages ~target_os () =
+let build_universe ~repos ~package_names ~ocaml_version ~base_packages ~target_os () =
 	let empty = OpamPackage.Set.empty in
 	let available_packages = ref empty in
 	let opams = ref OpamPackage.Map.empty in
@@ -91,7 +91,7 @@ let build_universe ~repo ~package_names ~ocaml_version ~base_packages ~target_os
 		]
 	in
 
-	Repo.traverse `Nix ~repo ~packages:[] (fun package version path ->
+	Repo.traverse `Nix ~repos ~packages:[] (fun package version path ->
 		let opam = Opam_metadata.load_opam (Filename.concat path "opam") in
 		match availability opam with
 			| `Available ->
@@ -120,7 +120,7 @@ let build_universe ~repo ~package_names ~ocaml_version ~base_packages ~target_os
 	}
 
 let main idx args =
-	let repo = ref "" in
+	let repos = ref [] in
 	let dest = ref "" in
 	(* XXX this should be more integrated... *)
 	let ocaml_version = ref "" in
@@ -128,7 +128,7 @@ let main idx args =
 	let base_packages = ref "" in
 	let target_os = ref (Opam_metadata.os_string ()) in
 	let opts = Arg.align [
-		("--repo", Arg.Set_string repo, "Repository root");
+		("--repo", Arg.String (fun repo -> repos := repo :: !repos), "Repository root");
 		("--dest", Arg.Set_string dest, "Destination .nix file");
 		("--os", Arg.Set_string target_os, "Target OS");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version");
@@ -142,7 +142,7 @@ let main idx args =
 	if !packages = [] then failwith "At least one package required";
 	let packages = !packages in
 	let dest = nonempty !dest "--dest" in
-	let repo = nonempty !repo "--repo" in
+	let repos = nonempty_list !repos "--repo" in
 
 	let requested_packages : OpamFormula.atom list = packages |> List.map (fun spec ->
 		let relop_re = Str.regexp "[!<=>]+" in
@@ -161,7 +161,7 @@ let main idx args =
 	let base_packages = nonempty !base_packages "--base-packages" |> Str.split (Str.regexp ",") in
 
 	let universe = build_universe
-		~repo:repo
+		~repos:repos
 		~package_names
 		~base_packages
 		~ocaml_version

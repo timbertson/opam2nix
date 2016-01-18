@@ -6,6 +6,7 @@ let
 		opam-lib = ocamlScope ./opam-lib.nix {};
 		cudf = ocamlScope ./cudf.nix {};
 		dose = ocamlScope ./dose.nix {};
+		basedir = ocamlScope ./basedir.nix {};
 	};
 	ocamlScope = newScope ocamlPackages;
 	ocVersion = (builtins.parseDrvName (ocamlPackages.ocaml.name)).version;
@@ -30,6 +31,7 @@ stdenv.mkDerivation {
 		ocurl
 		yojson
 		fileutils
+		basedir
 		gup
 
 		# XXX these should be picked up by propagatedBuildInputs

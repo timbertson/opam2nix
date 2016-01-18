@@ -25,20 +25,23 @@ let main arg_idx args =
 	let max_age = ref (14*24) in
 	let merge_existing = ref false in
 	let opts = Arg.align [
-		("--src", Arg.Set_string repo, "Opam repository");
-		("--dest", Arg.Set_string dest, "Destination (must not exist, unless --unclean given)");
-		("--cache", Arg.Set_string cache, "Cache (may exist)");
-		("--unclean", Arg.Set merge_existing, "Write into an existing destination");
-		("--max-age", Arg.Set_int max_age, "Maximum cache age (hours)");
+		("--src", Arg.Set_string repo, "DIR Opam repository");
+		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean given)");
+		("--cache", Arg.Set_string cache, "DIR Cache (may exist)");
+		("--unclean", Arg.Set merge_existing, "(bool) Write into an existing destination");
+		("--max-age", Arg.Set_int max_age, "HOURS Maximum cache age");
 	]; in
 	let packages = ref [] in
 	let add_package x = packages := x :: !packages in
-	Arg.parse_argv ~current:(ref arg_idx) args opts add_package "TODO: usage...";
+	Arg.parse_argv ~current:(ref arg_idx) args opts add_package "usage: opam2nix generate [OPTIONS] [package.version [package2.version2]]";
 
 	let packages = List.rev !packages in
 	let repo = nonempty !repo "--repo" in
 	let dest = nonempty !dest "--dest" in
-	let cache = nonempty !cache "--cache" in
+	let cache = match !cache with
+		| "" -> Filename.concat (XDGBaseDir.Cache.user_dir ()) "opam2nix/download"
+		| other -> other
+	in
 
 	let mkdir dest = Unix.mkdir dest 0o750 in
 
@@ -54,9 +57,7 @@ let main arg_idx args =
 		end
 	) in
 
-	let () = try
-		mkdir cache
-	with Unix.Unix_error(Unix.EEXIST, _, _) -> () in
+	FileUtil.mkdir ~parent:true cache;
 
 	let cache = new File_cache.cache ~max_age:(!max_age*60*60) cache in
 
@@ -71,7 +72,7 @@ let main arg_idx args =
 		close_out oc
 	in
 
-	Repo.traverse `Opam ~repo ~packages (fun package version path ->
+	Repo.traverse `Opam ~repos:[repo] ~packages (fun package version path ->
 		let dest_parts = [package; version] in
 		mkdirp_in dest dest_parts;
 		let version_dir = String.concat Filename.dir_sep (dest :: dest_parts) in
@@ -79,7 +80,7 @@ let main arg_idx args =
 		let files_src = (Filename.concat path "files") in
 		let has_files = try let (_:Unix.stats) = Unix.stat files_src in true with Unix.Unix_error (Unix.ENOENT, _, _) -> false in
 		let open FileUtil in
-		cp [Filename.concat path "opam"] (Filename.concat version_dir "opam");
+		cp [readlink (Filename.concat path "opam")] (Filename.concat version_dir "opam");
 		let () =
 			let filenames = if Sys.file_exists files_src then ls files_src else [] in
 			match filenames with

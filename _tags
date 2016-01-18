@@ -1,4 +1,4 @@
 <src>: include
-true: debug, package(str,unix, yojson,opam-lib,opam-lib.solver,lwt,lwt.unix, curl, fileutils), syntax(camlp4o), package(lwt.syntax)
+true: debug, package(str,unix, yojson,opam-lib,opam-lib.solver,lwt,lwt.unix, curl, fileutils, xdg-basedir), syntax(camlp4o), package(lwt.syntax)
 <result>: -traverse
 <dest>: -traverse

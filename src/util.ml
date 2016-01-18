@@ -36,6 +36,11 @@ let nonempty value arg =
 	then failwith (arg ^ " required")
 	else value
 
+let nonempty_list value arg =
+	if value = []
+	then failwith (arg ^ " required")
+	else value
+
 module Option = struct
 	let map fn = function None -> None | Some x -> Some (fn x)
 end
