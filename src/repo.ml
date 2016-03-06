@@ -18,10 +18,13 @@ module String_tuple_set = Set.Make (struct
 		if r0 <> 0 then r0 else Pervasives.compare a2 b2
 end)
 
-let traverse repo_type ~repos ~packages emit =
+let traverse repo_type ~repos ~packages ?verbose emit =
 	let sep = Str.regexp "@" in
+	let verbose = Option.default false verbose in
 	let version_sep = "." in
-	let version_join = match repo_type with `Nix -> fun package version -> version | `Opam -> fun package version -> package ^ version_sep ^ version in
+	let version_join = match repo_type with
+		| `Nix -> fun package version -> version
+		| `Opam -> fun package version -> package ^ version_sep ^ version in
 	let seen = ref String_tuple_set.empty in
 	let emit package version path =
 		let id = (package, version) in
@@ -29,6 +32,7 @@ let traverse repo_type ~repos ~packages emit =
 			Printf.eprintf "Skipping %s (already loaded %s.%s)\n" path package version
 		else begin
 			seen := String_tuple_set.add id !seen;
+			if verbose then Printf.eprintf "Processing package %s\n" path;
 			emit package version path
 		end
 	in
@@ -44,7 +48,7 @@ let traverse repo_type ~repos ~packages emit =
 		let process_package package version =
 			let package_base = Filename.concat pkgroot package in
 			let list_versions () =
-				(* Printf.eprintf "listing %s\n" package_base; *)
+				if verbose then Printf.eprintf "listing %s\n" package_base;
 				let dirs = list_dirs package_base in
 				match repo_type with
 					| `Nix -> dirs

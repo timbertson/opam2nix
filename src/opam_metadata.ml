@@ -277,7 +277,12 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 
 	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
 	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)
-	if name <> "ocamlfind" then add_opam_input Optional "ocamlfind";
+	let is_conf_pkg pkg =
+		let re = Str.regexp "^conf-" in
+		Str.string_match re pkg 0
+	in
+	if not (name = "ocamlfind" || is_conf_pkg name)
+		then add_opam_input Optional "ocamlfind";
 	add_opam_input Required "ocaml"; (* pretend this is an `opam` input for convenience *)
 
 	let add_dep = fun importance dep ->

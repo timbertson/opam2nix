@@ -67,6 +67,28 @@ let consistent_available_field ~ocaml_version ~vars opam =
 	OpamFilter.eval_to_bool ~default:false (resolve_variable ~ocaml_version ~global_vars:vars)
 		(OpamFile.OPAM.available opam)
 
+let print_universe chan u =
+	match u with { u_action; u_available; u_installed; _ } -> begin
+		let open Printf in
+		let string_of_packageset = OpamPackage.Set.to_string in
+		let string_of_name_set = OpamPackage.Name.Set.to_string in
+		let string_of_action = function
+			| Depends -> "Depends"
+			| Remove  -> "Remove"
+			| Init    -> "Init"
+			| Install names -> "Install: " ^ (string_of_name_set names)
+			| Switch  names -> "Switch: "  ^ (string_of_name_set names)
+			| Import  names -> "Import: "  ^ (string_of_name_set names)
+			| Upgrade   packages -> "Upgrade: "   ^ (string_of_packageset packages)
+			| Reinstall packages -> "Reinstall: " ^ (string_of_packageset packages)
+		in
+		fprintf chan "Available:\n";
+		u_available |> OpamPackage.Set.iter (fun pkg -> fprintf chan " - %s\n" (OpamPackage.to_string pkg));
+		fprintf chan "Installed:\n";
+		u_installed |> OpamPackage.Set.iter (fun pkg -> fprintf chan " - %s\n" (OpamPackage.to_string pkg));
+		fprintf chan "Action: %s\n" (string_of_action u_action);
+		()
+	end
 
 let build_universe ~repos ~package_names ~ocaml_version ~base_packages ~target_os () =
 	let empty = OpamPackage.Set.empty in
@@ -127,6 +149,7 @@ let main idx args =
 	let ocaml_attr = ref "ocaml" in
 	let base_packages = ref "" in
 	let target_os = ref (Opam_metadata.os_string ()) in
+	let verbose = ref false in
 	let opts = Arg.align [
 		("--repo", Arg.String (fun repo -> repos := repo :: !repos), "Repository root");
 		("--dest", Arg.Set_string dest, "Destination .nix file");
@@ -134,10 +157,12 @@ let main idx args =
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version");
 		("--ocaml-attr", Arg.Set_string ocaml_attr, "Ocaml nixpkgs attribute (e.g `ocaml`, `ocaml_4_00_01`)");
 		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated)");
+		("--verbose", Arg.Set verbose, "Verbose");
+		("-v", Arg.Set verbose, "Verbose");
 	]; in
 	let packages = ref [] in
 	let add_package x = packages := x :: !packages in
-	Arg.parse_argv ~current:(ref idx) args opts add_package "TODO: usage...";
+	Arg.parse_argv ~current:(ref idx) args opts add_package "opam2nix: usage...";
 
 	if !packages = [] then failwith "At least one package required";
 	let packages = !packages in
@@ -167,6 +192,7 @@ let main idx args =
 		~ocaml_version
 		~target_os:!target_os
 		() in
+	if !verbose then print_universe stderr universe;
 	let request = {
 		wish_install = requested_packages;
 		wish_remove = [];

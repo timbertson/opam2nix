@@ -43,4 +43,5 @@ let nonempty_list value arg =
 
 module Option = struct
 	let map fn = function None -> None | Some x -> Some (fn x)
+	let default d v = match v with Some v -> v | None -> d
 end
