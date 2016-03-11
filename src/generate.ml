@@ -17,6 +17,10 @@ let rec mkdirp_in base dirs =
 		mkdir fullpath 0o0750
 	end
 
+type package_selection =
+	[ `Latest_versions of int
+	| `Package_list of string list
+	]
 
 let main arg_idx args =
 	let repo = ref "" in
@@ -24,18 +28,35 @@ let main arg_idx args =
 	let cache = ref "" in
 	let max_age = ref (14*24) in
 	let merge_existing = ref false in
+	let package_selection = ref None in
 	let opts = Arg.align [
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean given)");
+		("--keep-versions", Arg.Int (fun n -> package_selection := Some (`Latest_versions n)), "NUM Versions of each package to keep (default 0)");
 		("--cache", Arg.Set_string cache, "DIR Cache (may exist)");
 		("--unclean", Arg.Set merge_existing, "(bool) Write into an existing destination");
 		("--max-age", Arg.Set_int max_age, "HOURS Maximum cache age");
 	]; in
-	let packages = ref [] in
-	let add_package x = packages := x :: !packages in
-	Arg.parse_argv ~current:(ref arg_idx) args opts add_package "usage: opam2nix generate [OPTIONS] [package.version [package2.version2]]";
+	let add_package p =
+		let existing = match !package_selection with
+			| Some (`Package_list packages) -> packages
+			| None -> []
+			| Some (`Latest_versions _) ->
+				failwith "Can't specify --per-package and individual package specs"
+		in
+		package_selection := Some (`Package_list (p :: existing))
+	in
+	Arg.parse_argv ~current:(ref arg_idx) args opts add_package "usage: opam2nix generate [OPTIONS] [package@version [package2@version2]]";
+	
+	(* fix up reversed package list *)
+	let package_selection = match !package_selection with
+		| Some (`Package_list p) -> (`Package_list (List.rev p))
+		| Some (`Latest_versions _ as sel) -> sel
+		| None ->
+			prerr_endline "no packages selected";
+			exit 0
+	in
 
-	let packages = List.rev !packages in
 	let repo = nonempty !repo "--repo" in
 	let dest = nonempty !dest "--dest" in
 	let cache = match !cache with
@@ -72,7 +93,31 @@ let main arg_idx args =
 		close_out oc
 	in
 
-	Repo.traverse `Opam ~repos:[repo] ~packages (fun package version path ->
+
+	let package_selection = match package_selection with
+		| `Package_list p -> `List p
+		| `Latest_versions n -> `Filter (fun _package versions ->
+			let dot = Str.regexp "\\." in
+			let keep = ref [] in
+			Repo.decreasing_version_order versions |> List.iter (fun version ->
+				let major_minor v =
+					let parts = Str.split dot v |> List.rev in
+					match parts with
+						| [] -> []
+						| patch::parts -> List.rev parts
+				in
+				let base_version = major_minor version in
+				try
+					let predicate = fun candidate -> major_minor candidate = base_version in
+					let _:string = List.find predicate !keep in ()
+				with Not_found -> begin
+					keep := version :: !keep
+				end
+			);
+			!keep |> take 3 
+		)
+	in
+	Repo.traverse `Opam ~repos:[repo] ~packages:package_selection (fun package version path ->
 		let dest_parts = [package; version] in
 		mkdirp_in dest dest_parts;
 		let version_dir = String.concat Filename.dir_sep (dest :: dest_parts) in

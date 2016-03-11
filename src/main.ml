@@ -18,6 +18,9 @@ let () =
 			try Some (commands |> List.find (fun (name, action) -> name = commandName))
 			with Not_found -> None in
 		match command with
-			| Some (_name, action) -> action 1 Sys.argv
+			| Some (_name, action) -> begin
+					try action 1 Sys.argv
+					with Arg.Help err -> (prerr_string err; exit 1)
+				end
 			| None -> eprintf "Unknown command: %s\n" commandName; exit 1
 	)

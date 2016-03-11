@@ -45,3 +45,17 @@ module Option = struct
 	let map fn = function None -> None | Some x -> Some (fn x)
 	let default d v = match v with Some v -> v | None -> d
 end
+
+let rec drop n lst =
+	if n <= 0
+		then lst
+		else match lst with
+			| [] -> []
+			| head :: tail -> drop (n-1) tail
+
+let rec take n lst =
+	if n <= 0
+		then []
+		else match lst with
+			| [] -> []
+			| head :: tail -> head :: (take (n-1) tail)

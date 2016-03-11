@@ -113,7 +113,7 @@ let build_universe ~repos ~package_names ~ocaml_version ~base_packages ~target_o
 		]
 	in
 
-	Repo.traverse `Nix ~repos ~packages:[] (fun package version path ->
+	Repo.traverse `Nix ~repos ~packages:`All (fun package version path ->
 		let opam = Opam_metadata.load_opam (Filename.concat path "opam") in
 		match availability opam with
 			| `Available ->

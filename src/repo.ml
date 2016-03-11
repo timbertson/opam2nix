@@ -18,7 +18,19 @@ module String_tuple_set = Set.Make (struct
 		if r0 <> 0 then r0 else Pervasives.compare a2 b2
 end)
 
-let traverse repo_type ~repos ~packages ?verbose emit =
+type package_selection =
+	[ `All
+	| `List of string list
+	| `Filter of (string * string list -> string list)
+	]
+
+type version_selection =
+	[ `All
+	| `Filter of (string * string list -> string list)
+	| `Exact of string
+	]
+
+let traverse repo_type ~repos ~packages ?version_filter ?verbose emit =
 	let sep = Str.regexp "@" in
 	let verbose = Option.default false verbose in
 	let version_sep = "." in
@@ -40,11 +52,6 @@ let traverse repo_type ~repos ~packages ?verbose emit =
 	repos |> List.iter (fun repo ->
 		let pkgroot = Filename.concat repo "packages" in
 
-		let packages = match packages with
-			| [] -> ["*"]
-			| packages -> packages
-		in
-
 		let process_package package version =
 			let package_base = Filename.concat pkgroot package in
 			let list_versions () =
@@ -62,9 +69,9 @@ let traverse repo_type ~repos ~packages ?verbose emit =
 				in
 
 			let versions = match version with
-				| None | Some "*" -> list_versions ()
-				| Some "latest" -> [list_versions () |> latest_version]
-				| Some version -> [version]
+				| `All -> list_versions ()
+				| `Exact version -> [version]
+				| `Filter fn -> fn package (list_versions ())
 			in
 			versions |> List.iter (fun version ->
 				let path = Filename.concat package_base (version_join package version) in
@@ -73,16 +80,24 @@ let traverse repo_type ~repos ~packages ?verbose emit =
 		in
 
 		let list_packages () = list_dirs pkgroot in
-		packages |> List.iter (fun spec ->
-			let pkg, version = match Str.split sep spec with
-				| [package] -> (package, None)
-				| [package; version] -> (package, Some version)
-				| _ -> failwith ("Invalid package specifier: " ^ spec)
-			in
-			match pkg with
-				| "*" -> list_packages () |> List.iter (fun pkg -> process_package pkg version)
-				| pkg -> process_package pkg version
-		)
+		match packages with
+			| `All ->
+				list_packages ()
+				|> List.iter (fun pkg -> process_package pkg `All)
+				
+			| `Filter fn ->
+				list_packages ()
+				|> List.iter (fun pkg -> process_package pkg (`Filter fn))
+
+			| `List packages -> 
+				packages |> List.iter (fun spec ->
+					let pkg, version = match Str.split sep spec with
+						| [package] -> (package, `All)
+						| [package; version] -> (package, `Exact version)
+						| _ -> failwith ("Invalid package specifier: " ^ spec)
+					in
+					process_package pkg version
+				)
 	)
 
 
