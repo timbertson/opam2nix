@@ -18,20 +18,33 @@ module String_tuple_set = Set.Make (struct
 		if r0 <> 0 then r0 else Pervasives.compare a2 b2
 end)
 
-type package_selection =
-	[ `All
-	| `List of string list
-	| `Filter of (string * string list -> string list)
+type version_filter =
+	[ `Filter of (string list -> string list)
+	| `Exact of string
 	]
 
 type version_selection =
 	[ `All
-	| `Filter of (string * string list -> string list)
+	| `Filter of (string list -> string list)
 	| `Exact of string
 	]
 
-let traverse repo_type ~repos ~packages ?version_filter ?verbose emit =
+type package_selection =
+	[ `All
+	| `Filtered of version_filter
+	| `Package of (string * version_selection)
+	]
+
+type package_selections = package_selection list
+
+let parse_package_spec spec =
 	let sep = Str.regexp "@" in
+	match Str.split sep spec with
+		| [package] -> (package, `All)
+		| [package; version] -> (package, `Exact version)
+		| _ -> failwith ("Invalid package specifier: " ^ spec)
+
+let traverse repo_type ~repos ~(packages:package_selections) ?verbose emit =
 	let verbose = Option.default false verbose in
 	let version_sep = "." in
 	let version_join = match repo_type with
@@ -52,7 +65,7 @@ let traverse repo_type ~repos ~packages ?version_filter ?verbose emit =
 	repos |> List.iter (fun repo ->
 		let pkgroot = Filename.concat repo "packages" in
 
-		let process_package package version =
+		let process_package package (version:version_selection) =
 			let package_base = Filename.concat pkgroot package in
 			let list_versions () =
 				if verbose then Printf.eprintf "listing %s\n" package_base;
@@ -71,7 +84,7 @@ let traverse repo_type ~repos ~packages ?version_filter ?verbose emit =
 			let versions = match version with
 				| `All -> list_versions ()
 				| `Exact version -> [version]
-				| `Filter fn -> fn package (list_versions ())
+				| `Filter fn -> fn (list_versions ())
 			in
 			versions |> List.iter (fun version ->
 				let path = Filename.concat package_base (version_join package version) in
@@ -80,24 +93,18 @@ let traverse repo_type ~repos ~packages ?version_filter ?verbose emit =
 		in
 
 		let list_packages () = list_dirs pkgroot in
-		match packages with
+		packages |> List.iter (function
 			| `All ->
 				list_packages ()
 				|> List.iter (fun pkg -> process_package pkg `All)
-				
-			| `Filter fn ->
-				list_packages ()
-				|> List.iter (fun pkg -> process_package pkg (`Filter fn))
 
-			| `List packages -> 
-				packages |> List.iter (fun spec ->
-					let pkg, version = match Str.split sep spec with
-						| [package] -> (package, `All)
-						| [package; version] -> (package, `Exact version)
-						| _ -> failwith ("Invalid package specifier: " ^ spec)
-					in
-					process_package pkg version
-				)
+			| `Filtered filter ->
+				let filter = (filter :> version_selection) in
+				list_packages ()
+				|> List.iter (fun pkg -> process_package pkg filter)
+
+			| `Package (name, filter) -> process_package name filter
+		)
 	)
 
 

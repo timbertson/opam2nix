@@ -17,45 +17,35 @@ let rec mkdirp_in base dirs =
 		mkdir fullpath 0o0750
 	end
 
-type package_selection =
-	[ `Latest_versions of int
-	| `Package_list of string list
-	]
-
 let main arg_idx args =
 	let repo = ref "" in
 	let dest = ref "" in
 	let cache = ref "" in
 	let max_age = ref (14*24) in
 	let merge_existing = ref false in
-	let package_selection = ref None in
+	let num_versions = ref None in
+	let package_selection = ref [] in
 	let opts = Arg.align [
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean given)");
-		("--keep-versions", Arg.Int (fun n -> package_selection := Some (`Latest_versions n)), "NUM Versions of each package to keep (default 0)");
+		("--num-versions", Arg.Int (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all)");
 		("--cache", Arg.Set_string cache, "DIR Cache (may exist)");
 		("--unclean", Arg.Set merge_existing, "(bool) Write into an existing destination");
 		("--max-age", Arg.Set_int max_age, "HOURS Maximum cache age");
 	]; in
-	let add_package p =
-		let existing = match !package_selection with
-			| Some (`Package_list packages) -> packages
-			| None -> []
-			| Some (`Latest_versions _) ->
-				failwith "Can't specify --per-package and individual package specs"
-		in
-		package_selection := Some (`Package_list (p :: existing))
+	let add_package p = package_selection := (match p with
+			| "*" -> `All
+			| p -> `Package (Repo.parse_package_spec p)
+		) :: !package_selection
 	in
 	Arg.parse_argv ~current:(ref arg_idx) args opts add_package "usage: opam2nix generate [OPTIONS] [package@version [package2@version2]]";
 	
 	(* fix up reversed package list *)
-	let package_selection = match !package_selection with
-		| Some (`Package_list p) -> (`Package_list (List.rev p))
-		| Some (`Latest_versions _ as sel) -> sel
-		| None ->
-			prerr_endline "no packages selected";
-			exit 0
-	in
+	let package_selection = List.rev !package_selection in
+	let () = if List.length package_selection == 0 then (
+		prerr_endline "no packages selected (did you mean '*'?)";
+		exit 0
+	) in
 
 	let repo = nonempty !repo "--repo" in
 	let dest = nonempty !dest "--dest" in
@@ -93,30 +83,40 @@ let main arg_idx args =
 		close_out oc
 	in
 
+	let version_filter num_latest = (fun versions ->
+		let dot = Str.regexp "\\." in
+		let keep = ref [] in
+		Repo.decreasing_version_order versions |> List.iter (fun version ->
+			let major_minor v =
+				let parts = Str.split dot v |> List.rev in
+				match parts with
+					| [] -> []
+					| patch::parts -> List.rev parts
+			in
+			let base_version = major_minor version in
+			try
+				let predicate = fun candidate -> major_minor candidate = base_version in
+				let _:string = List.find predicate !keep in ()
+			with Not_found -> begin
+				keep := version :: !keep
+			end
+		);
+		!keep |> take num_latest
+	) in
 
-	let package_selection = match package_selection with
-		| `Package_list p -> `List p
-		| `Latest_versions n -> `Filter (fun _package versions ->
-			let dot = Str.regexp "\\." in
-			let keep = ref [] in
-			Repo.decreasing_version_order versions |> List.iter (fun version ->
-				let major_minor v =
-					let parts = Str.split dot v |> List.rev in
-					match parts with
-						| [] -> []
-						| patch::parts -> List.rev parts
-				in
-				let base_version = major_minor version in
-				try
-					let predicate = fun candidate -> major_minor candidate = base_version in
-					let _:string = List.find predicate !keep in ()
-				with Not_found -> begin
-					keep := version :: !keep
-				end
-			);
-			!keep |> take 3 
-		)
+	(* if `--num-versions is specified, swap the `All entries to
+	 * a n-latest filter *)
+	let package_selection : Repo.package_selection list = match !num_versions with
+		| Some n ->
+			let filter = `Filter (version_filter n) in
+			package_selection |> List.map (function
+				| `All -> `Filtered filter
+				| `Package (name, `All) -> `Package (name, filter)
+				| other -> other
+			)
+		| None -> package_selection
 	in
+
 	Repo.traverse `Opam ~repos:[repo] ~packages:package_selection (fun package version path ->
 		let dest_parts = [package; version] in
 		mkdirp_in dest dest_parts;
