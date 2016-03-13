@@ -1,4 +1,8 @@
 #!bash -eu
 gup -u _tags src/.stamp
-ocamlbuild -use-ocamlfind -cflag -warn-error -cflag A "$2"
+INCLUDES=""
+if [ "$2" = test.byte ]; then
+	INCLUDES="-I test_src"
+fi
+ocamlbuild -use-ocamlfind $INCLUDES -cflag -warn-error -cflag A "$2"
 touch "$2"

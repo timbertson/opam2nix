@@ -117,3 +117,27 @@ let traverse_versions ~root emit =
 			| [] -> ()
 			| versions -> emit pkg (decreasing_version_order versions) pkg_path
 	)
+
+let version_filter num_latest = (fun versions ->
+	let dot = Str.regexp "\\." in
+	let keep = ref [] in
+	decreasing_version_order versions |> List.iter (fun version ->
+		let major_minor v =
+			let parts = Str.split dot v |> List.rev in
+			match parts with
+				| [] -> []
+				| patch::parts -> List.rev parts
+		in
+		let base_version = major_minor version in
+		(* Printf.eprintf "saw %s with base_version = %s; keep = %s\n" version (String.concat "." base_version) (String.concat ", " !keep); *)
+		try
+			let predicate = fun candidate -> major_minor candidate = base_version in
+			let _:string = List.find predicate !keep in ()
+		with Not_found -> begin
+			keep := version :: !keep
+		end
+	);
+	(* Printf.eprintf "keep is now: %s\n" (String.concat ", " !keep); *)
+	!keep |> List.rev |> take num_latest
+)
+

@@ -1,2 +1,2 @@
 #!bash -eu
-gup -u bin
+gup -u bin test

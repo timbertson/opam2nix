@@ -88,32 +88,11 @@ let main arg_idx args =
 		close_out oc
 	in
 
-	let version_filter num_latest = (fun versions ->
-		let dot = Str.regexp "\\." in
-		let keep = ref [] in
-		Repo.decreasing_version_order versions |> List.iter (fun version ->
-			let major_minor v =
-				let parts = Str.split dot v |> List.rev in
-				match parts with
-					| [] -> []
-					| patch::parts -> List.rev parts
-			in
-			let base_version = major_minor version in
-			try
-				let predicate = fun candidate -> major_minor candidate = base_version in
-				let _:string = List.find predicate !keep in ()
-			with Not_found -> begin
-				keep := version :: !keep
-			end
-		);
-		!keep |> take num_latest
-	) in
-
 	(* if `--num-versions is specified, swap the `All entries to
 	 * a n-latest filter *)
 	let package_selection : Repo.package_selection list = match !num_versions with
 		| Some n ->
-			let filter = `Filter (version_filter n) in
+			let filter = `Filter (Repo.version_filter n) in
 			package_selection |> List.map (function
 				| `All -> `Filtered filter
 				| `Package (name, `All) -> `Package (name, filter)

@@ -33,6 +33,7 @@ stdenv.mkDerivation {
 		fileutils
 		basedir
 		gup
+		ounit
 
 		# XXX these should be picked up by propagatedBuildInputs
 		libev
