@@ -9,6 +9,21 @@ module StringMap = struct
 	let from_list items = List.fold_right (fun (k,v) map -> add k v map) items empty
 end
 
+type url = [
+	| `http of string
+	| `git of string * string option
+]
+
+type url_type =
+	[ `http
+	| `git
+	| `local
+	| `darcs
+	| `hg
+	]
+
+exception Unsupported_archive of string
+exception Invalid_package of string
 
 let var_prefix = "opam_var_"
 
@@ -144,19 +159,13 @@ class dependency_map =
 			PackageMap.to_string reqs_to_string !map
 	end
 
-
-type url = [
-	| `http of string
-	| `git of string * string option
-]
-
 let url file = match (URL.kind file, URL.url file) with
 	| `http, (src, None) -> `http src
-	| `http, (src, Some what) -> failwith "http url with fragment"
-	| `git, src -> `git src
-	| `local, _ -> failwith "`local url not supported"
-	| `darcs, _ -> failwith "TODO: darcs"
-	| `hg, _ -> failwith "TODO: hg"
+	| `http, (src, Some what) -> raise (Unsupported_archive "http with fragment")
+	| `git, src -> raise (Unsupported_archive "git")
+	| `local, _ -> raise (Unsupported_archive "local")
+	| `darcs, _ -> raise (Unsupported_archive "darcs")
+	| `hg, _ -> raise (Unsupported_archive "hg")
 
 let load_url path =
 	if Sys.file_exists path then begin
@@ -168,6 +177,7 @@ let load_url path =
 
 let load_opam path =
 	(* Printf.eprintf "  Loading opam info from %s\n" path; *)
+	if not (Sys.file_exists path) then raise (Invalid_package ("No opam file at " ^ path));
 	let file = open_in path in
 	let rv = OPAM.read_from_channel file in
 	close_in file;
@@ -263,7 +273,11 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let additional_env_vars = ref [] in
 	let adder r = fun importance name -> r := InputMap.add name importance !r in
 
-	let url = load_url (Filename.concat path "url") in
+	let url = try load_url (Filename.concat path "url")
+		with Unsupported_archive reason -> raise (
+			Unsupported_archive (name ^ "-" ^ version ^ ": " ^ reason)
+		)
+	in
 
 	deps#init_package pkgid;
 

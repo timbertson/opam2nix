@@ -25,6 +25,7 @@ let main arg_idx args =
 	let merge_existing = ref false in
 	let num_versions = ref None in
 	let package_selection = ref [] in
+	let ignore_broken_packages = ref false in
 	let opts = Arg.align [
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean given)");
@@ -32,6 +33,7 @@ let main arg_idx args =
 		("--cache", Arg.Set_string cache, "DIR Cache (may exist)");
 		("--unclean", Arg.Set merge_existing, "(bool) Write into an existing destination");
 		("--max-age", Arg.Set_int max_age, "HOURS Maximum cache age");
+		("--ignore-broken", Arg.Set ignore_broken_packages, "(bool) skip over unprocessible packages (default: fail)");
 	]; in
 	let add_package p = package_selection := (match p with
 			| "*" -> `All
@@ -74,10 +76,13 @@ let main arg_idx args =
 
 	let deps = new Opam_metadata.dependency_map in
 
-	let write_expr path expr =
+	let generate_expr ~path expr =
 		Printf.eprintf "Generating %s ...\n" path;
 		flush stderr;
-		let expr = expr () in
+		expr ()
+	in
+
+	let write_expr path expr =
 		let oc = open_out path in
 		Nix_expr.write oc expr;
 		close_out oc
@@ -119,33 +124,47 @@ let main arg_idx args =
 
 	Repo.traverse `Opam ~repos:[repo] ~packages:package_selection (fun package version path ->
 		let dest_parts = [package; version] in
-		mkdirp_in dest dest_parts;
 		let version_dir = String.concat Filename.dir_sep (dest :: dest_parts) in
 		let dest_path = Filename.concat version_dir "default.nix" in
 		let files_src = (Filename.concat path "files") in
 		let has_files = try let (_:Unix.stats) = Unix.stat files_src in true with Unix.Unix_error (Unix.ENOENT, _, _) -> false in
-		let open FileUtil in
-		cp [readlink (Filename.concat path "opam")] (Filename.concat version_dir "opam");
-		let () =
-			let filenames = if Sys.file_exists files_src then ls files_src else [] in
-			match filenames with
-				| [] -> ()
-				| filenames ->
-					(* copy all the files *)
-					let files_dest = Filename.concat version_dir "files" in
-					mkdirp_in version_dir ["files"];
-					cp filenames files_dest;
-		in
-
-		write_expr dest_path (fun () ->
-			Opam_metadata.nix_of_opam ~cache ~deps ~has_files ~name:package ~version path
+		let expr = generate_expr ~path:dest_path (fun () ->
+			let handle_error desc e =
+				if !ignore_broken_packages then (
+					prerr_endline ("Warn: " ^ desc); None
+				) else raise e
+			in
+			let open Opam_metadata in
+			try
+				Some (nix_of_opam ~cache ~deps ~has_files ~name:package ~version path)
+			with
+			| Unsupported_archive desc as e -> handle_error ("Unsupported archive: " ^ desc) e
+			| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
+			| File_cache.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
+		) in
+		expr |> Option.may (fun expr ->
+			mkdirp_in dest dest_parts;
+			let open FileUtil in
+			cp [readlink (Filename.concat path "opam")] (Filename.concat version_dir "opam");
+			let () =
+				let filenames = if Sys.file_exists files_src then ls files_src else [] in
+				match filenames with
+					| [] -> ()
+					| filenames ->
+						(* copy all the files *)
+						let files_dest = Filename.concat version_dir "files" in
+						mkdirp_in version_dir ["files"];
+						cp ~recurse:true ~preserve:true ~force:Force filenames files_dest;
+			in
+			write_expr dest_path expr
 		)
+
 	);
 
 	Repo.traverse_versions ~root:dest (fun package impls base ->
 		let path_of_version = (fun ver -> `Lit ("import ./" ^ ver ^ " world")) in
 		let path = Filename.concat base "default.nix" in
-		write_expr path (fun () ->
+		write_expr path (
 			`Function (`Id "world",
 				`Attrs (Nix_expr.AttrSet.build (
 					("latest", impls |> Repo.latest_version |> path_of_version) ::
@@ -159,7 +178,7 @@ let main arg_idx args =
 		let packages = list_dirs dest in
 		let path_of_package = (fun p -> `Lit ("import ./" ^ p ^ " world")) in
 		let path = Filename.concat dest "default.nix" in
-		write_expr path (fun () ->
+		write_expr path (
 			`Function (`Id "world",
 				`Attrs (Nix_expr.AttrSet.build (
 					packages |> List.map (fun ver -> ver, path_of_package ver)
