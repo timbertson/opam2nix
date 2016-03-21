@@ -22,6 +22,7 @@ stdenv.mkDerivation {
 	'';
 	passthru = {
 		format_version = import ./format_version.nix;
+		inherit ocamlPackages;
 	};
 	buildInputs = with ocamlPackages; [
 		ocaml
