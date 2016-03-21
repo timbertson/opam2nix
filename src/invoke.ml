@@ -245,9 +245,61 @@ let fixup_opam_install env =
 			)
 		)
 
+let apply_patches env =
+	(* extracted from OpamAction.prepare_package_build *)
+	let opam = env.spec in
+	let filter_env = Opam_metadata.lookup_var env.opam_vars in
+
+	(* Substitute the patched files.*)
+	let patches = OpamFile.OPAM.patches opam in
+
+	let iter_patches f =
+		List.fold_left (fun acc (base, filter) ->
+				if OpamFilter.opt_eval_to_bool (filter_env) filter
+				then
+					try f base; acc with e ->
+						OpamMisc.fatal e; OpamFilename.Base.to_string base :: acc
+				else acc
+			) [] patches in
+
+	let all = OpamFile.OPAM.substs opam in
+	let patches =
+		OpamMisc.filter_map (fun (f,_) ->
+			if List.mem f all then Some f else None
+		) patches in
+	List.iter
+		(OpamFilter.expand_interpolations_in_file (filter_env))
+		patches;
+
+	(* Apply the patches *)
+	let patching_errors =
+		iter_patches (fun filename ->
+			let filename_str = (OpamFilename.Base.to_string filename) in
+			Printf.eprintf "applying patch: %s\n" filename_str;
+			OpamSystem.patch filename_str
+		)
+	in
+
+	(* Substitute the configuration files. We should be in the right
+		 directory to get the correct absolute path for the
+		 substitution files (see [substitute_file] and
+		 [OpamFilename.of_basename]. *)
+	List.iter
+		(OpamFilter.expand_interpolations_in_file (filter_env))
+		(OpamFile.OPAM.substs opam);
+
+	if patching_errors <> [] then (
+		let msg =
+			Printf.sprintf "These patches didn't apply:\n%s"
+				(OpamMisc.itemize (fun x -> x) patching_errors)
+		in
+		failwith msg
+	)
+
 let build env =
 	let destDir = destDir () |> OpamFilename.Dir.of_string in
 	ensure_dir_exists destDir;
+	apply_patches env;
 	run env OPAM.build
 
 let install env =
