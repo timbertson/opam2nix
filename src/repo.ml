@@ -120,22 +120,30 @@ let traverse_versions ~root emit =
 
 let version_filter num_latest = (fun versions ->
 	let dot = Str.regexp "\\." in
+	let digits = Str.regexp "^[0-9]+$" in
 	let keep = ref [] in
 	decreasing_version_order versions |> List.iter (fun version ->
 		let major_minor v =
 			let parts = Str.split dot v |> List.rev in
 			match parts with
-				| [] -> []
-				| patch::parts -> List.rev parts
+				| [] -> None
+				| patch::parts ->
+					if Str.string_match digits patch 0
+						then Some (List.rev parts)
+						(* non-digit patchlevel usually implies something weird like +system. Include it. *)
+						else None
 		in
-		let base_version = major_minor version in
 		(* Printf.eprintf "saw %s with base_version = %s; keep = %s\n" version (String.concat "." base_version) (String.concat ", " !keep); *)
-		try
-			let predicate = fun candidate -> major_minor candidate = base_version in
-			let _:string = List.find predicate !keep in ()
-		with Not_found -> begin
-			keep := version :: !keep
-		end
+		let duplicate : string option = major_minor version |> Option.bind (fun base_version ->
+			try
+				let predicate = fun candidate -> major_minor candidate = Some base_version in
+				Some (List.find predicate !keep)
+			with Not_found ->
+				None
+		) in
+		match duplicate with
+			| None -> keep := version :: !keep
+			| Some _ -> ()
 	);
 	(* Printf.eprintf "keep is now: %s\n" (String.concat ", " !keep); *)
 	!keep |> List.rev |> take num_latest

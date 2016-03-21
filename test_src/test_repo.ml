@@ -33,6 +33,17 @@ let suite = "Repo" >:::
 			] result
 		);
 
+		"includes +variations" >:: (fun _ ->
+			let result = version_filter 2 [
+				"0.1.0+special";
+				"0.1.0";
+			] |> decreasing_version_order in
+			assert_equal ~printer:print_version_list [
+				"0.1.0+special";
+				"0.1.0";
+			] result
+		);
+
 	]
 ]
 
