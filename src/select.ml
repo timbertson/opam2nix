@@ -141,6 +141,19 @@ let build_universe ~repos ~package_names ~ocaml_version ~base_packages ~target_o
 		u_base      = base_packages;
 	}
 
+let newer_versions available pkg =
+	let newer a b =
+		(* is a newer than b? *)
+		OpamPackage.Version.compare (OpamPackage.version a) (OpamPackage.version b) > 0
+	in
+	OpamPackage.Set.filter (fun avail ->
+		OpamPackage.name avail == OpamPackage.name pkg && newer avail pkg
+	) available
+	|> OpamPackage.Set.elements
+	|> List.sort (fun a b ->
+		OpamPackage.Version.compare (OpamPackage.version a) (OpamPackage.version b)
+	)
+
 let main idx args =
 	let repos = ref [] in
 	let dest = ref "" in
@@ -168,6 +181,18 @@ let main idx args =
 	let packages = !packages in
 	let dest = nonempty !dest "--dest" in
 	let repos = nonempty_list !repos "--repo" in
+
+	let () =
+		(* make sure opam uses external solver - internal solver is prone to picking old versions *)
+		OpamGlobals.use_external_solver := true;
+		OpamGlobals.external_solver_ref := Some (fun ~input ~output ~criteria ->
+			[ "aspcud"; input; output; criteria]
+		);
+		if not (OpamCudf.external_solver_available ()) then
+			failwith "External solver (aspcud) not available";
+		if !verbose then
+			OpamGlobals.debug_level := 2
+	in
 
 	let requested_packages : OpamFormula.atom list = packages |> List.map (fun spec ->
 		let relop_re = Str.regexp "[!<=>]+" in
@@ -208,15 +233,26 @@ let main idx args =
 					~requested:(package_names |> OpamPackage.Name.Set.of_list)
 					solution;
 				let open Nix_expr in
+				let new_packages = OpamSolver.new_packages solution in
+				let () = match OpamPackage.Set.fold (fun pkg lst ->
+					lst @ (newer_versions universe.u_available pkg)
+				) new_packages [] with
+					| [] -> ()
+					| newer_versions ->
+						Printf.eprintf "\nNOTE:\nThe following package versions are newer than the selected versions,\nbut were not selected due to version constraints:\n";
+						newer_versions |> List.iter (fun pkg ->
+							Printf.eprintf " - %s\n" (OpamPackage.to_string pkg)
+						)
+				in
+
 				let selection = OpamPackage.Set.fold (fun pkg map ->
-					print_endline ("install: " ^ (OpamPackage.to_string pkg));
 					AttrSet.add (OpamPackage.name pkg |> Name.to_string)
 						(`PropertyPath (`Id "opamPackages", [
 							pkg |> OpamPackage.name |> Name.to_string;
 							pkg |> OpamPackage.version |> Version.to_string;
 						]))
 						map
-				) (OpamSolver.new_packages solution) AttrSet.empty in
+				) new_packages AttrSet.empty in
 				let selection = AttrSet.add "ocaml" (`Property (`Id "world.pkgs", ocaml_attr)) selection in
 				let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
 

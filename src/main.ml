@@ -8,6 +8,7 @@ let commands : (string * (int -> string array -> unit)) list = [
 ]
 
 let () =
+	OpamGlobals.root_dir := Filename.concat (Filename.get_temp_dir_name ()) "opam2nix";
 	if Array.length Sys.argv = 0 then (
 		eprintf "Usage: opam2nix <command> [args]\n\nAvailable commands: %s"
 		(commands |> List.map (fun (name, _) -> name) |> String.concat ", ");

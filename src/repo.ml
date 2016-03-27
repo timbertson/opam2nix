@@ -3,7 +3,7 @@ open Util
 let decreasing_version_order versions =
 	let compare a b =
 		(* Note: we invert this because we want a descending list *)
-		OpamVersion.compare (OpamVersion.of_string b) (OpamVersion.of_string a)
+		OpamPackage.Version.compare (OpamPackage.Version.of_string b) (OpamPackage.Version.of_string a)
 	in
 	versions |> List.sort compare
 
