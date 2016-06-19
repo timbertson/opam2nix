@@ -414,6 +414,7 @@ let init_variables () =
 		|> add_var "make" (S "make")
 		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
 		|> add_var "preinstalled" (B false) (* XXX ? *)
+		|> add_var "pinned" (B false) (* probably ? *)
 		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
 		(* XXX best guesses... *)
 		|> add_var "ocaml-native" (B true)

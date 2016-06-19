@@ -55,7 +55,9 @@ let load_env () =
 					end
 					| "deps", other -> unexpected_json "deps" other
 
-					| "name", `String name -> pkgname := name
+					| "name", `String name ->
+							pkgname := name;
+							add_var "name" (S name)
 					| "name", other -> unexpected_json "name" other
 
 					| "files", `String path -> files := Some path
