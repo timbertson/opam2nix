@@ -253,7 +253,10 @@ let main idx args =
 						]))
 						map
 				) new_packages AttrSet.empty in
-				let selection = AttrSet.add "ocaml" (`Property (`Id "world.pkgs", ocaml_attr)) selection in
+				let selection = AttrSet.add "ocaml" (`Call [
+					`Id "world.overrideOcaml";
+					`Property (`Id "world.pkgs", ocaml_attr)
+				]) selection in
 				let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
 
 				let expr = `Function (
