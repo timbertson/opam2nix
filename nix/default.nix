@@ -28,6 +28,7 @@ stdenv.mkDerivation {
 		cp -r --dereference bin $out/bin
 		wrapProgram $out/bin/opam2nix \
 			--prefix PATH : "${localPackages.aspcud}/bin" \
+			--prefix PATH : "${pkgs.nix.out}/bin" \
 		;
 	'';
 	passthru = {

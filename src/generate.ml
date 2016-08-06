@@ -49,7 +49,7 @@ let main arg_idx args =
 		exit 0
 	) in
 
-	let repo = nonempty !repo "--repo" in
+	let repo = nonempty !repo "--src" in
 	let dest = nonempty !dest "--dest" in
 	let cache = match !cache with
 		| "" -> Filename.concat (XDGBaseDir.Cache.user_dir ()) "opam2nix/download"
