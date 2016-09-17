@@ -11,7 +11,7 @@ end
 
 type url = [
 	| `http of string
-	| `git of string * string option
+	| `local of string
 ]
 
 type url_type =
@@ -161,9 +161,10 @@ class dependency_map =
 
 let url file = match (URL.kind file, URL.url file) with
 	| `http, (src, None) -> `http src
-	| `http, (src, Some what) -> raise (Unsupported_archive "http with fragment")
-	| `git, src -> raise (Unsupported_archive "git")
-	| `local, _ -> raise (Unsupported_archive "local")
+	| `http, (_src, Some _fragment) -> raise (Unsupported_archive "http with fragment")
+	| `local, (src, None) -> `local src
+	| `local, (_src, Some _fragment) -> raise (Unsupported_archive "local with fragment")
+	| `git, _ -> raise (Unsupported_archive "git")
 	| `darcs, _ -> raise (Unsupported_archive "darcs")
 	| `hg, _ -> raise (Unsupported_archive "hg")
 
@@ -209,10 +210,11 @@ let sha256_of_path p =
 
 let nix_of_url ~add_input ~cache (url:url) =
 	let open Nix_expr in
-	let local_copy = cache#download url in
-	let sha256 = sha256_of_path local_copy |> Lwt_main.run in
 	match url with
+		| `local src -> `Lit src
 		| `http src ->
+			let local_copy = cache#download src in
+			let sha256 = sha256_of_path local_copy |> Lwt_main.run in
 			add_input "fetchurl";
 			`Call [
 				`Id "fetchurl";
@@ -221,15 +223,6 @@ let nix_of_url ~add_input ~cache (url:url) =
 					"sha256", str sha256;
 				]);
 			]
-		| `git addr ->
-				add_input "fetchgit";
-				`Call [
-					`Id "fetchurl";
-					`Attrs (AttrSet.build [
-						"url", str (concat_address addr);
-						"sha256", str sha256;
-					]);
-				]
 
 let unsafe_envvar_chars = Str.regexp "[^0-9a-zA-Z_]"
 let envvar_of_ident name =

@@ -4,5 +4,5 @@ INCLUDES=""
 if [ "$2" = test.byte ]; then
 	INCLUDES="-I test_src"
 fi
-ocamlbuild -use-ocamlfind $INCLUDES -cflag -warn-error -cflag A "$2"
+ocamlbuild -use-ocamlfind $INCLUDES -cflag -warn-error -cflag +a-3 "$2"
 touch "$2"
