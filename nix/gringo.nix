@@ -1,4 +1,4 @@
-{stdenv, fetchurl, scons, bison, re2c }:
+{stdenv, fetchurl, scons, python, bison, re2c, pkgconfig }:
 
 stdenv.mkDerivation rec {
   version="4.5.4";
@@ -10,9 +10,10 @@ stdenv.mkDerivation rec {
   };
   patches = [ ./gringo.patch ];
 
-  buildInputs = [ scons bison re2c ];
+  buildInputs = [ scons bison re2c pkgconfig ];
+
   buildPhase = ''
-    scons --build-dir=release
+    scons --build-dir=release LIBPATH="${python}/lib"
   '';
   installPhase = ''
     mkdir -p $out/bin
