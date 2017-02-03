@@ -15,6 +15,8 @@ let fetch ~dest url =
 		try
 			let connection = Curl.init () in
 			Curl.set_errorbuffer connection errbuf;
+			let capath = try Some (Unix.getenv "CURL_CA_BUNDLE") with Not_found -> None in
+			capath |> Option.may (Curl.set_cainfo connection);
 			Curl.set_writefunction connection (fun s -> output_string dest s; String.length s);
 			Curl.set_followlocation connection true;
 			Curl.set_url connection url;
