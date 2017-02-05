@@ -367,22 +367,15 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 						(* "ocaml", `Id "ocaml"; *)
 					]);
 				] @ (
-					if has_files then [
-						"postUnpack", `String [`Lit "cp -r "; `Expr (`Lit "./files"); `Lit "/* \"$sourceRoot/\""];
-					] else []
-				) @ (
+					if has_files
+						then [
+							"prePatch", `String [`Lit "cp -r "; `Expr (`Lit "./files"); `Lit "/* ./" ]
+						]
+						else []
+				) @ buildAttrs @ (
 					match src with
-						| Some src -> buildAttrs @ [
-							"src", src;
-							"createFindlibDestdir", `Lit "true";
-						]
-						| None -> let open Nix_expr in [
-							(* psuedo-package. We need it to exist in `opamSelection`, but
-							* it doesn't really do anything *)
-							"unpackPhase", str "true";
-							"buildPhase", str "true";
-							"installPhase", str "mkdir -p $out";
-						]
+						| Some src -> [ "src", src ]
+						| None -> [ "unpackPhase", str "true" ]
 				) @ (
 					match url with
 						| Some (`http href)
