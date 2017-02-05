@@ -9,9 +9,6 @@ type env = {
 }
 
 let destDir () = (Unix.getenv "out")
-let ocamlfindDestDir () =
-	try Some (Unix.getenv "OCAMLFIND_DESTDIR")
-	with Not_found -> None
 let libDestDir () = Filename.concat (destDir ()) "lib"
 
 let unexpected_json desc j =
@@ -113,6 +110,12 @@ let ensure_dir_exists d =
 		OpamFilename.mkdir d;
 	)
 
+let remove_empty_dir d =
+	if OpamFilename.dir_is_empty d then (
+		Printf.eprintf "removing empty dir %s\n" (OpamFilename.Dir.to_string d);
+		OpamFilename.rmdir d;
+	)
+
 let execute_install_file state =
 	let name = state.pkgname in
 	let open OpamTypes in
@@ -209,6 +212,9 @@ let isdir path =
 	with Unix_error(ENOENT, _, _) -> false
 
 (* NOTE: unused - delete if we don't want to go back to using this *)
+let ocamlfindDestDir () =
+	try Some (Unix.getenv "OCAMLFIND_DESTDIR")
+	with Not_found -> None
 let fixup_opam_install env =
 	Printf.eprintf "Running post-opam install fixup ...\n";
 	let name = env.pkgname in
@@ -298,15 +304,28 @@ let apply_patches env =
 		failwith msg
 	)
 
+let binDir dest =
+	let open OpamFilename.OP in
+	dest / "bin"
+
+let libDir dest =
+	let open OpamFilename.OP in
+	dest / "lib"
+
+let outputDirs dest = [ binDir dest; libDir dest ]
+
 let build env =
-	let destDir = destDir () |> OpamFilename.Dir.of_string in
-	ensure_dir_exists destDir;
+	let dest = destDir () |> OpamFilename.Dir.of_string in
+	ensure_dir_exists dest;
+	outputDirs dest |> List.iter ensure_dir_exists;
 	apply_patches env;
 	run env OPAM.build
 
 let install env =
 	run env OPAM.install;
-	execute_install_file env
+	execute_install_file env;
+	let dest = destDir () |> OpamFilename.Dir.of_string in
+	outputDirs dest |> List.iter remove_empty_dir
 
 let main idx args =
 	let action = try Some (Array.get args (idx+1)) with Not_found -> None in
