@@ -30,6 +30,16 @@ let list_dirs root =
 		Sys.is_directory (Filename.concat root name)
 	) |> List.sort String.compare
 
+let rec rm_r root =
+	if Sys.file_exists root then (
+		Sys.readdir root |> Array.to_list |> List.iter (fun name ->
+			let path = (Filename.concat root name) in
+			if Sys.is_directory path
+				then rm_r path
+				else Unix.unlink path
+		);
+		Unix.rmdir root
+	)
 
 let nonempty value arg =
 	if value = ""
