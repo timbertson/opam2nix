@@ -3,6 +3,8 @@ module URL = OpamFile.URL
 module OPAM = OpamFile.OPAM
 module Descr = OpamFile.Descr
 open OpamTypes
+module StringSet = OpamStd.String.Set
+module StringSetMap = OpamStd.String.SetMap
 
 module StringMap = struct
 	include Map.Make(String)
@@ -65,7 +67,7 @@ let string_of_dependency = function
 				(OpamFormula.string_of_formula (fun (b,s) -> (string_of_bool b) ^","^s) formula)
 	| ExternalDependencies tags ->
 			"external:" ^
-				(OpamMisc.StringSetMap.to_string (OpamMisc.StringSet.to_string) tags)
+				(StringSetMap.to_string (StringSet.to_string) tags)
 	| PackageDependencies formula ->
 		(* of OpamTypes.ext_formula *)
 		"package:<TODO>"
@@ -94,14 +96,14 @@ let add_nix_inputs
 		| ExternalDependencies externals ->
 				let has_nix = ref false in
 				let add_all importance packages =
-					OpamMisc.StringSet.iter (fun dep ->
+					StringSet.iter (fun dep ->
 						Printf.eprintf "  adding nix %s: %s\n" desc dep;
 						add_native importance dep
 					) packages
 				in
 
-				OpamMisc.StringSetMap.iter (fun environments packages ->
-					if OpamMisc.StringSet.mem "nixpkgs" environments then (
+				StringSetMap.iter (fun environments packages ->
+					if StringSet.mem "nixpkgs" environments then (
 						has_nix := true;
 						add_all importance packages
 					)
@@ -109,9 +111,9 @@ let add_nix_inputs
 				if not !has_nix then begin
 					Printf.eprintf
 						"  Note: package has depexts, but none of them `nixpkgs`:\n    %s\n"
-						(OpamMisc.StringSetMap.to_string (OpamMisc.StringSet.to_string) externals);
+						(StringSetMap.to_string (StringSet.to_string) externals);
 					Printf.eprintf "  Adding them all as `optional` deps, with fingers firmly crossed.\n";
-					OpamMisc.StringSetMap.iter (fun _environments packages ->
+					StringSetMap.iter (fun _environments packages ->
 						add_all Optional packages
 					) externals;
 				end
@@ -388,7 +390,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	)
 
 
-let os_string () = OpamGlobals.os_string ()
+let os_string = OpamStd.Sys.os_string
 
 let add_var name v vars =
 	vars |> OpamVariable.Full.Map.add (OpamVariable.Full.of_string name) v
@@ -406,7 +408,7 @@ let init_variables () =
 		|> add_var "ocaml-native" (B true)
 		|> add_var "ocaml-native-tools" (B true)
 		|> add_var "ocaml-native-dynlink" (B true)
-		|> add_var "arch" (S (OpamGlobals.arch ()))
+		|> add_var "arch" (S (OpamStd.Sys.arch ()))
 
 let lookup_var vars key =
 	try Some (OpamVariable.Full.Map.find key vars)

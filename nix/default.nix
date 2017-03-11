@@ -10,8 +10,10 @@ let
 		ocamlPackages = lib.makeScope pkgs.newScope (self: with self; pkgs.ocamlPackages // {
 			opam-lib = callPackage ./opam-lib.nix {};
 			cudf = callPackage ./cudf.nix {};
-			dose = callPackage ./dose.nix {};
+			dose3 = callPackage ./dose3.nix {};
+			ocamlgraph = callPackage ./ocamlgraph.nix {};
 			basedir = callPackage ./basedir.nix {};
+			ocaml_extlib = callPackage ./extlib.nix {};
 		});
 	});
 
@@ -34,6 +36,7 @@ stdenv.mkDerivation {
 	passthru = {
 		format_version = import ./format_version.nix;
 		pkgs = localPackages;
+		devInputs = [ utop ];
 	};
 	buildInputs = [
 		ocaml
@@ -50,7 +53,9 @@ stdenv.mkDerivation {
 
 		# XXX these should be picked up by propagatedBuildInputs
 		libev
-		dose
+		camlp4
+		cmdliner
+		dose3
 		cudf
 		ocamlgraph
 		re

@@ -31,8 +31,8 @@ let resolve_variable ~ocaml_version ~global_vars v =
 	let get_env_var v =
 		let var_str =
 			OpamVariable.Full.to_string v
-			|> OpamMisc.string_map (function '-' -> '_' | c -> c) in
-		try match OpamMisc.getenv ("OPAMVAR_" ^ var_str) with
+			|> OpamStd.String.map (function '-' -> '_' | c -> c) in
+		try match OpamStd.Env.get ("OPAMVAR_" ^ var_str) with
 			| "true"  | "1" -> bool true
 			| "false" | "0" -> bool false
 			| s             -> string s
@@ -128,17 +128,14 @@ let build_universe ~repos ~package_names ~ocaml_version ~base_packages ~target_o
 	let base_packages = base_packages
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
 		|> OpamPackage.Set.of_list in
-	{
-		u_packages  = empty;
+	{ OpamSolver.empty_universe with
 		u_action    = Install (OpamPackage.Name.Set.of_list package_names);
 		u_installed = base_packages;
+		u_base      = base_packages;
 		u_available = !available_packages;
 		u_depends   = OpamPackage.Map.map OpamFile.OPAM.depends opams;
 		u_depopts   = OpamPackage.Map.map OpamFile.OPAM.depopts opams;
 		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams;
-		u_installed_roots = empty;
-		u_pinned    = empty;
-		u_base      = base_packages;
 	}
 
 let newer_versions available pkg =
@@ -184,14 +181,14 @@ let main idx args =
 
 	let () =
 		(* make sure opam uses external solver - internal solver is prone to picking old versions *)
-		OpamGlobals.use_external_solver := true;
-		OpamGlobals.external_solver_ref := Some (fun ~input ~output ~criteria ->
-			[ "aspcud"; input; output; criteria]
-		);
+		let open OpamTypes in
+		OpamSolverConfig.update
+			~external_solver:(lazy (Some ([OpamTypes.CIdent "aspcud", None])))
+			();
 		if not (OpamCudf.external_solver_available ()) then
 			failwith "External solver (aspcud) not available";
 		if !verbose then
-			OpamGlobals.debug_level := 2
+			OpamCoreConfig.update ~debug_level:2 ()
 	in
 
 	let requested_packages : OpamFormula.atom list = packages |> List.map (fun spec ->
@@ -218,10 +215,12 @@ let main idx args =
 		~target_os:!target_os
 		() in
 	if !verbose then print_universe stderr universe;
+	(* let request = OpamSolver.request ~install:requested_packages in *)
 	let request = {
 		wish_install = requested_packages;
 		wish_remove = [];
 		wish_upgrade = [];
+		extra_attributes = [];
 		criteria = `Default;
 	} in
 	let () = match OpamSolver.resolve ~verbose:true universe ~orphans:OpamPackage.Set.empty request with

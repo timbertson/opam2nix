@@ -144,7 +144,7 @@ let execute_install_file state =
 	let libDestDir = libDestDir () |> OpamFilename.Dir.of_string in
 	let build_dir = cwd in
 	let install_files exec destBase dest files_fn =
-		let open OpamFilename.OP in
+		let open OpamFilename.Op in
 		let destDir = destBase / dest in
 		let files = files_fn install in
 		match files with
@@ -196,7 +196,7 @@ let execute_install_file state =
 			Printf.sprintf "  - %s to %s\n"
 				(OpamFilename.to_string (OpamFilename.create build_dir base))
 				(OpamFilename.Dir.to_string dir) in
-		OpamGlobals.error "Installation failed!";
+		OpamConsole.error "Installation failed!";
 		let msg =
 			Printf.sprintf
 				"Some files in %s couldn't be installed:\n%s"
@@ -266,13 +266,13 @@ let apply_patches env =
 				if OpamFilter.opt_eval_to_bool (filter_env) filter
 				then
 					try f base; acc with e ->
-						OpamMisc.fatal e; OpamFilename.Base.to_string base :: acc
+						OpamStd.Exn.fatal e; OpamFilename.Base.to_string base :: acc
 				else acc
 			) [] patches in
 
 	let all = OpamFile.OPAM.substs opam in
 	let patches =
-		OpamMisc.filter_map (fun (f,_) ->
+		OpamStd.List.filter_map (fun (f,_) ->
 			if List.mem f all then Some f else None
 		) patches in
 	List.iter
@@ -299,17 +299,17 @@ let apply_patches env =
 	if patching_errors <> [] then (
 		let msg =
 			Printf.sprintf "These patches didn't apply:\n%s"
-				(OpamMisc.itemize (fun x -> x) patching_errors)
+				(OpamStd.Format.itemize (fun x -> x) patching_errors)
 		in
 		failwith msg
 	)
 
 let binDir dest =
-	let open OpamFilename.OP in
+	let open OpamFilename.Op in
 	dest / "bin"
 
 let libDir dest =
-	let open OpamFilename.OP in
+	let open OpamFilename.Op in
 	dest / "lib"
 
 let outputDirs dest = [ binDir dest; libDir dest ]
