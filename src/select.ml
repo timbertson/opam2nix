@@ -183,7 +183,9 @@ let main idx args =
 		(* make sure opam uses external solver - internal solver is prone to picking old versions *)
 		let open OpamTypes in
 		OpamSolverConfig.update
-			~external_solver:(lazy (Some ([OpamTypes.CIdent "aspcud", None])))
+			~external_solver:(lazy (Some ([CIdent "aspcud", None])))
+			(* cribbed from https://github.com/ocaml/opam/blob/84d01df940297963c82936b0d0de3722f479b56c/src/solver/opamSolverConfig.ml *)
+			~solver_preferences_default:(Some (lazy "-removed,-notuptodate,-changed"))
 			();
 		if not (OpamCudf.external_solver_available ()) then
 			failwith "External solver (aspcud) not available";
