@@ -412,7 +412,13 @@ let init_variables () =
 
 let lookup_var vars key =
 	try Some (OpamVariable.Full.Map.find key vars)
-	with Not_found -> begin
-		prerr_endline ("WARN: opam var " ^ (OpamVariable.Full.to_string key) ^ " not found...");
-		None
-	end
+	with Not_found -> (
+		let key = (OpamVariable.Full.to_string key) in
+		if OpamStd.String.ends_with ~suffix:":installed" key then (
+			(* evidently not... *)
+			Some (B false)
+		) else (
+			prerr_endline ("WARN: opam var " ^ key ^ " not found...");
+			None
+		)
+	)
