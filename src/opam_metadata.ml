@@ -11,6 +11,8 @@ module StringMap = struct
 	let from_list items = List.fold_right (fun (k,v) map -> add k v map) items empty
 end
 
+let installed_suffix = ":installed"
+
 type url = [
 	| `http of string
 	| `local of string
@@ -31,6 +33,7 @@ let var_prefix = "opam_var_"
 
 type dependency =
 	| NixDependency of string
+	| SimpleOpamDependency of string
 	| OsDependency of (bool * string) OpamTypes.generic_formula
 	| ExternalDependencies of OpamTypes.tags
 	| PackageDependencies of OpamTypes.ext_formula
@@ -62,6 +65,7 @@ let rec iter_formula : 'a . (importance -> 'a -> unit) -> importance -> 'a OpamF
 
 let string_of_dependency = function
 	| NixDependency dep -> "nix:"^dep
+	| SimpleOpamDependency dep -> "package:"^dep
 	| OsDependency formula ->
 			"os:" ^
 				(OpamFormula.string_of_formula (fun (b,s) -> (string_of_bool b) ^","^s) formula)
@@ -93,6 +97,7 @@ let add_nix_inputs
 				iter_formula (fun importance (b, str) ->
 					Printf.eprintf "TODO: OS %s (%b,%s)\n" desc b str
 				) importance formula
+		| SimpleOpamDependency dep -> add_opam importance dep
 		| ExternalDependencies externals ->
 				let has_nix = ref false in
 				let add_all importance packages =
@@ -230,7 +235,33 @@ let unsafe_envvar_chars = Str.regexp "[^0-9a-zA-Z_]"
 let envvar_of_ident name =
 	var_prefix ^ (Str.global_replace unsafe_envvar_chars "_" name)
 
+let add_implicit_build_dependencies ~add_dep commands =
+	let implicit_optdeps = ref StringSet.empty in
+	(* If your build command depends on foo:installed, you have an implicit optional
+	 * build dependency on foo. Packages *should* declare this, but don't always... *)
+	let lookup_var key =
+		let key = (OpamVariable.Full.to_string key) in
+		let suffix = installed_suffix in
+		if OpamStd.String.ends_with ~suffix key then (
+			let pkgname = OpamStd.String.remove_suffix ~suffix key in
+			Printf.eprintf "  adding implied dep: %s\n" pkgname;
+			implicit_optdeps := !implicit_optdeps |> StringSet.add pkgname;
+			Some (B true)
+		) else (
+			None
+		)
+	in
+	commands |> List.iter (fun commands ->
+		let (_:string list list) = commands |> OpamFilter.commands lookup_var in
+		()
+	);
+	!implicit_optdeps |> StringSet.iter (fun pkg ->
+		add_dep Optional (SimpleOpamDependency pkg)
+	)
+;;
+
 let attrs_of_opam ~add_dep ~name (opam:OPAM.t) =
+	add_implicit_build_dependencies ~add_dep [OPAM.build opam; OPAM.install opam];
 	add_dep Optional (PackageDependencies (OPAM.depopts opam));
 	add_dep Required (PackageDependencies (OPAM.depends opam));
 	add_dep Required (OsDependency (OPAM.os opam));
@@ -238,7 +269,6 @@ let attrs_of_opam ~add_dep ~name (opam:OPAM.t) =
 		| None -> ()
 		| Some deps -> add_dep Required (ExternalDependencies deps);
 	in
-
 	[
 		"configurePhase",  Nix_expr.str "true"; (* configuration is done in build commands *)
 		"buildPhase",      `Lit "\"${opam2nix}/bin/opam2nix invoke build\"";
@@ -414,7 +444,7 @@ let lookup_var vars key =
 	try Some (OpamVariable.Full.Map.find key vars)
 	with Not_found -> (
 		let key = (OpamVariable.Full.to_string key) in
-		if OpamStd.String.ends_with ~suffix:":installed" key then (
+		if OpamStd.String.ends_with ~suffix:installed_suffix key then (
 			(* evidently not... *)
 			Some (B false)
 		) else (
