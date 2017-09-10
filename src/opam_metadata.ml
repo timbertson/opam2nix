@@ -334,6 +334,10 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let opam = load_opam (Filename.concat path "opam") in
 	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep ~name opam in
 
+	(match url with
+		| Some (`http href) when ends_with ".zip" href -> add_native Required "unzip"
+		| _ -> ()
+	);
 
 	let property_of_input src (name, importance) : Nix_expr.t =
 		match importance with
