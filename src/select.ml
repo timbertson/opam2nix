@@ -117,11 +117,11 @@ let build_universe ~repos ~package_names ~ocaml_version ~base_packages ~target_o
 		let opam = Opam_metadata.load_opam (Filename.concat path "opam") in
 		match availability opam with
 			| `Available ->
-				let pkg = OpamPackage.create (Name.of_string package) (Version.of_string version) in
+				let pkg = OpamPackage.create (Name.of_string package) (Repo.opam_version_of version) in
 				available_packages := OpamPackage.Set.add pkg !available_packages;
 				opams := OpamPackage.Map.add pkg opam !opams
 			| `Unavailable reason ->
-				Printf.eprintf "  # Ignoring package %s-%s (incomatible with %s)\n" package version reason
+				Printf.eprintf "  # Ignoring package %s-%s (incomatible with %s)\n" package (Repo.string_of_version version) reason
 	);
 	let opams = !opams in
 	let ocaml_version = Version.of_string ocaml_version in

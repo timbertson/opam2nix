@@ -289,7 +289,7 @@ end
 let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let pkgid = OpamPackage.create
 		(OpamPackage.Name.of_string name)
-		(OpamPackage.Version.of_string version)
+		(Repo.opam_version_of version)
 	in
 	let open Nix_expr in
 	let pkgs_expression_inputs = ref (InputMap.from_list [
@@ -300,7 +300,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 
 	let url = try load_url (Filename.concat path "url")
 		with Unsupported_archive reason -> raise (
-			Unsupported_archive (name ^ "-" ^ version ^ ": " ^ reason)
+			Unsupported_archive (name ^ "-" ^ (Repo.string_of_version version) ^ ": " ^ reason)
 		)
 	in
 
@@ -387,7 +387,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 			`Call [
 				`Id "pkgs.stdenv.mkDerivation";
 				`Attrs (AttrSet.build (!additional_env_vars @ [
-					"name", Nix_expr.str (name ^ "-" ^ version);
+					"name", Nix_expr.str (name ^ "-" ^ (Repo.path_of_version `Nix version));
 					"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
 						"spec", `Lit "./opam";
 						"deps", `Lit "opamDeps";

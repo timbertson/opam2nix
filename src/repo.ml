@@ -1,32 +1,27 @@
 open Util
 
-let decreasing_version_order versions =
-	let compare a b =
-		(* Note: we invert this because we want a descending list *)
-		OpamPackage.Version.compare (OpamPackage.Version.of_string b) (OpamPackage.Version.of_string a)
-	in
-	versions |> List.sort compare
-
-let latest_version versions = List.hd (decreasing_version_order versions)
+let (%) f g x = f (g x)
 
 type repo_type = [ `Nix | `Opam ]
 
-module String_tuple_set = Set.Make (struct
-	type t = string * string
+type version = Version of string
+
+module Package_set = Set.Make (struct
+	type t = string * version
 	let compare (a1, a2) (b1, b2) =
 		let r0 = Pervasives.compare a1 b1 in
 		if r0 <> 0 then r0 else Pervasives.compare a2 b2
 end)
 
 type version_filter =
-	[ `Filter of (string list -> string list)
-	| `Exact of string
+	[ `Filter of (version list -> version list)
+	| `Exact of version
 	]
 
 type version_selection =
 	[ `All
-	| `Filter of (string list -> string list)
-	| `Exact of string
+	| `Filter of (version list -> version list)
+	| `Exact of version
 	]
 
 type package_selection =
@@ -35,28 +30,56 @@ type package_selection =
 	| `Package of (string * version_selection)
 	]
 
+let opam_version_of = function
+	| Version v -> OpamPackage.Version.of_string v
+
+let string_of_version = function Version v -> v
+
+let path_of_version (repo_type:repo_type) = match repo_type with
+	| `Nix -> encode_nix_safe_path % string_of_version
+	| `Opam -> string_of_version
+
+let version_of_filename (repo_type:repo_type) filename =
+	match repo_type with
+		| `Opam -> Version filename
+		| `Nix -> Version (decode_nix_safe_path filename)
+
+let decreasing_version_order versions =
+	let compare a b =
+		(* Note: we invert this because we want a descending list *)
+		OpamPackage.Version.compare
+			(opam_version_of b)
+			(opam_version_of a)
+	in
+	versions |> List.sort compare
+
+let latest_version versions = List.hd (decreasing_version_order versions)
+
+
 type package_selections = package_selection list
 
 let parse_package_spec spec =
 	let sep = Str.regexp "@" in
 	match Str.split sep spec with
 		| [package] -> (package, `All)
-		| [package; version] -> (package, `Exact version)
+		| [package; version] -> (package, `Exact (Version version))
 		| _ -> failwith ("Invalid package specifier: " ^ spec)
 
-let traverse repo_type ~repos ~(packages:package_selections) ?verbose emit =
+let traverse repo_type ~repos ~(packages:package_selections) ?verbose (emit: string -> version -> string -> unit) =
 	let verbose = Option.default false verbose in
 	let version_sep = "." in
-	let version_join = match repo_type with
-		| `Nix -> fun package version -> version
-		| `Opam -> fun package version -> package ^ version_sep ^ version in
-	let seen = ref String_tuple_set.empty in
+	let version_join package version =
+		let version_path = path_of_version repo_type version in
+		match repo_type with
+			| `Nix -> version_path
+			| `Opam -> package ^ version_sep ^ version_path in
+	let seen = ref Package_set.empty in
 	let emit package version path =
 		let id = (package, version) in
-		if String_tuple_set.mem id !seen then
-			Printf.eprintf "Skipping %s (already loaded %s.%s)\n" path package version
+		if Package_set.mem id !seen then
+			Printf.eprintf "Skipping %s (already loaded %s.%s)\n" path package (string_of_version version)
 		else begin
-			seen := String_tuple_set.add id !seen;
+			seen := Package_set.add id !seen;
 			if verbose then Printf.eprintf "Processing package %s\n" path;
 			emit package version path
 		end
@@ -70,7 +93,7 @@ let traverse repo_type ~repos ~(packages:package_selections) ?verbose emit =
 			let list_versions () =
 				if verbose then Printf.eprintf "listing %s\n" package_base;
 				let dirs = list_dirs package_base in
-				match repo_type with
+				let version_dirs = match repo_type with
 					| `Nix -> dirs
 					| `Opam ->
 						let prefix = package ^ version_sep in
@@ -80,6 +103,8 @@ let traverse repo_type ~repos ~(packages:package_selections) ?verbose emit =
 								| x -> x
 						)
 				in
+				List.map (version_of_filename repo_type) version_dirs
+			in
 
 			let versions = match version with
 				| `All -> list_versions ()
@@ -107,23 +132,22 @@ let traverse repo_type ~repos ~(packages:package_selections) ?verbose emit =
 		)
 	)
 
-
-let traverse_versions ~root emit =
+let traverse_versions (repo_type:[`Nix]) ~root emit =
 	let dirs = list_dirs root in
 	dirs |> List.iter (fun pkg ->
 		let pkg_path = Filename.concat root pkg in
-		let versions = list_dirs pkg_path in
+		let versions = list_dirs pkg_path |> List.map (version_of_filename (repo_type:>repo_type)) in
 		match versions with
 			| [] -> ()
 			| versions -> emit pkg (decreasing_version_order versions) pkg_path
 	)
 
-let version_filter num_latest = (fun versions ->
+let version_filter num_latest : (version list -> version list) = (fun versions ->
 	let dot = Str.regexp "\\." in
 	let digits = Str.regexp "^[0-9]+$" in
 	let keep = ref [] in
 	decreasing_version_order versions |> List.iter (fun version ->
-		let major_minor v =
+		let major_minor = function Version v -> (
 			let parts = Str.split dot v |> List.rev in
 			match parts with
 				| [] -> None
@@ -132,9 +156,9 @@ let version_filter num_latest = (fun versions ->
 						then Some (List.rev parts)
 						(* non-digit patchlevel usually implies something weird like +system. Include it. *)
 						else None
-		in
+		) in
 		(* Printf.eprintf "saw %s with base_version = %s; keep = %s\n" version (String.concat "." base_version) (String.concat ", " !keep); *)
-		let duplicate : string option = major_minor version |> Option.bind (fun base_version ->
+		let duplicate : version option = major_minor version |> Option.bind (fun base_version ->
 			try
 				let predicate = fun candidate -> major_minor candidate = Some base_version in
 				Some (List.find predicate !keep)

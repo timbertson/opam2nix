@@ -71,3 +71,33 @@ let rec take n lst =
 		else match lst with
 			| [] -> []
 			| head :: tail -> head :: (take (n-1) tail)
+
+let explode s =
+	let rec exp i l =
+		if i < 0 then l else exp (i - 1) (s.[i] :: l) in
+		exp (String.length s - 1) []
+
+let string_of_char = String.make 1
+
+(* This is a bit ad-hoc.
+ * We represent non-safe characters as +xNN, where NN is the hex representation.
+ * Only supports ASCII. Literal +x is encoded (as +x2b+x78) *)
+let encode_nix_safe_path str =
+	let encode ch =
+		let a,b = (Hex.of_char ch) in
+		"+x" ^ (string_of_char a) ^ (string_of_char b)
+	in
+	let open Str in
+	full_split (regexp "[^.+_a-zA-Z0-9-]\\|\\+x") str |> List.map (function
+		| Delim x when x = "+x" -> (encode '+' ^ encode 'x')
+		| Delim x -> String.concat "" (List.map encode (explode x))
+		| Text x -> x
+	) |> String.concat ""
+
+let decode_nix_safe_path str =
+	let open Str in
+	let hex = "[0-9a-fA-F]" in
+	full_split (regexp ("\\+x" ^ hex ^ hex)) str |> List.map (function
+		| Delim x -> Hex.to_char x.[2] x.[3] |> String.make 1
+		| Text x -> x
+	) |> String.concat ""

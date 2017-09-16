@@ -144,7 +144,7 @@ let main arg_idx args =
 	in
 
 	Repo.traverse `Opam ~repos:[repo] ~packages:package_selection (fun package version path ->
-		let dest_parts = [package; version] in
+		let dest_parts = [package; (Repo.path_of_version `Nix version)] in
 		let version_dir = String.concat Filename.dir_sep (dest :: dest_parts) in
 		let dest_path = Filename.concat version_dir "default.nix" in
 		let files_src = (Filename.concat path "files") in
@@ -185,7 +185,7 @@ let main arg_idx args =
 		)
 	);
 
-	Repo.traverse_versions ~root:dest (fun package versions base ->
+	Repo.traverse_versions `Nix ~root:dest (fun package versions base ->
 		let versions = match mode with
 			| `clean | `unclean -> versions
 			| `update ->
@@ -197,7 +197,7 @@ let main arg_idx args =
 				(* Printf.eprintf "found versions: [%s] for package %s\n" (String.concat " " generated_versions) package; *)
 				let wanted, unwanted = List.partition (fun v -> List.mem v generated_versions) versions in
 				unwanted |> List.iter (fun v ->
-					let path = Filename.concat base v in
+					let path = Filename.concat base (Repo.path_of_version `Nix v) in
 					Printf.eprintf "Removing previous version: %s\n" path;
 					rm_r path
 				);
@@ -208,13 +208,20 @@ let main arg_idx args =
 			Printf.eprintf "Removing package dir which has no versions: %s\n" base;
 			rm_r base
 		) else (
-			let path_of_version = (fun ver -> `Lit ("import ./" ^ ver ^ " world")) in
+
+			let import_version ver =
+				(* If the version has special characters, quote it.
+				* e.g `import ./fpo`, vs `import (./. + "/foo bar")`
+				*)
+				let path = Repo.path_of_version `Nix ver in
+				`Lit ("import ./" ^ path ^ " world")
+			in
 			let path = Filename.concat base "default.nix" in
 			write_expr path (
 				`Function (`Id "world",
 					`Attrs (Nix_expr.AttrSet.build (
-						("latest", versions |> Repo.latest_version |> path_of_version) ::
-						(versions |> List.map (fun ver -> ver, path_of_version ver))
+						("latest", versions |> Repo.latest_version |> import_version) ::
+						(versions |> List.map (fun ver -> (Repo.string_of_version ver), import_version ver))
 					))
 				)
 			)

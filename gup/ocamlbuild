@@ -3,6 +3,7 @@ gup -u _tags src/.stamp
 INCLUDES=""
 if [ "$2" = test.byte ]; then
 	INCLUDES="-I test_src"
+	gup --always
 fi
 ocamlbuild -use-ocamlfind $INCLUDES -cflag -warn-error -cflag +a-3 "$2"
 touch "$2"
