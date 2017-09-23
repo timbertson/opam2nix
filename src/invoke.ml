@@ -8,6 +8,15 @@ type env = {
 	pkgname : string;
 }
 
+type package_implementation =
+	| Provided
+	| Installed of string
+	| Absent
+
+type package_relation =
+	| Dependency of string
+	| Self of string
+
 let destDir () = (Unix.getenv "out")
 let libDestDir () = Filename.concat (destDir ()) "lib"
 
@@ -22,14 +31,48 @@ let load_env () =
 	let state = ref (Opam_metadata.init_variables ()) in
 	let add_var name v = state := !state |> Opam_metadata.add_var name v in
 	let destDir = destDir () in
+
+	let add_package_vars ~pkg ?alias impl =
+		let prefixes = match pkg with
+			| Dependency p -> [p^":"]
+			| Self p -> [p^":"; "_:"; ""]
+		in
+		let add_var name value = prefixes |> List.iter (fun prefix ->
+			add_var (prefix^name) value
+		) in
+
+		(match impl with
+			| Absent ->
+				add_var "installed" (B false);
+			| Provided ->
+				add_var "installed" (B true);
+			| Installed path ->
+				add_var "installed" (B true);
+
+				let dir suffix = S (Filename.concat path suffix) in
+				let package_dir suffix =
+					let base = (Filename.concat path suffix) in
+					match pkg with
+						| Dependency pkg -> S (Filename.concat base pkg)
+						(* XXX this difference for the current package seems to be how opam works.
+						 * It doesn't seem to be documented anywhere, but odoc's build relies on it *)
+						| Self pkg -> S base
+				in
+
+				(* https://opam.ocaml.org/doc/Manual.html#package-name-install *)
+				add_var "bin" (dir "bin");
+				add_var "stublibs" (dir "lib/stublibs");
+				add_var "man" (dir "man");
+
+				add_var "lib" (package_dir "lib");
+				add_var "libexec" (package_dir "libexec");
+				add_var "etc" (package_dir "etc");
+				add_var "doc" (package_dir "doc");
+				add_var "share" (package_dir "share");
+		)
+	in
+
 	add_var "prefix" (S destDir);
-
-	let dir name = S (Filename.concat destDir name) in
-	add_var "bin" (dir "bin");
-	add_var "lib" (dir "lib");
-	add_var "man" (dir "man");
-	add_var "doc" (dir "share/doc");
-
 
 	let spec = ref None in
 	let files = ref None in
@@ -38,15 +81,19 @@ let load_env () =
 		| `Assoc pairs -> begin
 			pairs |> List.iter (function
 					| "deps", `Assoc (attrs) -> begin
-						attrs |> List.iter (fun (name, value) ->
-							let enabled_var = name^":installed" in
+						attrs |> List.iter (fun (pkg, value) ->
+							let pkg = Dependency pkg in
 							match value with
-								| `Null -> add_var enabled_var (B false)
-								| `String _ -> add_var enabled_var (B true)
+								| `Null ->
+									add_package_vars ~pkg Absent
 
-								(* Bool is only used for base packages,
-								 * (although it's only ever `true`) *)
-								| `Bool b -> add_var enabled_var (B b)
+								| `Bool b ->
+									(* Bool is used for base packages, which have no corresponding path *)
+									add_package_vars ~pkg (if b then Provided else Absent)
+
+								| `String path ->
+									add_package_vars ~pkg (Installed path);
+
 								| other -> unexpected_json "`deps`" other
 						)
 					end
@@ -54,6 +101,7 @@ let load_env () =
 
 					| "name", `String name ->
 							pkgname := name;
+							add_package_vars ~pkg:(Self name) (Installed destDir);
 							add_var "name" (S name)
 					| "name", other -> unexpected_json "name" other
 
