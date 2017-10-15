@@ -41,7 +41,7 @@ let main arg_idx args =
 	let opts = Arg.align [
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean / --update given)");
-		("--num-versions", Arg.Int (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all)");
+		("--num-versions", Arg.String (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all. Format: x.x.x)");
 		("--cache", Arg.Set_string cache, "DIR Cache (may exist)");
 
 		("--unclean", Arg.Unit (fun () ->
@@ -120,11 +120,13 @@ let main arg_idx args =
 		close_out oc
 	in
 
-	(* if `--num-versions is specified, swap the `All entries to
-	 * a n-latest filter *)
+	(* if `--num-versions is specified, swap the `All entries for a filter *)
 	let package_selection : Repo.package_selection list = match !num_versions with
 		| Some n ->
-			let filter = `Filter (Repo.version_filter n) in
+			let parts = Str.split (Str.regexp "\\.") n
+				|> List.map (fun s -> try int_of_string s with _ -> failwith ("Invalid number in --num-versions: "^s))
+			in
+			let filter = `Filter (Repo.version_filter parts) in
 			package_selection |> List.map (function
 				| `All -> `Filtered filter
 				| `Package (name, `All) -> `Package (name, filter)

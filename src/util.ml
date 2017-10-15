@@ -56,6 +56,9 @@ module Option = struct
 	let may fn = function None -> () | Some x -> fn x
 	let bind fn = function None -> None | Some x -> fn x
 	let default d v = match v with Some v -> v | None -> d
+	let exists fn = function None -> false | Some v -> fn v
+	let to_list = function None -> [] | Some v -> [v]
+	let is_some = function None -> false | Some _ -> true
 end
 
 let rec drop n lst =
@@ -71,6 +74,41 @@ let rec take n lst =
 		else match lst with
 			| [] -> []
 			| head :: tail -> head :: (take (n-1) tail)
+
+let head_opt = function
+	| x::_ -> Some x
+	| [] -> None
+
+let tail = function
+	| [] -> []
+	| _::x -> x
+
+let group_by : 'item 'key. ('item -> 'key) -> 'item list -> ('key * 'item list) list
+= fun fn items ->
+	let finish key items_rev = (key, List.rev items_rev) in
+	let rec accum groups_rev current_key current_group_rev = function
+		| [] -> (* end of inputs *)
+			(if (current_group_rev = [])
+				then []
+				else [finish current_key current_group_rev]
+			) @ groups_rev
+		| head::tail ->
+			let key = fn head in
+			if (key = current_key)
+				then accum groups_rev current_key (head :: current_group_rev) tail
+				else (
+					let groups_rev = (finish current_key current_group_rev) :: groups_rev in
+					accum groups_rev key [head] tail
+				)
+	in
+	match items with
+		| [] -> []
+		| head::tail ->
+			let key = fn head in
+			accum [] key [head] tail |> List.rev
+
+let fst = function (a,_) -> a
+let snd = function (_,b) -> b
 
 let explode s =
 	let rec exp i l =
