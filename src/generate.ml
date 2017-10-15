@@ -123,10 +123,7 @@ let main arg_idx args =
 	(* if `--num-versions is specified, swap the `All entries for a filter *)
 	let package_selection : Repo.package_selection list = match !num_versions with
 		| Some n ->
-			let parts = Str.split (Str.regexp "\\.") n
-				|> List.map (fun s -> try int_of_string s with _ -> failwith ("Invalid number in --num-versions: "^s))
-			in
-			let filter = `Filter (Repo.version_filter parts) in
+			let filter = Repo.parse_version_filter n in
 			package_selection |> List.map (function
 				| `All -> `Filtered filter
 				| `Package (name, `All) -> `Package (name, filter)

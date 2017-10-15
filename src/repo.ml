@@ -55,14 +55,83 @@ let decreasing_version_order versions =
 
 let latest_version versions = List.hd (decreasing_version_order versions)
 
-
 type package_selections = package_selection list
+
+let version_filter filter_spec : (version list -> version list) = (fun versions ->
+	let dot = Str.regexp "\\." in
+	let digits = Str.regexp "^[0-9]+$" in
+	let semantic_versions = decreasing_version_order versions |> List.map (fun version ->
+		let parts = match version with Version v -> Str.split dot v in
+		(version, parts)
+	) in
+
+	let rec filter num_versions versions = (
+		let num_this, num_versions = match num_versions with
+			| [] -> (1, []) (* assume 1 version for any part left unspecified *)
+			| num_this :: num_versions -> (num_this, num_versions)
+		in
+
+		(* special-case: include all versions with a non-digit terminal.
+		 * This is because typically non-digit patchlevels like +system are variants
+		 * rather than versions, and should all be included *)
+		let is_nondigit_terminal = fun (version, parts) -> (
+			let is_digit s = Str.string_match digits s 0 in
+			match parts with
+				| [p] when not (is_digit p) -> true
+				| _ -> false
+		) in
+		let (nondigit_terminals, versions) = versions |> List.partition is_nondigit_terminal in
+
+		let groups = versions |> group_by (fun (version, parts) -> head_opt parts |> Option.default "0") in
+
+		let taken_groups = groups |> take num_this in
+		(* Printf.eprintf "taking (%d/%d) groups, with keys: %s\n" *)
+		(* 	num_this *)
+		(* 	(List.length groups) *)
+		(* 	(taken_groups *)
+		(* 		|> List.map fst *)
+		(* 		|> String.concat ";") *)
+		(* ; *)
+		(* taken_groups |> List.iter (fun (key, versions) -> *)
+		(* 	versions |> List.iter (fun (version,parts) -> *)
+		(* 		Printf.eprintf " %s: %s (%s)\n" *)
+		(* 			(key) *)
+		(* 			(string_of_version version) *)
+		(* 			(parts |> String.concat ".") *)
+		(* 	) *)
+		(* ); *)
+
+		let filtered = taken_groups |> List.map (fun (_, versions) ->
+			let sub_versions = versions |> List.map (fun (version, parts) -> (version, tail parts)) in
+			if (List.for_all (fun (_, parts) -> parts = []) sub_versions)
+				then take 1 sub_versions (* no sub filtering required *)
+				else filter num_versions sub_versions
+		) |> List.concat in
+		nondigit_terminals @ filtered
+	) in
+
+	filter filter_spec semantic_versions |> List.map fst
+)
+
+let parse_version_filter s =
+	let parse_number s =
+		try int_of_string s
+		with _ -> failwith ("Invalid number in version filter: "^s)
+	in
+	let parts = Str.split (Str.regexp "\\.") s |> List.map parse_number in
+	`Filter (version_filter parts)
 
 let parse_package_spec spec =
 	let sep = Str.regexp "@" in
-	match Str.split sep spec with
+	match Str.bounded_split sep spec 2 with
 		| [package] -> (package, `All)
-		| [package; version] -> (package, `Exact (Version version))
+		| [package; version] ->
+			if (Str.string_match (Str.regexp "\\*") version 0) then (
+				let spec = String.sub version 1 ((String.length version) - 1) in
+				(package, parse_version_filter spec)
+			) else (
+				(package, `Exact (Version version))
+			)
 		| _ -> failwith ("Invalid package specifier: " ^ spec)
 
 let traverse repo_type ~repos ~(packages:package_selections) ?verbose (emit: string -> version -> string -> unit) =
@@ -141,60 +210,4 @@ let traverse_versions (repo_type:[`Nix]) ~root emit =
 			| [] -> ()
 			| versions -> emit pkg (decreasing_version_order versions) pkg_path
 	)
-
-let version_filter num_latest : (version list -> version list) = (fun versions ->
-	let dot = Str.regexp "\\." in
-	let digits = Str.regexp "^[0-9]+$" in
-	let semantic_versions = decreasing_version_order versions |> List.map (fun version ->
-		let parts = match version with Version v -> Str.split dot v in
-		(version, parts)
-	) in
-
-	let rec filter num_versions versions = (
-		let num_this, num_versions = match num_versions with
-			| [] -> (1, []) (* assume 1 version for any part left unspecified *)
-			| num_this :: num_versions -> (num_this, num_versions)
-		in
-
-		(* special-case: include all versions with a non-digit terminal.
-		 * This is because typically non-digit patchlevels like +system are variants
-		 * rather than versions, and should all be included *)
-		let is_nondigit_terminal = fun (version, parts) -> (
-			let is_digit s = Str.string_match digits s 0 in
-			match parts with
-				| [p] when not (is_digit p) -> true
-				| _ -> false
-		) in
-		let (nondigit_terminals, versions) = versions |> List.partition is_nondigit_terminal in
-
-		let groups = versions |> group_by (fun (version, parts) -> head_opt parts |> Option.default "0") in
-
-		let taken_groups = groups |> take num_this in
-		(* Printf.eprintf "taking (%d/%d) groups, with keys: %s\n" *)
-		(* 	num_this *)
-		(* 	(List.length groups) *)
-		(* 	(taken_groups *)
-		(* 		|> List.map fst *)
-		(* 		|> String.concat ";") *)
-		(* ; *)
-		(* taken_groups |> List.iter (fun (key, versions) -> *)
-		(* 	versions |> List.iter (fun (version,parts) -> *)
-		(* 		Printf.eprintf " %s: %s (%s)\n" *)
-		(* 			(key) *)
-		(* 			(string_of_version version) *)
-		(* 			(parts |> String.concat ".") *)
-		(* 	) *)
-		(* ); *)
-
-		let filtered = taken_groups |> List.map (fun (_, versions) ->
-			let sub_versions = versions |> List.map (fun (version, parts) -> (version, tail parts)) in
-			if (List.for_all (fun (_, parts) -> parts = []) sub_versions)
-				then take 1 sub_versions (* no sub filtering required *)
-				else filter num_versions sub_versions
-		) |> List.concat in
-		nondigit_terminals @ filtered
-	) in
-
-	filter num_latest semantic_versions |> List.map fst
-)
 
