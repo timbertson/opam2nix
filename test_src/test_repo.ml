@@ -1,4 +1,5 @@
 open OUnit2
+open Opam2nix
 open Repo
 
 let print_version_list l =

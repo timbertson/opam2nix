@@ -1,0 +1,27 @@
+; vim: set syntax=lisp commentstring=;\ %s:
+(jbuild_version 1)
+
+(library (
+	(name opam2nix)
+	; (public_name opam2nix)
+	(modules (:standard \ main))
+	(libraries (
+		str
+		; unix
+		yojson
+		opam-lib
+		opam-lib.solver
+		opam-lib.state
+		lwt
+		lwt.unix
+		curl
+		fileutils
+		xdg-basedir
+	))
+))
+
+(executable (
+	(name main)
+	(public_name opam2nix)
+	(libraries (opam2nix))
+))

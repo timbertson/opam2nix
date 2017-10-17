@@ -203,17 +203,17 @@ let string_of_url url =
 
 let sha256_of_path p =
 	let open Lwt in
-	lwt lines = Lwt_process.with_process_in ("", [|"nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p|]) (fun proc ->
-		lwt lines = proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list in
-		lwt status = proc#close in
+	Lwt_process.with_process_in ("", [|"nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p|]) (fun proc ->
+		proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list >>= fun lines ->
+		proc#close >>= fun status ->
 		let open Unix in
 		match status with
 			| WEXITED 0 -> return lines
 			| _ -> failwith "nix-hash failed"
-	) in
-	match lines with
+	) >>= (function
 		| [line] -> return line
-		| _ -> failwith ("Unexpected nix-hash output:\n" ^ (String.concat "\n" lines))
+		| lines -> failwith ("Unexpected nix-hash output:\n" ^ (String.concat "\n" lines))
+	)
 
 let nix_of_url ~add_input ~cache (url:url) =
 	let open Nix_expr in

@@ -8,3 +8,5 @@
 /nix/local.tgz
 /local
 /nix/local
+/opam2nix.install
+/bin

@@ -1,5 +1,0 @@
-<src>: include
-true: debug, package(str,unix, yojson,opam-lib,opam-lib.solver,opam-lib.state,lwt,lwt.unix, curl, fileutils, xdg-basedir), syntax(camlp4o), package(lwt.syntax)
-<result>: -traverse
-<dest>: -traverse
-<test.*> or <test_src/*>: package(oUnit)

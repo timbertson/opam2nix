@@ -1,5 +1,3 @@
 #!bash -eu
-# XXX .native needed only until we sort out linking stuff in nix...
-gup -u main.byte main.native
-gup --contents main.byte
-touch "$2"
+jbuilder build @install
+ln -sfn _build/install/default/bin "$1"

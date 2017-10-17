@@ -7,7 +7,7 @@ let
 		gringo = callPackage ./gringo.nix {};
 		gup = callPackage ./gup.nix {};
 
-		ocamlPackages = lib.makeScope pkgs.newScope (self: with self; pkgs.ocamlPackages // {
+		ocamlPackages = lib.makeScope pkgs.newScope (self: with self; ocamlPackages // {
 			opam-lib = callPackage ./opam-lib.nix {};
 			cudf = callPackage ./cudf.nix {};
 			dose3 = callPackage ./dose3.nix {};
@@ -50,6 +50,8 @@ stdenv.mkDerivation {
 		gup
 		ounit
 		makeWrapper
+		jbuilder
+		ocaml-migrate-parsetree
 
 		# XXX these should be picked up by propagatedBuildInputs
 		libev

@@ -1,4 +1,5 @@
 open OUnit2
+open Opam2nix
 open Util
 
 let print_string x = x
