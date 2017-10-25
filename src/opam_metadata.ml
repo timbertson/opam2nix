@@ -80,6 +80,8 @@ let string_of_requirement = function
 	| Required, dep -> string_of_dependency dep
 	| Optional, dep -> "{" ^ (string_of_dependency dep) ^ "}"
 
+let string_of_importance = function Required -> "required" | Optional -> "optional"
+
 let add_nix_inputs
 	~(add_native: importance -> string -> unit)
 	~(add_opam:importance -> string -> unit)
@@ -132,18 +134,15 @@ let add_nix_inputs
 					else flags |> List.fold_left (fun required flag ->
 						required || (match flag with Depflag_Build -> true | _ -> false)) false
 				in
-				if needed_for_build then begin
-					let version_desc = ref "" in
-					version_formula |> iter_formula (fun _importance (relop, version) ->
-						version_desc := !version_desc ^ (
-							(OpamFormula.string_of_relop relop) ^
-							(OpamPackage.Version.to_string version)
-						)
-					) importance;
-					Printf.eprintf "  adding %s: %s%s\n" desc name !version_desc;
-					add_opam importance name
-				end else
-					Printf.eprintf "  skipping non-build %s on %s\n" desc name
+				let build_importance = if needed_for_build then importance else Optional in
+				let version_desc = ref "" in
+				version_formula |> iter_formula (fun _importance (relop, version) ->
+					version_desc := !version_desc ^ (
+						(OpamFormula.string_of_relop relop) ^
+						(OpamPackage.Version.to_string version)
+					)
+				) build_importance;
+				add_opam build_importance name
 			in
 			iter_formula iter_dep importance formula
 
