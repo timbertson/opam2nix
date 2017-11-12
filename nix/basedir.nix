@@ -1,4 +1,4 @@
-{stdenv, fetchurl, ocaml, findlib, fileutils, ounit}:
+{stdenv, fetchurl, ocaml, ocamlbuild, findlib, fileutils, ounit}:
 
 stdenv.mkDerivation {
   name = "ocaml-basedir";
@@ -8,7 +8,7 @@ stdenv.mkDerivation {
     sha256 = "0xm3ybz4i84lcwhpamjx4g2yj6lf9avlj1fbrl8idam80wmqfqxj";
   };
 
-  buildInputs = [ ocaml findlib ounit ];
+  buildInputs = [ ocaml ocamlbuild findlib ounit ];
   propagatedBuildInputs = [ fileutils ];
   createFindlibDestdir = true;
 }
