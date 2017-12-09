@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -eu
 # Print the current HEAD or working copy (as a stash)
 # (returns the same hash for unchanged content, due to the overridden GIT_* variables below)

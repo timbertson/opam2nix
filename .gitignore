@@ -10,3 +10,4 @@
 /nix/local
 /opam2nix.install
 /bin
+**/.gup
