@@ -3,7 +3,6 @@
 let
 	localPackages = lib.makeScope pkgs.newScope (self: with self; pkgs // {
 		aspcud = callPackage ./aspcud.nix {};
-		clasp = callPackage ./clasp.nix {};
 		gringo = callPackage ./gringo.nix {};
 		gup = callPackage ./gup.nix {};
 

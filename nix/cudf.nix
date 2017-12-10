@@ -6,6 +6,7 @@ stdenv.mkDerivation {
 		sha256 = "00d76305h8yhzjpjmaq2jadnr5kx290spaqk6lzwgfhbfgnskj4j";
 	};
 	buildInputs = [ocaml findlib ocamlbuild camlp4 ocaml_extlib perl];
+	patchPhase = "sed -i s@/usr/@$out/@ Makefile.config";
 	buildPhase = "make all opt";
 	createFindlibDestdir = true;
 }
