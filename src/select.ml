@@ -156,7 +156,9 @@ let main idx args =
 	let dest = ref "" in
 	(* XXX this should be more integrated... *)
 	let ocaml_version = ref "" in
-	let ocaml_attr = ref "ocaml" in
+	let ocaml_attr = ref ["ocaml"] in
+	let set_ocaml_attr arg =
+		ocaml_attr := Str.split (Str.regexp (Str.quote ".")) arg in
 	let base_packages = ref "" in
 	let target_os = ref (Opam_metadata.os_string ()) in
 	let verbose = ref false in
@@ -165,7 +167,7 @@ let main idx args =
 		("--dest", Arg.Set_string dest, "Destination .nix file");
 		("--os", Arg.Set_string target_os, "Target OS");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version");
-		("--ocaml-attr", Arg.Set_string ocaml_attr, "Ocaml nixpkgs attribute (e.g `ocaml`, `ocaml_4_00_01`)");
+		("--ocaml-attr", Arg.String set_ocaml_attr, "Ocaml nixpkgs attribute path (e.g `ocaml`, `ocaml-ng.ocamlPackages_4_05.ocaml`)");
 		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated)");
 		("--verbose", Arg.Set verbose, "Verbose");
 		("-v", Arg.Set verbose, "Verbose");
@@ -256,7 +258,7 @@ let main idx args =
 				) new_packages AttrSet.empty in
 				let selection = AttrSet.add "ocaml" (`Call [
 					`Id "world.overrideOcaml";
-					`Property (`Id "world.pkgs", ocaml_attr)
+					`PropertyPath (`Id "world.pkgs", ocaml_attr)
 				]) selection in
 				let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
 

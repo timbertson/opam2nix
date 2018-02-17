@@ -64,7 +64,7 @@ let main arg_idx args =
 			| p -> `Package (Repo.parse_package_spec p)
 		) :: !package_selection
 	in
-	Arg.parse_argv ~current:(ref arg_idx) args opts add_package "usage: opam2nix generate [OPTIONS] [package@version [package2@version2]]";
+	Arg.parse_argv ~current:(ref arg_idx) args opts add_package "usage: opam2nix generate [OPTIONS] [package@version [package2@*num-versions]]";
 	
 	(* fix up reversed package list *)
 	let package_selection = List.rev !package_selection in
