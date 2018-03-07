@@ -362,11 +362,14 @@ let libDir dest =
 
 let outputDirs dest = [ binDir dest; libDir dest ]
 
-let build env =
+let pre_build env =
 	let dest = destDir () |> OpamFilename.Dir.of_string in
 	ensure_dir_exists dest;
 	outputDirs dest |> List.iter ensure_dir_exists;
-	apply_patches env;
+	apply_patches env
+
+let build env =
+	pre_build env;
 	run env OPAM.build
 
 let install env =
@@ -378,6 +381,7 @@ let install env =
 let main idx args =
 	let action = try Some (Array.get args (idx+1)) with Not_found -> None in
 	let action = match action with
+		| Some "prebuild" -> pre_build
 		| Some "build" -> build
 		| Some "install"-> install
 		| Some other -> failwith ("Unknown action: " ^ other)
