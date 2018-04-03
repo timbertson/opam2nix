@@ -147,7 +147,7 @@ let main arg_idx args =
 		let version_dir = String.concat Filename.dir_sep (dest :: dest_parts) in
 		let dest_path = Filename.concat version_dir "default.nix" in
 		let files_src = (Filename.concat path "files") in
-		let has_files = try let (_:Unix.stats) = Unix.stat files_src in true with Unix.Unix_error (Unix.ENOENT, _, _) -> false in
+		let has_files = Sys.file_exists files_src in
 		let expr = generate_expr ~mode ~path:dest_path (fun () ->
 			let handle_error desc e =
 				if !ignore_broken_packages then (
@@ -167,7 +167,7 @@ let main arg_idx args =
 			let open FileUtil in
 			cp [readlink (Filename.concat path "opam")] (Filename.concat version_dir "opam");
 			let () =
-				let filenames = if Sys.file_exists files_src then ls files_src else [] in
+				let filenames = if has_files then ls files_src else [] in
 				match filenames with
 					| [] -> ()
 					| filenames ->
