@@ -228,7 +228,7 @@ let execute_install_file state =
 	install_files false destDir "man" OpamFile.Dot_install.man;
 
 	(* Shared files *)
-	install_files false destDir "share" OpamFile.Dot_install.share;
+	install_files false destDir (Filename.concat "share" name) OpamFile.Dot_install.share;
 	install_files false destDir "share" OpamFile.Dot_install.share_root;
 
 	(* Etc files *)
