@@ -1,5 +1,4 @@
-{ pkgs, stdenv, lib, ocamlPackages, newScope, libev, fetchurl }:
-{ src ? null }:
+{ pkgs, stdenv, lib, ocamlPackages, nix-update-source, newScope, libev, fetchurl }:
 let
 	localPackages = lib.makeScope pkgs.newScope (self: with self; pkgs // {
 		aspcud = callPackage ./aspcud.nix {};
@@ -21,7 +20,7 @@ in
 with localPackages; with localPackages.ocamlPackages;
 stdenv.mkDerivation {
 	name = "opam2nix-${lib.removeSuffix "\n" (builtins.readFile ../VERSION)}";
-	inherit src;
+	inherit (nix-update-source.fetch ./src.json) src;
 	# unpackCmd = "tar xzf $src";
 	buildPhase = "gup all";
 	installPhase = ''
