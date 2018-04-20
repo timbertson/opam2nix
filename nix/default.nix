@@ -35,6 +35,7 @@ stdenv.mkDerivation {
 		format_version = import ./format_version.nix;
 		pkgs = localPackages;
 		devInputs = [ utop ];
+		packages = localPackages;
 	};
 	buildInputs = [
 		ocaml

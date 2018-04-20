@@ -1,4 +1,4 @@
 { pkgs ? import <nixpkgs> {} }:
-pkgs.lib.overrideDerivation (import nix/default.nix { inherit pkgs; }) (base: {
+pkgs.lib.overrideDerivation (pkgs.callPackage nix/default.nix {}) (base: {
 	buildInputs = base.buildInputs ++ base.devInputs;
 })

@@ -6,8 +6,8 @@ stdenv.mkDerivation {
   name = "ocaml-extlib-1.7.1";
 
   src = fetchurl {
-    url = http://ygrek.org.ua/p/release/ocaml-extlib/extlib-1.7.1.tar.gz;
-    sha256 = "1lqk4grj0xnb9vahj6dy06c7x19p6djkp02kin192wgrcdswjqgh";
+    url = https://github.com/ygrek/ocaml-extlib/releases/download/1.7.4/extlib-1.7.4.tar.gz;
+    sha256 = "18jb4rvkk6p3mqnkamwb41x8q49shgn43h020bs4cp4vac7nrhnr";
   };
 
   buildInputs = [ocaml findlib camlp4 cppo];
