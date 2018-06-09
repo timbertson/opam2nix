@@ -6,7 +6,6 @@ let unsafe_chars = Str.regexp "[^-a-zA-Z0-9_.]+"
 let safe str = Str.global_replace unsafe_chars "-" str
 
 let fetch ~dest url =
-	let dest = open_out dest in
 	Curl.global_init Curl.CURLINIT_GLOBALALL;
 	let errbuf = ref "" in
 	Printf.eprintf " [ downloading %s ]\n" url;
@@ -43,7 +42,7 @@ class cache ~max_age dir = object (self)
 	match stat with
 		| Some stat when stat.st_mtime > oldest -> path
 		| _ ->
-			fetch ~dest:(path ^ "~") url;
+			fetch ~dest:(open_out (path ^ "~")) url;
 			rename (path ^ "~") path;
 			path
 end

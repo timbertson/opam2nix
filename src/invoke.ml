@@ -1,4 +1,4 @@
-module JSON = Yojson.Safe
+module JSON = Yojson.Basic
 module OPAM = OpamFile.OPAM
 
 type env = {

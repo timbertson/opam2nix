@@ -51,6 +51,7 @@ stdenv.mkDerivation {
 		makeWrapper
 		jbuilder
 		ocaml-migrate-parsetree
+		coreutils
 
 		# XXX these should be picked up by propagatedBuildInputs
 		libev
