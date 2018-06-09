@@ -3,12 +3,17 @@ module JSON = Yojson.Basic
 module Cache = struct
 	include Map.Make(String)
 end
+module StringSet = Set.Make(String)
 
 type key = string
 type nix_digest = [ `sha256 of string ]
 type opam_digest = [ `md5 of string ]
 
-type t = nix_digest Cache.t
+type state = {
+	digests: nix_digest Cache.t;
+	active: StringSet.t;
+}
+type t = state ref
 
 type value_partial = {
 	val_type: string option;
@@ -59,16 +64,13 @@ let cache_of_json = function
 		) Cache.empty
 	| _ -> failwith "Invalid JSON mapping; expeced toplevel object"
 
-let load path: t =
+let load path: nix_digest Cache.t =
 	JSON.from_file path |> cache_of_json
 
-let empty : t = Cache.empty
-
 let try_load path: t =
-	try
-		load path
-	with Unix.(Unix_error(ENOENT, _, _)) -> empty
-
+	let digests = try load path
+		with Unix.(Unix_error(ENOENT, _, _)) -> Cache.empty in
+	ref { digests; active = StringSet.empty }
 
 let save cache path =
 	let tmp = path ^ ".tmp" in
@@ -113,14 +115,22 @@ let check_digest (opam_digest:opam_digest) path =
 			else
 				failwith ("md5 " ^ actual ^ " did not match expected: " ^ expected)
 
-let add url opam_digest cache : nix_digest * t =
+let add url opam_digest cache : nix_digest =
 	let key = key_of_opam_digest opam_digest in
-	if Cache.mem key cache then
-		(Cache.find key cache, cache)
-	else (
+	let digests = (!cache).digests in
+	let active = StringSet.add key !cache.active in
+	if Cache.mem key digests then (
+		cache := { !cache with active };
+		Cache.find key digests
+	) else (
 		let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
 		File_cache.fetch dest_channel url;
 		let () = check_digest opam_digest dest in
 		let nix_digest = `sha256 (sha256_of_path dest) in
-		(nix_digest, Cache.add key nix_digest cache)
+		cache := {
+			digests = Cache.add key nix_digest digests;
+			active;
+		};
+		nix_digest
 	)
+

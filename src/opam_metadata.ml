@@ -206,15 +206,14 @@ let nix_of_url ~add_input ~cache (url:url) =
 	match url with
 		| `local src -> `Lit src
 		| `http (src, checksum) ->
-			let local_copy = cache#download src in
-			let sha256 = Digest_cache.sha256_of_path local_copy in
+			let digest = Digest_cache.add src checksum cache in
 			add_input "fetchurl";
 			`Call [
 				`Id "fetchurl";
 				`Attrs (AttrSet.build [
 					"url", str src;
-					"sha256", str sha256;
-				]);
+					(match digest with `sha256 sha256 -> ("sha256", str sha256));
+				])
 			]
 
 let unsafe_envvar_chars = Str.regexp "[^0-9a-zA-Z_]"

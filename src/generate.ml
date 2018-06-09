@@ -42,7 +42,7 @@ let main arg_idx args =
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean / --update given)");
 		("--num-versions", Arg.String (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all. Format: x.x.x)");
-		("--cache", Arg.Set_string cache, "DIR Cache (may exist)");
+		("--digest-mapping", Arg.Set_string cache, "FILE Digest mapping JSON (may exist)");
 
 		("--unclean", Arg.Unit (fun () ->
 			update_mode := match !update_mode with
@@ -56,7 +56,6 @@ let main arg_idx args =
 			), "(bool) Update an existing destination. Old versions will be removed and new ones added. files and opam contents will be updated, but .nix files won't be regenerated"
 		);
 
-		("--max-age", Arg.Set_int max_age, "HOURS Maximum cache age");
 		("--ignore-broken", Arg.Set ignore_broken_packages, "(bool) skip over unprocessible packages (default: fail)");
 	]; in
 	let add_package p = package_selection := (match p with
@@ -76,7 +75,7 @@ let main arg_idx args =
 	let repo = nonempty !repo "--src" in
 	let dest = nonempty !dest "--dest" in
 	let cache = match !cache with
-		| "" -> Filename.concat (XDGBaseDir.Cache.user_dir ()) "opam2nix/download"
+		| "" -> Filename.concat (XDGBaseDir.Cache.user_dir ()) "opam2nix/digest.json"
 		| other -> other
 	in
 	let mode = !update_mode in
@@ -97,9 +96,9 @@ let main arg_idx args =
 				Printf.eprintf "Updating existing contents at %s\n" dest
 	) in
 
-	FileUtil.mkdir ~parent:true cache;
+	FileUtil.mkdir ~parent:true (Filename.dirname cache);
 
-	let cache = new File_cache.cache ~max_age:(!max_age*60*60) cache in
+	let cache = Digest_cache.try_load cache in
 
 	let deps = new Opam_metadata.dependency_map in
 
