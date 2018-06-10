@@ -2,9 +2,6 @@ open Lwt
 
 exception Download_failed of string
 
-let unsafe_chars = Str.regexp "[^-a-zA-Z0-9_.]+"
-let safe str = Str.global_replace unsafe_chars "-" str
-
 let fetch ~dest url =
 	Curl.global_init Curl.CURLINIT_GLOBALALL;
 	let errbuf = ref "" in
@@ -27,22 +24,3 @@ let fetch ~dest url =
 	end;
 	Curl.global_cleanup ();
 	close_out dest
-
-class cache ~max_age dir = object (self)
- method download (url:string) =
-	let path = safe url in
-	let path = Filename.concat dir path in
-	let open Unix in
-	let stat =
-		try Some (stat path)
-		with Unix_error(ENOENT, _, _) -> None
-	in
-	(* XXX rm_rf in case old path is a directory *)
-	let oldest = Unix.time () -. (float_of_int max_age) in
-	match stat with
-		| Some stat when stat.st_mtime > oldest -> path
-		| _ ->
-			fetch ~dest:(open_out (path ^ "~")) url;
-			rename (path ^ "~") path;
-			path
-end

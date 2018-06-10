@@ -1,5 +1,7 @@
 module JSON = Yojson.Basic
 
+exception Checksum_mismatch of string
+
 module Cache = struct
 	include Map.Make(String)
 end
@@ -12,6 +14,7 @@ type opam_digest = [ `md5 of string ]
 type state = {
 	digests: nix_digest Cache.t;
 	active: StringSet.t;
+	path: string;
 }
 type t = state ref
 
@@ -51,10 +54,15 @@ let opam_digest_of_key key =
 		| ["md5"; digest] -> `md5 digest
 		| _ -> failwith ("Can't parse opam digest: " ^ key)
 
-let json_of_cache cache =
-	let properties = Cache.fold (fun key value properties ->
+let json_of_cache (cache: nix_digest Cache.t) : JSON.json =
+	let sorted_bindings = Cache.bindings cache
+		|> List.sort (fun (a, _) (b, _) -> String.compare a b)
+		|> List.rev in
+	
+	let properties = List.fold_left (fun properties (key, value) ->
 		(key, json_of_nix_digest value) :: properties
-	) cache [] in
+	) [] sorted_bindings
+	in
 	`Assoc properties
 
 let cache_of_json = function
@@ -68,14 +76,17 @@ let load path: nix_digest Cache.t =
 	JSON.from_file path |> cache_of_json
 
 let try_load path: t =
-	let digests = try load path
-		with Unix.(Unix_error(ENOENT, _, _)) -> Cache.empty in
-	ref { digests; active = StringSet.empty }
+	let digests = if Sys.file_exists path then load path else Cache.empty in
+	ref { digests; active = StringSet.empty; path }
 
-let save cache path =
-	let tmp = path ^ ".tmp" in
-	json_of_cache cache |> JSON.to_file ~std:true tmp;
-	Unix.rename path tmp
+let save cache =
+	let tmp = !cache.path ^ ".tmp" in
+	let json = json_of_cache (!cache).digests in
+	let chan = open_out tmp in
+	JSON.pretty_to_channel ~std:true chan json;
+	flush chan;
+	close_out chan;
+	Unix.rename tmp !cache.path
 
 let process_lines ~desc cmd =
 	let open Lwt in
@@ -113,24 +124,31 @@ let check_digest (opam_digest:opam_digest) path =
 			if (String.equal actual expected) then
 				()
 			else
-				failwith ("md5 " ^ actual ^ " did not match expected: " ^ expected)
+				raise (Checksum_mismatch ("md5 " ^ actual ^ " did not match expected: " ^ expected))
 
 let add url opam_digest cache : nix_digest =
 	let key = key_of_opam_digest opam_digest in
-	let digests = (!cache).digests in
+	let digests = !cache.digests in
 	let active = StringSet.add key !cache.active in
 	if Cache.mem key digests then (
 		cache := { !cache with active };
 		Cache.find key digests
 	) else (
 		let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
-		File_cache.fetch dest_channel url;
+		Download.fetch dest_channel url;
 		let () = check_digest opam_digest dest in
 		let nix_digest = `sha256 (sha256_of_path dest) in
 		cache := {
 			digests = Cache.add key nix_digest digests;
 			active;
+			path = !cache.path;
 		};
+		save cache;
 		nix_digest
 	)
 
+let gc cache =
+	let { digests; active } = !cache in
+	let is_active key _ = StringSet.mem key active in
+	let active_digests = Cache.filter is_active digests in
+	cache := { !cache with digests = active_digests }

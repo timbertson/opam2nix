@@ -22,6 +22,7 @@
 
 (executable (
 	(name main)
+	(modules main)
 	(public_name opam2nix)
 	(libraries (opam2nix))
 ))

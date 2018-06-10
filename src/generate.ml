@@ -32,8 +32,7 @@ type 'a generated_expression = [ | `reuse_existing | `expr of 'a ]
 let main arg_idx args =
 	let repo = ref "" in
 	let dest = ref "" in
-	let cache = ref "" in
-	let max_age = ref (14*24) in
+	let digest_map = ref "" in
 	let update_mode = ref `clean in
 	let num_versions = ref None in
 	let package_selection = ref [] in
@@ -42,8 +41,7 @@ let main arg_idx args =
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean / --update given)");
 		("--num-versions", Arg.String (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all. Format: x.x.x)");
-		("--digest-mapping", Arg.Set_string cache, "FILE Digest mapping JSON (may exist)");
-
+		("--digest-map", Arg.Set_string digest_map, "FILE Digest mapping (digest.json; may exist)");
 		("--unclean", Arg.Unit (fun () ->
 			update_mode := match !update_mode with
 				| `clean -> `unclean
@@ -74,15 +72,14 @@ let main arg_idx args =
 
 	let repo = nonempty !repo "--src" in
 	let dest = nonempty !dest "--dest" in
-	let cache = match !cache with
-		| "" -> Filename.concat (XDGBaseDir.Cache.user_dir ()) "opam2nix/digest.json"
+	let digest_map = match !digest_map with
+		| "" -> Filename.concat (Filename.dirname dest) "digest.json"
 		| other -> other
 	in
 	let mode = !update_mode in
 
 	let mkdir dest = Unix.mkdir dest 0o750 in
 
-	(* then make `dest/packages` (only use existing if --unclean specified) *)
 	let () = try
 		mkdir dest
 	with Unix.Unix_error(Unix.EEXIST, _, _) -> (
@@ -96,9 +93,16 @@ let main arg_idx args =
 				Printf.eprintf "Updating existing contents at %s\n" dest
 	) in
 
-	FileUtil.mkdir ~parent:true (Filename.dirname cache);
+	FileUtil.mkdir ~parent:true (Filename.dirname digest_map);
 
-	let cache = Digest_cache.try_load cache in
+	Printf.eprintf "Using digest mapping at %s\n" digest_map;
+	let cache = try
+		Digest_cache.try_load digest_map
+	with e -> (
+		Printf.eprintf "Error loading %s, you may need to delete or fix it manually\n" digest_map;
+		raise e
+	) in
+
 
 	let deps = new Opam_metadata.dependency_map in
 
@@ -159,7 +163,8 @@ let main arg_idx args =
 			with
 			| Unsupported_archive desc as e -> handle_error ("Unsupported archive: " ^ desc) e
 			| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
-			| File_cache.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
+			| Digest_cache.Checksum_mismatch desc as e -> handle_error ("Checksum mismatch: " ^ desc) e
+			| Download.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
 		) in
 		expr |> Option.may (fun expr ->
 			mkdirp_in dest dest_parts;
@@ -182,6 +187,8 @@ let main arg_idx args =
 				| `expr expr -> write_expr dest_path expr
 		)
 	);
+
+	Digest_cache.save cache;
 
 	Repo.traverse_versions `Nix ~root:dest (fun package versions base ->
 		let versions = match mode with
@@ -238,6 +245,14 @@ let main arg_idx args =
 			)
 		)
 	in
+
+	(* upon success, trim cache (unless we're doing an unclean run) *)
+	(match mode with
+		| `unclean -> ()
+		| `clean | `update ->
+			Digest_cache.gc cache;
+			Digest_cache.save cache;
+	);
 
 	(* Printf.eprintf "generated deps: %s\n" (deps#to_string) *)
 	()
