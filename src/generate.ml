@@ -24,7 +24,6 @@ let rec mkdirp_in base dirs =
 type update_mode = [
 	| `clean
 	| `unclean
-	| `update
 ]
 
 type 'a generated_expression = [ | `reuse_existing | `expr of 'a ]
@@ -42,16 +41,9 @@ let main arg_idx args =
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean / --update given)");
 		("--num-versions", Arg.String (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all. Format: x.x.x)");
 		("--digest-map", Arg.Set_string digest_map, "FILE Digest mapping (digest.json; may exist)");
-		("--unclean", Arg.Unit (fun () ->
-			update_mode := match !update_mode with
-				| `clean -> `unclean
-				| `unclean | `update as m -> m
-			), "(bool) Write into an existing destination (no cleanup, leaves existing files)"
-		);
-
-		("--update", Arg.Unit (fun () ->
-				update_mode := `update
-			), "(bool) Update an existing destination. Old versions will be removed and new ones added. files and opam contents will be updated, but .nix files won't be regenerated"
+		("--unclean",
+			Arg.Unit (fun () -> update_mode := `unclean),
+			"(bool) Write into an existing destination (no cleanup, leaves existing files)"
 		);
 
 		("--ignore-broken", Arg.Set ignore_broken_packages, "(bool) skip over unprocessible packages (default: fail)");
@@ -89,8 +81,6 @@ let main arg_idx args =
 				mkdir dest
 			| `unclean ->
 				Printf.eprintf "Adding to existing contents at %s\n" dest
-			| `update ->
-				Printf.eprintf "Updating existing contents at %s\n" dest
 	) in
 
 	FileUtil.mkdir ~parent:true (Filename.dirname digest_map);
@@ -105,17 +95,6 @@ let main arg_idx args =
 
 
 	let deps = new Opam_metadata.dependency_map in
-
-	let generate_expr ~mode ~path expr =
-		if mode = `update && Sys.file_exists path then (
-			(* Printf.eprintf "Using existing %s ...\n" path; *)
-			Some `reuse_existing
-		) else (
-			Printf.eprintf "Generating %s ...\n" path;
-			flush stderr;
-			expr () |> Option.map (fun expr -> `expr expr)
-		)
-	in
 
 	let write_expr path expr =
 		let oc = open_out path in
@@ -151,12 +130,13 @@ let main arg_idx args =
 		let dest_path = Filename.concat version_dir "default.nix" in
 		let files_src = (Filename.concat path "files") in
 		let has_files = Sys.file_exists files_src in
-		let expr = generate_expr ~mode ~path:dest_path (fun () ->
-			let handle_error desc e =
-				if !ignore_broken_packages then (
-					prerr_endline ("Warn: " ^ desc); None
-				) else raise e
-			in
+
+		let handle_error desc e =
+			if !ignore_broken_packages then (
+				prerr_endline ("Warn: " ^ desc); None
+			) else raise e
+		in
+		let expr = (
 			let open Opam_metadata in
 			try
 				Some (nix_of_opam ~cache ~deps ~has_files ~name:package ~version path)
@@ -182,53 +162,27 @@ let main arg_idx args =
 						cp ~recurse:true ~preserve:true ~force:Force filenames files_dest;
 			in
 			mark_version_generated ~package version;
-			match expr with
-				| `reuse_existing -> ()
-				| `expr expr -> write_expr dest_path expr
+			write_expr dest_path expr
 		)
 	);
 
 	Digest_cache.save cache;
 
 	Repo.traverse_versions `Nix ~root:dest (fun package versions base ->
-		let versions = match mode with
-			| `clean | `unclean -> versions
-			| `update ->
-				(* clean up versions which are just lingering from previous runs *)
-				let generated_versions =
-					try StringMap.find package !generated_versions
-					with Not_found -> []
-				in
-				(* Printf.eprintf "found versions: [%s] for package %s\n" (String.concat " " generated_versions) package; *)
-				let wanted, unwanted = List.partition (fun v -> List.mem v generated_versions) versions in
-				unwanted |> List.iter (fun v ->
-					let path = Filename.concat base (Repo.path_of_version `Nix v) in
-					Printf.eprintf "Removing previous version: %s\n" path;
-					rm_r path
-				);
-				wanted
+		let import_version ver =
+			(* If the version has special characters, quote it.
+			* e.g `import ./fpo`, vs `import (./. + "/foo bar")`
+			*)
+			let path = Repo.path_of_version `Nix ver in
+			`Lit ("import ./" ^ path ^ " world")
 		in
-		if versions = [] then (
-			(* only happens with `--update` *)
-			Printf.eprintf "Removing package dir which has no versions: %s\n" base;
-			rm_r base
-		) else (
-
-			let import_version ver =
-				(* If the version has special characters, quote it.
-				* e.g `import ./fpo`, vs `import (./. + "/foo bar")`
-				*)
-				let path = Repo.path_of_version `Nix ver in
-				`Lit ("import ./" ^ path ^ " world")
-			in
-			let path = Filename.concat base "default.nix" in
-			write_expr path (
-				`Function (`Id "world",
-					`Attrs (Nix_expr.AttrSet.build (
-						("latest", versions |> Repo.latest_version |> import_version) ::
-						(versions |> List.map (fun ver -> (Repo.string_of_version ver), import_version ver))
-					))
-				)
+		let path = Filename.concat base "default.nix" in
+		write_expr path (
+			`Function (`Id "world",
+				`Attrs (Nix_expr.AttrSet.build (
+					("latest", versions |> Repo.latest_version |> import_version) ::
+					(versions |> List.map (fun ver -> (Repo.string_of_version ver), import_version ver))
+				))
 			)
 		)
 	);
@@ -249,7 +203,7 @@ let main arg_idx args =
 	(* upon success, trim cache (unless we're doing an unclean run) *)
 	(match mode with
 		| `unclean -> ()
-		| `clean | `update ->
+		| `clean ->
 			Digest_cache.gc cache;
 			Digest_cache.save cache;
 	);
