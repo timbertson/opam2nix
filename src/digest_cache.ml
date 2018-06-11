@@ -1,50 +1,65 @@
 module JSON = Yojson.Basic
 
-exception Checksum_mismatch of string
-
 module Cache = struct
 	include Map.Make(String)
 end
 module StringSet = Set.Make(String)
 
 type key = string
-type nix_digest = [ `sha256 of string ]
+type nix_digest = [
+	| `sha256 of string
+	| `checksum_mismatch of string
+]
+type checksum_result = [
+	| `ok
+	| `checksum_mismatch of string
+]
 type opam_digest = [ `md5 of string ]
 
 type state = {
 	digests: nix_digest Cache.t;
 	active: StringSet.t;
-	path: string;
+	path: string option;
 }
 type t = state ref
 
 type value_partial = {
 	val_type: string option;
 	val_digest: string option;
+	val_error: string option;
 }
-let empty_partial = { val_type = None; val_digest = None }
+let empty_partial = { val_type = None; val_digest = None; val_error = None }
 
-let value_of_json = function
+let value_of_json : JSON.json -> nix_digest option = function
 	| `Assoc properties -> (
-		let {val_type; val_digest} = properties |> List.fold_left (fun partial item ->
+		let {val_type; val_digest; val_error} = properties |> List.fold_left (fun partial item ->
 			match item with
 				| ("type", `String t) -> { partial with val_type = Some t }
 				| ("digest", `String t) -> { partial with val_digest = Some t }
+				| ("error", `String t) -> { partial with val_error = Some t }
 				| (other, _) -> (
 					Printf.eprintf "warn: skipping unknown key: %s" other;
 					partial
 				)
 		) empty_partial in
-		match (val_type, val_digest) with
-			| (Some "sha256", Some digest) | (None, Some digest) ->
+		match (val_type, val_digest, val_error) with
+			| (Some "sha256", Some digest, None) | (None, Some digest, None) ->
 				(* assume sha256 *)
-				`sha256 digest
-			| other -> failwith "Unknown digest value"
+				Some (`sha256 digest)
+			| (Some "error", _, Some error) -> Some (`checksum_mismatch error)
+			| other -> (
+				Printf.eprintf "Unknown digest value; ignoring: %s" (JSON.to_string (`Assoc properties));
+				None
+			)
 	)
 	| other -> failwith "Expected digest value to be an object"
 
 let json_of_nix_digest = function
 	| `sha256 digest -> `Assoc [ "digest", `String digest ]
+	| `checksum_mismatch desc -> `Assoc [
+		"type", `String "checksum_mismatch";
+		"error", `String desc;
+	]
 
 let key_of_opam_digest = function
 	| `md5 digest -> "md5:" ^ digest
@@ -68,7 +83,9 @@ let json_of_cache (cache: nix_digest Cache.t) : JSON.json =
 let cache_of_json = function
 	| `Assoc properties ->
 		properties |> List.fold_left (fun map (key, value) ->
-			Cache.add key (value_of_json value) map
+			value_of_json value |> Option.map (fun value ->
+				Cache.add key value map
+			) |> Option.default map
 		) Cache.empty
 	| _ -> failwith "Invalid JSON mapping; expeced toplevel object"
 
@@ -77,16 +94,20 @@ let load path: nix_digest Cache.t =
 
 let try_load path: t =
 	let digests = if Sys.file_exists path then load path else Cache.empty in
-	ref { digests; active = StringSet.empty; path }
+	ref { digests; active = StringSet.empty; path = Some path }
+
+let ephemeral = ref { digests = Cache.empty; active = StringSet.empty; path = None }
 
 let save cache =
-	let tmp = !cache.path ^ ".tmp" in
-	let json = json_of_cache (!cache).digests in
-	let chan = open_out tmp in
-	JSON.pretty_to_channel ~std:true chan json;
-	flush chan;
-	close_out chan;
-	Unix.rename tmp !cache.path
+	!cache.path |> Option.may (fun path ->
+		let tmp = path ^ ".tmp" in
+		let json = json_of_cache !cache.digests in
+		let chan = open_out tmp in
+		JSON.pretty_to_channel ~std:true chan json;
+		flush chan;
+		close_out chan;
+		Unix.rename tmp path
+	)
 
 let process_lines ~desc cmd =
 	let open Lwt in
@@ -117,14 +138,12 @@ let md5_of_path p =
 		| lines -> failwith ("Unexpected md5sum output:\n" ^ (String.concat "\n" lines))
 	) |> Lwt_main.run
 
-let check_digest (opam_digest:opam_digest) path =
+let check_digest (opam_digest:opam_digest) path: checksum_result =
 	match opam_digest with
 		| `md5 expected ->
 			let actual = (md5_of_path path) in
-			if (String.equal actual expected) then
-				()
-			else
-				raise (Checksum_mismatch ("md5 " ^ actual ^ " did not match expected: " ^ expected))
+			if String.equal actual expected then `ok
+			else `checksum_mismatch ("md5 " ^ actual ^ " did not match expected: " ^ expected)
 
 let add url opam_digest cache : nix_digest =
 	let key = key_of_opam_digest opam_digest in
@@ -136,8 +155,10 @@ let add url opam_digest cache : nix_digest =
 	) else (
 		let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
 		Download.fetch dest_channel url;
-		let () = check_digest opam_digest dest in
-		let nix_digest = `sha256 (sha256_of_path dest) in
+		let nix_digest = match check_digest opam_digest dest with
+			| `ok -> `sha256 (sha256_of_path dest)
+			| `checksum_mismatch desc -> `checksum_mismatch desc
+		in
 		cache := {
 			digests = Cache.add key nix_digest digests;
 			active;

@@ -65,8 +65,8 @@ let main arg_idx args =
 	let repo = nonempty !repo "--src" in
 	let dest = nonempty !dest "--dest" in
 	let digest_map = match !digest_map with
-		| "" -> Filename.concat (Filename.dirname dest) "digest.json"
-		| other -> other
+		| "" -> None
+		| other -> Some other
 	in
 	let mode = !update_mode in
 
@@ -83,16 +83,22 @@ let main arg_idx args =
 				Printf.eprintf "Adding to existing contents at %s\n" dest
 	) in
 
-	FileUtil.mkdir ~parent:true (Filename.dirname digest_map);
-
-	Printf.eprintf "Using digest mapping at %s\n" digest_map;
-	let cache = try
-		Digest_cache.try_load digest_map
-	with e -> (
-		Printf.eprintf "Error loading %s, you may need to delete or fix it manually\n" digest_map;
-		raise e
+	let cache = (match digest_map with
+		| Some digest_map -> (
+			FileUtil.mkdir ~parent:true (Filename.dirname digest_map);
+			Printf.eprintf "Using digest mapping at %s\n" digest_map;
+			try
+				Digest_cache.try_load digest_map
+			with e -> (
+				Printf.eprintf "Error loading %s, you may need to delete or fix it manually\n" digest_map;
+				raise e
+			)
+		)
+		| None -> (
+			Printf.eprintf "Note: not using a digest mapping, add one with --digest-map\n";
+			Digest_cache.ephemeral
+		)
 	) in
-
 
 	let deps = new Opam_metadata.dependency_map in
 
@@ -143,7 +149,7 @@ let main arg_idx args =
 			with
 			| Unsupported_archive desc as e -> handle_error ("Unsupported archive: " ^ desc) e
 			| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
-			| Digest_cache.Checksum_mismatch desc as e -> handle_error ("Checksum mismatch: " ^ desc) e
+			| Checksum_mismatch desc as e -> handle_error ("Checksum mismatch: " ^ desc) e
 			| Download.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
 		) in
 		expr |> Option.may (fun expr ->

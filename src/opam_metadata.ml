@@ -28,6 +28,7 @@ type url_type =
 
 exception Unsupported_archive of string
 exception Invalid_package of string
+exception Checksum_mismatch of string
 
 let var_prefix = "opam_var_"
 
@@ -212,7 +213,10 @@ let nix_of_url ~add_input ~cache (url:url) =
 				`Id "fetchurl";
 				`Attrs (AttrSet.build [
 					"url", str src;
-					(match digest with `sha256 sha256 -> ("sha256", str sha256));
+					(match digest with
+						| `sha256 sha256 -> ("sha256", str sha256)
+						| `checksum_mismatch desc -> raise (Checksum_mismatch desc)
+					);
 				])
 			]
 

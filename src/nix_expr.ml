@@ -26,6 +26,7 @@ and t = [
 	| `NamedArguments of arg list
 	| `Function of t * t
 	| `Id of string
+	| `Int of int
 	| `Let_bindings of t AttrSet.t * t
 	| `Call of t list
 	| `Template of string_component list
@@ -79,7 +80,7 @@ let write dest (t:t) =
 		let parens_if_needed part =
 			match part with
 				(* for neatness, we don't bother enclosing simple expressions in parens *)
-				| `Id _ | `Lit _ | `String _ | `MultilineString _ | `List _ | `Attrs _ -> _write part
+				| `Id _ | `Int _ | `Lit _ | `String _ | `MultilineString _ | `List _ | `Attrs _ -> _write part
 				| _ -> put "("; _write part; put ")"
 		in
 		let property name = put ("." ^ (escape_key name)) in
@@ -105,6 +106,7 @@ let write dest (t:t) =
 				pp_close_box formatter ();
 				put "]"
 			| `Id id -> put id
+			| `Int i -> put (string_of_int i)
 			| `Lit str -> put str
 			| `Null -> put "null"
 			| `BinaryOp (a, op, b) -> _write a; put " "; put op; put " "; _write b
