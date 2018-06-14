@@ -155,7 +155,7 @@ let traverse repo_type ~repos ~(packages:package_selections) ?verbose (emit: str
 	in
 
 	repos |> List.iter (fun repo ->
-		let pkgroot = Filename.concat repo "packages" in
+		let pkgroot = match repo_type with `Nix -> repo | `Opam -> Filename.concat repo "packages" in
 
 		let process_package package (version:version_selection) =
 			let package_base = Filename.concat pkgroot package in

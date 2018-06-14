@@ -38,7 +38,7 @@ let value_of_json : JSON.json -> nix_digest option = function
 				| ("digest", `String t) -> { partial with val_digest = Some t }
 				| ("error", `String t) -> { partial with val_error = Some t }
 				| (other, _) -> (
-					Printf.eprintf "warn: skipping unknown key: %s" other;
+					Printf.eprintf "warn: skipping unknown key: %s\n" other;
 					partial
 				)
 		) empty_partial in
@@ -46,9 +46,9 @@ let value_of_json : JSON.json -> nix_digest option = function
 			| (Some "sha256", Some digest, None) | (None, Some digest, None) ->
 				(* assume sha256 *)
 				Some (`sha256 digest)
-			| (Some "error", _, Some error) -> Some (`checksum_mismatch error)
+			| (Some "checksum_mismatch", _, Some error) -> Some (`checksum_mismatch error)
 			| other -> (
-				Printf.eprintf "Unknown digest value; ignoring: %s" (JSON.to_string (`Assoc properties));
+				Printf.eprintf "Unknown digest value; ignoring: %s\n" (JSON.to_string (`Assoc properties));
 				None
 			)
 	)
