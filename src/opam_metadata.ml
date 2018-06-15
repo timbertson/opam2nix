@@ -324,7 +324,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep ~name opam in
 
 	let url_ends_with ext = (match url with
-		| Some (`http (url,_)) | Some (`local url) -> ends_with ext path
+		| Some (`http (url,_)) | Some (`local url) -> ends_with ext url
 		| _ -> false
 	) in
 
@@ -345,7 +345,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 
 	let opam_inputs : Nix_expr.t AttrSet.t =
 		!opam_inputs |> InputMap.mapi (fun name importance ->
-			property_of_input (`Id "opamSelection") (name, importance)) in
+			property_of_input (`Id "selection") (name, importance)) in
 
 	let nix_deps = !nix_deps
 		|> sorted_bindings_of_input
@@ -361,7 +361,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 		`Let_bindings (
 			(AttrSet.build ([
 				"lib", `Lit "world.pkgs.lib";
-				"opamSelection", `Property (`Id "world", "opamSelection");
+				"selection", `Property (`Id "world", "selection");
 				"opam2nix", `Property (`Id "world", "opam2nix");
 				"pkgs", `Property (`Id "world", "pkgs");
 				"opamDeps", `Attrs opam_inputs;
@@ -390,8 +390,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 					(* TODO: don't include build-only deps *)
 					"propagatedBuildInputs", `Lit "inputs";
 					"passthru", `Attrs (AttrSet.build [
-						"opamSelection", `Id "opamSelection";
-						(* "ocaml", `Id "ocaml"; *)
+						"selection", `Id "selection";
 					]);
 				] @ (
 					if has_files

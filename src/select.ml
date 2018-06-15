@@ -256,17 +256,20 @@ let main idx args =
 						]))
 						map
 				) new_packages AttrSet.empty in
-				let selection = AttrSet.add "ocaml" (`Call [
-					`Id "world.overrideOcaml";
-					`PropertyPath (`Id "world.pkgs", ocaml_attr)
-				]) selection in
+				(* expose world.ocaml as a selection, so packages can access it like any other dep *)
+				let selection = AttrSet.add "ocaml" (`Property (`Id "self", "ocaml")) selection in
 				let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
 
 				let expr = `Function (
-					`Id "world",
-					`Let_bindings (AttrSet.build [
-						"opamPackages", `Property (`Id "world", "opamPackages");
-					], `Attrs selection);
+					`NamedArguments [`Id "super"; `Id "self"],
+					(`Let_bindings (AttrSet.build [
+						"opamPackages", `Property (`Id "self", "opamPackages");
+					], `Attrs (AttrSet.build [
+						"ocaml", `PropertyPath (`Id "self.pkgs", ocaml_attr);
+						"ocamlVersion", str ocaml_version;
+						"repositories", `List (repos |> List.map str);
+						"selection", `Attrs selection
+					])));
 				) in
 				let oc = open_out dest in
 				Nix_expr.write oc expr;
