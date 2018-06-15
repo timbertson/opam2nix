@@ -1,4 +1,5 @@
 module JSON = Yojson.Basic
+open Util
 
 module Cache = struct
 	include Map.Make(String)
@@ -99,6 +100,18 @@ let try_load path: t =
 let ephemeral = ref { digests = Cache.empty; active = StringSet.empty; path = None }
 
 let save cache =
+	!cache.path |> Option.may (fun path ->
+		let open Unix in
+		try access path [W_OK]
+		with
+			(* If we have a readonly path, it's probably in the nix store.
+			 * Don't bother trying to write it now or in the future *)
+			| Unix_error (Unix.ENOENT, _, _) -> ()
+			| Unix_error (Unix.EACCES, _, _) -> (
+				Printf.eprintf "Note: Digest map file is not writeable; any updates will be lost\n";
+				cache := { !cache with path = None }
+			)
+	);
 	!cache.path |> Option.may (fun path ->
 		let tmp = path ^ ".tmp" in
 		let json = json_of_cache !cache.digests in
