@@ -29,6 +29,7 @@ type url_type =
 exception Unsupported_archive of string
 exception Invalid_package of string
 exception Checksum_mismatch of string
+exception Not_cached of string
 
 let var_prefix = "opam_var_"
 
@@ -202,11 +203,12 @@ let string_of_url url =
 		| `http addr -> addr
 		| `git addr -> "git:" ^ (concat_address addr)
 
-let nix_of_url ~add_input ~cache (url:url) =
+let nix_of_url ~add_input ~cache ~offline (url:url) =
 	let open Nix_expr in
 	match url with
 		| `local src -> `Lit src
 		| `http (src, checksum) ->
+			if (offline && not (Digest_cache.exists checksum cache)) then raise (Not_cached src);
 			let digest = Digest_cache.add src checksum cache in
 			add_input "fetchurl";
 			`Call [
@@ -275,7 +277,7 @@ module InputMap = struct
 			| _ -> add k v map
 end
 
-let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
+let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.t =
 	let pkgid = OpamPackage.create
 		(OpamPackage.Name.of_string name)
 		(Repo.opam_version_of version)
@@ -301,7 +303,9 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let add_opam_input = adder opam_inputs in
 	let add_expression_input = adder pkgs_expression_inputs in
 
-	let src = Option.map (nix_of_url ~add_input:(add_expression_input Required) ~cache) url in
+	let src = Option.map (
+		nix_of_url ~add_input:(add_expression_input Required) ~cache ~offline
+	) url in
 
 	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
 	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)

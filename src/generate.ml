@@ -36,11 +36,13 @@ let main arg_idx args =
 	let num_versions = ref None in
 	let package_selection = ref [] in
 	let ignore_broken_packages = ref false in
+	let offline = ref false in
 	let opts = Arg.align [
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean / --update given)");
 		("--num-versions", Arg.String (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all. Format: x.x.x)");
 		("--digest-map", Arg.Set_string digest_map, "FILE Digest mapping (digest.json; may exist)");
+		("--offline", Arg.Set offline, "Offline mode (packages requiring download will fail)");
 		("--unclean",
 			Arg.Unit (fun () -> update_mode := `unclean),
 			"(bool) Write into an existing destination (no cleanup, leaves existing files)"
@@ -69,6 +71,7 @@ let main arg_idx args =
 		| other -> Some other
 	in
 	let mode = !update_mode in
+	let offline = !offline in
 
 	let mkdir dest = Unix.mkdir dest 0o750 in
 
@@ -145,11 +148,12 @@ let main arg_idx args =
 		let expr = (
 			let open Opam_metadata in
 			try
-				Some (nix_of_opam ~cache ~deps ~has_files ~name:package ~version path)
+				Some (nix_of_opam ~cache ~offline ~deps ~has_files ~name:package ~version path)
 			with
 			| Unsupported_archive desc as e -> handle_error ("Unsupported archive: " ^ desc) e
 			| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
 			| Checksum_mismatch desc as e -> handle_error ("Checksum mismatch: " ^ desc) e
+			| Not_cached desc as e -> handle_error ("Resource not cached: " ^ desc) e
 			| Download.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
 		) in
 		expr |> Option.may (fun expr ->

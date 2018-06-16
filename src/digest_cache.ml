@@ -158,6 +158,10 @@ let check_digest (opam_digest:opam_digest) path: checksum_result =
 			if String.equal actual expected then `ok
 			else `checksum_mismatch ("md5 " ^ actual ^ " did not match expected: " ^ expected)
 
+let exists opam_digest cache : bool =
+	let key = key_of_opam_digest opam_digest in
+	Cache.mem key !cache.digests
+
 let add url opam_digest cache : nix_digest =
 	let key = key_of_opam_digest opam_digest in
 	let digests = !cache.digests in
