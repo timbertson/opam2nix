@@ -14,7 +14,7 @@ end
 let installed_suffix = ":installed"
 
 type url = [
-	| `http of string
+	| `http of string * Digest_cache.opam_digest
 	| `local of string
 ]
 
@@ -28,6 +28,8 @@ type url_type =
 
 exception Unsupported_archive of string
 exception Invalid_package of string
+exception Checksum_mismatch of string
+exception Not_cached of string
 
 let var_prefix = "opam_var_"
 
@@ -165,14 +167,15 @@ class dependency_map =
 			PackageMap.to_string reqs_to_string !map
 	end
 
-let url file = match (URL.kind file, URL.url file) with
-	| `http, (src, None) -> `http src
-	| `http, (_src, Some _fragment) -> raise (Unsupported_archive "http with fragment")
-	| `local, (src, None) -> `local src
-	| `local, (_src, Some _fragment) -> raise (Unsupported_archive "local with fragment")
-	| `git, _ -> raise (Unsupported_archive "git")
-	| `darcs, _ -> raise (Unsupported_archive "darcs")
-	| `hg, _ -> raise (Unsupported_archive "hg")
+let url file: url = match (URL.kind file, URL.url file, URL.checksum file) with
+	| `http, (src, None), Some checksum -> `http (src, `md5 checksum)
+	| `http, (_src, Some _fragment), _ -> raise (Unsupported_archive "http with fragment")
+	| `http, (_, _), None -> raise (Unsupported_archive "checksum required")
+	| `local, (src, None), _ -> `local src
+	| `local, (_src, Some _fragment), _ -> raise (Unsupported_archive "local with fragment")
+	| `git, _, _ -> raise (Unsupported_archive "git")
+	| `darcs, _, _ -> raise (Unsupported_archive "darcs")
+	| `hg, _, _ -> raise (Unsupported_archive "hg")
 
 let load_url path =
 	if Sys.file_exists path then begin
@@ -200,34 +203,23 @@ let string_of_url url =
 		| `http addr -> addr
 		| `git addr -> "git:" ^ (concat_address addr)
 
-let sha256_of_path p =
-	let open Lwt in
-	Lwt_process.with_process_in ("", [|"nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p|]) (fun proc ->
-		proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list >>= fun lines ->
-		proc#close >>= fun status ->
-		let open Unix in
-		match status with
-			| WEXITED 0 -> return lines
-			| _ -> failwith "nix-hash failed"
-	) >>= (function
-		| [line] -> return line
-		| lines -> failwith ("Unexpected nix-hash output:\n" ^ (String.concat "\n" lines))
-	)
-
-let nix_of_url ~add_input ~cache (url:url) =
+let nix_of_url ~add_input ~cache ~offline (url:url) =
 	let open Nix_expr in
 	match url with
 		| `local src -> `Lit src
-		| `http src ->
-			let local_copy = cache#download src in
-			let sha256 = sha256_of_path local_copy |> Lwt_main.run in
+		| `http (src, checksum) ->
+			if (offline && not (Digest_cache.exists checksum cache)) then raise (Not_cached src);
+			let digest = Digest_cache.add src checksum cache in
 			add_input "fetchurl";
 			`Call [
 				`Id "fetchurl";
 				`Attrs (AttrSet.build [
 					"url", str src;
-					"sha256", str sha256;
-				]);
+					(match digest with
+						| `sha256 sha256 -> ("sha256", str sha256)
+						| `checksum_mismatch desc -> raise (Checksum_mismatch desc)
+					);
+				])
 			]
 
 let unsafe_envvar_chars = Str.regexp "[^0-9a-zA-Z_]"
@@ -285,7 +277,7 @@ module InputMap = struct
 			| _ -> add k v map
 end
 
-let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
+let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.t =
 	let pkgid = OpamPackage.create
 		(OpamPackage.Name.of_string name)
 		(Repo.opam_version_of version)
@@ -311,7 +303,9 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let add_opam_input = adder opam_inputs in
 	let add_expression_input = adder pkgs_expression_inputs in
 
-	let src = Option.map (nix_of_url ~add_input:(add_expression_input Required) ~cache) url in
+	let src = Option.map (
+		nix_of_url ~add_input:(add_expression_input Required) ~cache ~offline
+	) url in
 
 	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
 	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)
@@ -333,10 +327,12 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 	let opam = load_opam (Filename.concat path "opam") in
 	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep ~name opam in
 
-	(match url with
-		| Some (`http href) when ends_with ".zip" href -> add_native Required "unzip"
-		| _ -> ()
-	);
+	let url_ends_with ext = (match url with
+		| Some (`http (url,_)) | Some (`local url) -> ends_with ext url
+		| _ -> false
+	) in
+
+	if url_ends_with ".zip" then add_native Required "unzip";
 
 	let property_of_input src (name, importance) : Nix_expr.t =
 		match importance with
@@ -353,7 +349,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 
 	let opam_inputs : Nix_expr.t AttrSet.t =
 		!opam_inputs |> InputMap.mapi (fun name importance ->
-			property_of_input (`Id "opamSelection") (name, importance)) in
+			property_of_input (`Id "selection") (name, importance)) in
 
 	let nix_deps = !nix_deps
 		|> sorted_bindings_of_input
@@ -369,7 +365,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 		`Let_bindings (
 			(AttrSet.build ([
 				"lib", `Lit "world.pkgs.lib";
-				"opamSelection", `Property (`Id "world", "opamSelection");
+				"selection", `Property (`Id "world", "selection");
 				"opam2nix", `Property (`Id "world", "opam2nix");
 				"pkgs", `Property (`Id "world", "pkgs");
 				"opamDeps", `Attrs opam_inputs;
@@ -398,8 +394,7 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 					(* TODO: don't include build-only deps *)
 					"propagatedBuildInputs", `Lit "inputs";
 					"passthru", `Attrs (AttrSet.build [
-						"opamSelection", `Id "opamSelection";
-						(* "ocaml", `Id "ocaml"; *)
+						"selection", `Id "selection";
 					]);
 				] @ (
 					if has_files
@@ -412,11 +407,9 @@ let nix_of_opam ~name ~version ~cache ~deps ~has_files path : Nix_expr.t =
 						| Some src -> [ "src", src ]
 						| None -> [ "unpackPhase", str "true" ]
 				) @ (
-					match url with
-						| Some (`http href)
-							when ends_with ".tbz" href ->
-							["unpackCmd", Nix_expr.str "tar -xf \"$curSrc\""]
-						| _ -> []
+					if url_ends_with ".tbz" then
+						["unpackCmd", Nix_expr.str "tar -xf \"$curSrc\""]
+					else []
 				)))
 			]
 		)

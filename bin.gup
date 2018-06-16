@@ -1,3 +1,4 @@
 #!bash -eu
+gup --always
 jbuilder build @install
 ln -sfn _build/install/default/bin "$1"

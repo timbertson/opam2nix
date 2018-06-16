@@ -1,4 +1,5 @@
 open Printf
+open Opam2nix
 open Util
 
 let commands : (string * (int -> string array -> unit)) list = [

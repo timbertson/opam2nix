@@ -24,7 +24,6 @@ let rec mkdirp_in base dirs =
 type update_mode = [
 	| `clean
 	| `unclean
-	| `update
 ]
 
 type 'a generated_expression = [ | `reuse_existing | `expr of 'a ]
@@ -32,31 +31,23 @@ type 'a generated_expression = [ | `reuse_existing | `expr of 'a ]
 let main arg_idx args =
 	let repo = ref "" in
 	let dest = ref "" in
-	let cache = ref "" in
-	let max_age = ref (14*24) in
+	let digest_map = ref "" in
 	let update_mode = ref `clean in
 	let num_versions = ref None in
 	let package_selection = ref [] in
 	let ignore_broken_packages = ref false in
+	let offline = ref false in
 	let opts = Arg.align [
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean / --update given)");
 		("--num-versions", Arg.String (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all. Format: x.x.x)");
-		("--cache", Arg.Set_string cache, "DIR Cache (may exist)");
-
-		("--unclean", Arg.Unit (fun () ->
-			update_mode := match !update_mode with
-				| `clean -> `unclean
-				| `unclean | `update as m -> m
-			), "(bool) Write into an existing destination (no cleanup, leaves existing files)"
+		("--digest-map", Arg.Set_string digest_map, "FILE Digest mapping (digest.json; may exist)");
+		("--offline", Arg.Set offline, "Offline mode (packages requiring download will fail)");
+		("--unclean",
+			Arg.Unit (fun () -> update_mode := `unclean),
+			"(bool) Write into an existing destination (no cleanup, leaves existing files)"
 		);
 
-		("--update", Arg.Unit (fun () ->
-				update_mode := `update
-			), "(bool) Update an existing destination. Old versions will be removed and new ones added. files and opam contents will be updated, but .nix files won't be regenerated"
-		);
-
-		("--max-age", Arg.Set_int max_age, "HOURS Maximum cache age");
 		("--ignore-broken", Arg.Set ignore_broken_packages, "(bool) skip over unprocessible packages (default: fail)");
 	]; in
 	let add_package p = package_selection := (match p with
@@ -75,15 +66,15 @@ let main arg_idx args =
 
 	let repo = nonempty !repo "--src" in
 	let dest = nonempty !dest "--dest" in
-	let cache = match !cache with
-		| "" -> Filename.concat (XDGBaseDir.Cache.user_dir ()) "opam2nix/download"
-		| other -> other
+	let digest_map = match !digest_map with
+		| "" -> None
+		| other -> Some other
 	in
 	let mode = !update_mode in
+	let offline = !offline in
 
 	let mkdir dest = Unix.mkdir dest 0o750 in
 
-	(* then make `dest/packages` (only use existing if --unclean specified) *)
 	let () = try
 		mkdir dest
 	with Unix.Unix_error(Unix.EEXIST, _, _) -> (
@@ -93,26 +84,26 @@ let main arg_idx args =
 				mkdir dest
 			| `unclean ->
 				Printf.eprintf "Adding to existing contents at %s\n" dest
-			| `update ->
-				Printf.eprintf "Updating existing contents at %s\n" dest
 	) in
 
-	FileUtil.mkdir ~parent:true cache;
-
-	let cache = new File_cache.cache ~max_age:(!max_age*60*60) cache in
+	let cache = (match digest_map with
+		| Some digest_map -> (
+			FileUtil.mkdir ~parent:true (Filename.dirname digest_map);
+			Printf.eprintf "Using digest mapping at %s\n" digest_map;
+			try
+				Digest_cache.try_load digest_map
+			with e -> (
+				Printf.eprintf "Error loading %s, you may need to delete or fix it manually\n" digest_map;
+				raise e
+			)
+		)
+		| None -> (
+			Printf.eprintf "Note: not using a digest mapping, add one with --digest-map\n";
+			Digest_cache.ephemeral
+		)
+	) in
 
 	let deps = new Opam_metadata.dependency_map in
-
-	let generate_expr ~mode ~path expr =
-		if mode = `update && Sys.file_exists path then (
-			(* Printf.eprintf "Using existing %s ...\n" path; *)
-			Some `reuse_existing
-		) else (
-			Printf.eprintf "Generating %s ...\n" path;
-			flush stderr;
-			expr () |> Option.map (fun expr -> `expr expr)
-		)
-	in
 
 	let write_expr path expr =
 		let oc = open_out path in
@@ -148,19 +139,22 @@ let main arg_idx args =
 		let dest_path = Filename.concat version_dir "default.nix" in
 		let files_src = (Filename.concat path "files") in
 		let has_files = Sys.file_exists files_src in
-		let expr = generate_expr ~mode ~path:dest_path (fun () ->
-			let handle_error desc e =
-				if !ignore_broken_packages then (
-					prerr_endline ("Warn: " ^ desc); None
-				) else raise e
-			in
+
+		let handle_error desc e =
+			if !ignore_broken_packages then (
+				prerr_endline ("Warn: " ^ desc); None
+			) else raise e
+		in
+		let expr = (
 			let open Opam_metadata in
 			try
-				Some (nix_of_opam ~cache ~deps ~has_files ~name:package ~version path)
+				Some (nix_of_opam ~cache ~offline ~deps ~has_files ~name:package ~version path)
 			with
 			| Unsupported_archive desc as e -> handle_error ("Unsupported archive: " ^ desc) e
 			| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
-			| File_cache.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
+			| Checksum_mismatch desc as e -> handle_error ("Checksum mismatch: " ^ desc) e
+			| Not_cached desc as e -> handle_error ("Resource not cached: " ^ desc) e
+			| Download.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
 		) in
 		expr |> Option.may (fun expr ->
 			mkdirp_in dest dest_parts;
@@ -178,51 +172,27 @@ let main arg_idx args =
 						cp ~recurse:true ~preserve:true ~force:Force filenames files_dest;
 			in
 			mark_version_generated ~package version;
-			match expr with
-				| `reuse_existing -> ()
-				| `expr expr -> write_expr dest_path expr
+			write_expr dest_path expr
 		)
 	);
 
-	Repo.traverse_versions `Nix ~root:dest (fun package versions base ->
-		let versions = match mode with
-			| `clean | `unclean -> versions
-			| `update ->
-				(* clean up versions which are just lingering from previous runs *)
-				let generated_versions =
-					try StringMap.find package !generated_versions
-					with Not_found -> []
-				in
-				(* Printf.eprintf "found versions: [%s] for package %s\n" (String.concat " " generated_versions) package; *)
-				let wanted, unwanted = List.partition (fun v -> List.mem v generated_versions) versions in
-				unwanted |> List.iter (fun v ->
-					let path = Filename.concat base (Repo.path_of_version `Nix v) in
-					Printf.eprintf "Removing previous version: %s\n" path;
-					rm_r path
-				);
-				wanted
-		in
-		if versions = [] then (
-			(* only happens with `--update` *)
-			Printf.eprintf "Removing package dir which has no versions: %s\n" base;
-			rm_r base
-		) else (
+	Digest_cache.save cache;
 
-			let import_version ver =
-				(* If the version has special characters, quote it.
-				* e.g `import ./fpo`, vs `import (./. + "/foo bar")`
-				*)
-				let path = Repo.path_of_version `Nix ver in
-				`Lit ("import ./" ^ path ^ " world")
-			in
-			let path = Filename.concat base "default.nix" in
-			write_expr path (
-				`Function (`Id "world",
-					`Attrs (Nix_expr.AttrSet.build (
-						("latest", versions |> Repo.latest_version |> import_version) ::
-						(versions |> List.map (fun ver -> (Repo.string_of_version ver), import_version ver))
-					))
-				)
+	Repo.traverse_versions `Nix ~root:dest (fun package versions base ->
+		let import_version ver =
+			(* If the version has special characters, quote it.
+			* e.g `import ./fpo`, vs `import (./. + "/foo bar")`
+			*)
+			let path = Repo.path_of_version `Nix ver in
+			`Lit ("import ./" ^ path ^ " world")
+		in
+		let path = Filename.concat base "default.nix" in
+		write_expr path (
+			`Function (`Id "world",
+				`Attrs (Nix_expr.AttrSet.build (
+					("latest", versions |> Repo.latest_version |> import_version) ::
+					(versions |> List.map (fun ver -> (Repo.string_of_version ver), import_version ver))
+				))
 			)
 		)
 	);
@@ -239,6 +209,14 @@ let main arg_idx args =
 			)
 		)
 	in
+
+	(* upon success, trim cache (unless we're doing an unclean run) *)
+	(match mode with
+		| `unclean -> ()
+		| `clean ->
+			Digest_cache.gc cache;
+			Digest_cache.save cache;
+	);
 
 	(* Printf.eprintf "generated deps: %s\n" (deps#to_string) *)
 	()
