@@ -11,3 +11,4 @@
 /opam2nix.install
 /bin
 **/.gup
+/version.full

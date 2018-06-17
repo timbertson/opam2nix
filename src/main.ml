@@ -6,6 +6,7 @@ let commands : (string * (int -> string array -> unit)) list = [
 	"generate", Generate.main;
 	"invoke", Invoke.main;
 	"select", Select.main;
+	"version", Version.main;
 ]
 
 let () =
