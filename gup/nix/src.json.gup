@@ -1,0 +1,4 @@
+#!bash -eu
+cd "$(dirname "$2")"
+gup -u src.in.json ../VERSION
+"$(nix-which nix-update-source)"/bin/nix-update-source -o "$1" --set version "$(cat ../VERSION)" src.in.json

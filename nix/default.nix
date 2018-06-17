@@ -20,7 +20,7 @@ in
 with localPackages; with localPackages.ocamlPackages;
 stdenv.mkDerivation {
 	name = "opam2nix-${lib.removeSuffix "\n" (builtins.readFile ../VERSION)}";
-	inherit (nix-update-source.fetch ./src.json) src;
+	src = if lib.isStorePath ../. then ../. else (nix-update-source.fetch ./src.json).src;
 	# unpackCmd = "tar xzf $src";
 	buildPhase = "gup all";
 	installPhase = ''
