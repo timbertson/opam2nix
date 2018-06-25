@@ -1,4 +1,4 @@
-{stdenv, fetchurl, scons, python, bison, re2c, pkgconfig }:
+{stdenv, fetchurl, scons, python, bison, re2c, pkgconfig, libcxx }:
 
 stdenv.mkDerivation rec {
   version="4.5.4";
@@ -9,6 +9,21 @@ stdenv.mkDerivation rec {
     sha256 = "16k4pkwyr2mh5w8j91vhxh9aff7f4y31npwf09w6f8q63fxvpy41";
   };
   patches = [ ./gringo.patch ];
+
+  postPatch = stdenv.lib.optionalString stdenv.isDarwin ''
+    substituteInPlace ./SConstruct \
+      --replace \
+        "env['CXX']            = 'g++'" \
+        "env['CXX']            = '$CXX'"
+    substituteInPlace ./SConstruct \
+      --replace \
+        "env['CPPPATH']        = []" \
+        "env['CPPPATH']        = ['${libcxx}/include/c++/v1']"
+    substituteInPlace ./SConstruct \
+      --replace \
+        "env['LIBPATH']        = []" \
+        "env['LIBPATH']        = ['${libcxx}/lib']"
+  '';
 
   buildInputs = [ scons bison re2c pkgconfig ];
 
