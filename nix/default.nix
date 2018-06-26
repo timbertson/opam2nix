@@ -1,17 +1,11 @@
 { pkgs, stdenv, lib, ocamlPackages, nix-update-source, newScope, libev, fetchurl }:
 let
 	localPackages = lib.makeScope pkgs.newScope (self: with self; pkgs // {
-		aspcud = callPackage ./aspcud.nix {};
-		gringo = callPackage ./gringo.nix {};
-		gup = callPackage ./gup.nix {};
-
 		ocamlPackages = lib.makeScope pkgs.newScope (self: with self; ocamlPackages // {
 			opam-lib = callPackage ./opam-lib.nix {};
 			cudf = callPackage ./cudf.nix {};
 			dose3 = callPackage ./dose3.nix {};
-			ocamlgraph = callPackage ./ocamlgraph.nix {};
 			basedir = callPackage ./basedir.nix {};
-			ocaml_extlib = callPackage ./extlib.nix {};
 		});
 	});
 
