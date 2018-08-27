@@ -43,6 +43,8 @@ let main arg_idx args =
 		("--num-versions", Arg.String (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all. Format: x.x.x)");
 		("--digest-map", Arg.Set_string digest_map, "FILE Digest mapping (digest.json; may exist)");
 		("--offline", Arg.Set offline, "Offline mode (packages requiring download will fail)");
+		("--verbose", Arg.Set Util._verbose, "Verbose");
+		("-v", Arg.Set Util._verbose, "Verbose");
 		("--unclean",
 			Arg.Unit (fun () -> update_mode := `unclean),
 			"(bool) Write into an existing destination (no cleanup, leaves existing files)"

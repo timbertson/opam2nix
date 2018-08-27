@@ -114,6 +114,7 @@ let load_env () =
 							spec := Some (Opam_metadata.load_opam path)
 					| "spec", other -> unexpected_json "spec" other
 
+					(* TODO: use OpamSysPoll *)
 					| "ocaml-version", `String version -> add_var "ocaml-version" (S version)
 					| "ocaml-version", other -> unexpected_json "ocaml-version" other
 
@@ -167,91 +168,21 @@ let remove_empty_dir d =
 let execute_install_file state =
 	let name = state.pkgname in
 	let open OpamTypes in
-	(* XXX this should really be exported from opam proper... *)
-	let warnings = ref [] in
-	let check ~src ~dst base =
-		let src_file = OpamFilename.create src base.c in
-		let exists = OpamFilename.exists src_file in
-		if base.optional && not exists then
-			Printf.eprintf "Not installing missing optional file: %s\n"
-				(OpamFilename.to_string src_file);
-		if not base.optional && not exists then
-			warnings := (dst, base.c) :: !warnings;
-		exists
-	in
-	let cwd = OpamFilename.cwd () in
 
-	let install_f = OpamFilename.raw (name ^ ".install") in
-	let install = OpamFile.Dot_install.safe_read install_f in
-	if OpamFilename.exists install_f
-		then prerr_endline "Installing from .install file!"
-		else prerr_endline "no .install file found!";
-
-	(* Install a list of files *)
-	let destDir = destDir () |> OpamFilename.Dir.of_string in
-	let libDestDir = libDestDir () |> OpamFilename.Dir.of_string in
-	let build_dir = cwd in
-	let install_files exec destBase dest files_fn =
-		let open OpamFilename.Op in
-		let destDir = destBase / dest in
-		let files = files_fn install in
-		match files with
-			| [] -> ()
-			| files ->
-				ensure_dir_exists destDir;
-				List.iter (fun (base, dst) ->
-					let src_file = OpamFilename.create build_dir base.c in
-					let dst_file = match dst with
-						| None   -> OpamFilename.create destDir (OpamFilename.basename src_file)
-						| Some d -> OpamFilename.create destDir d in
-					if check ~src:build_dir ~dst:destDir base then
-						OpamFilename.install ~exec ~src:src_file ~dst:dst_file ();
-				) files
-	in
-
-	(* bin *)
-	install_files true destDir "bin" OpamFile.Dot_install.bin;
-
-	(* sbin *)
-	install_files true destDir "sbin" OpamFile.Dot_install.sbin;
-
-	(* lib *)
-	install_files false libDestDir name OpamFile.Dot_install.lib;
-	install_files true libDestDir name OpamFile.Dot_install.libexec;
-
-	(* toplevel *)
-	install_files false libDestDir "toplevel" OpamFile.Dot_install.toplevel;
-
-	install_files true destDir "lib" OpamFile.Dot_install.stublibs;
-
-	(* Man pages *)
-	install_files false destDir "man" OpamFile.Dot_install.man;
-
-	(* Shared files *)
-	install_files false destDir (Filename.concat "share" name) OpamFile.Dot_install.share;
-	install_files false destDir "share" OpamFile.Dot_install.share_root;
-
-	(* Etc files *)
-	install_files false destDir "etc" OpamFile.Dot_install.etc;
-
-	(* Documentation files *)
-	install_files false destDir "doc" OpamFile.Dot_install.doc;
-
-	(* misc: not allowed. *)
-
-	if !warnings <> [] then (
-		let print (dir, base) =
-			Printf.sprintf "  - %s to %s\n"
-				(OpamFilename.to_string (OpamFilename.create build_dir base))
-				(OpamFilename.Dir.to_string dir) in
-		OpamConsole.error "Installation failed!";
-		let msg =
-			Printf.sprintf
-				"Some files in %s couldn't be installed:\n%s"
-				(OpamFilename.prettify install_f)
-				(String.concat "" (List.map print !warnings))
-		in
-		failwith msg
+	let install_file_path = (name ^ ".install") in
+	if (Sys.file_exists install_file_path) then (
+		prerr_endline ("Installing from " ^ install_file_path);
+		let cmd =  [|
+			"opam-installer"; "install"; install_file_path; "--prefix"; destDir ()
+		|] in
+		let cmd_desc = String.concat " " (Array.to_list cmd) in
+		prerr_endline (" + " ^ cmd_desc);
+		let pid = Unix.create_process (Array.get cmd 0) cmd Unix.stdin Unix.stdout Unix.stderr in
+		match Unix.waitpid [ Unix.WUNTRACED ] pid with
+			| (_, WEXITED 0) -> ()
+			| _ -> failwith (cmd_desc ^ " failed")
+	) else (
+		prerr_endline "no .install file found!";
 	)
 
 let isdir path =

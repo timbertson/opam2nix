@@ -14,7 +14,7 @@ end
 let installed_suffix = ":installed"
 
 type url = [
-	| `http of string * Digest_cache.opam_digest
+	| `http of string * (Digest_cache.opam_digest list)
 	| `local of string
 ]
 
@@ -36,9 +36,8 @@ let var_prefix = "opam_var_"
 type dependency =
 	| NixDependency of string
 	| SimpleOpamDependency of string
-	| OsDependency of (bool * string) OpamTypes.generic_formula
-	| ExternalDependencies of OpamTypes.tags
-	| PackageDependencies of OpamTypes.ext_formula
+	| ExternalDependencies of (string list * OpamTypes.filter) list
+	| PackageDependencies of OpamTypes.filtered_formula
 
 type importance = Required | Optional
 type requirement = importance * dependency
@@ -54,35 +53,89 @@ module ImportanceOrd = struct
 	let more_important a b = (compare a b) > 0
 end
 
-let rec iter_formula : 'a . (importance -> 'a -> unit) -> importance -> 'a OpamFormula.formula -> unit =
-	fun iter_atom importance formula ->
-		let recurse = iter_formula iter_atom in
-		let open OpamFormula in
-		match formula with
-			| Empty -> ()
-			| Atom a -> iter_atom importance a
-			| Block b -> recurse importance b
-			| And (a,b) -> recurse importance a; recurse importance b
-			| Or(a,b) -> recurse Optional a; recurse Optional b
+let string_of_relop : relop -> string = function
+	| `Eq -> "="
+	| `Geq -> ">="
+	| `Gt -> ">"
+	| `Leq -> "<="
+	| `Lt -> "<"
+	| `Neq -> "!="
 
 let string_of_dependency = function
 	| NixDependency dep -> "nix:"^dep
 	| SimpleOpamDependency dep -> "package:"^dep
-	| OsDependency formula ->
-			"os:" ^
-				(OpamFormula.string_of_formula (fun (b,s) -> (string_of_bool b) ^","^s) formula)
-	| ExternalDependencies tags ->
-			"external:" ^
-				(StringSetMap.to_string (StringSet.to_string) tags)
+	| ExternalDependencies deps ->
+			"external:" ^ (
+				List.to_string (fun (deps, filter) ->
+					(String.concat ",") deps ^ " {" ^ OpamFilter.to_string filter ^ "}"
+				)
+			) deps
 	| PackageDependencies formula ->
-		(* of OpamTypes.ext_formula *)
-		"package:<TODO>"
+		(* of OpamTypes.formula *)
+		let string_of_filter : filter filter_or_constraint -> string = function
+			| Filter f -> OpamFilter.to_string f
+			| Constraint (op, f) -> (string_of_relop op) ^ (OpamFilter.to_string f)
+		in
+		let string_of_atom : (OpamPackage.Name.t * filter filter_or_constraint OpamFormula.formula) -> string = fun (name, formula) ->
+			(OpamPackage.Name.to_string name) ^ ":" ^ (OpamFormula.string_of_formula string_of_filter formula)
+		in
+		"package:" ^ (OpamFormula.string_of_formula string_of_atom formula)
 
 let string_of_requirement = function
 	| Required, dep -> string_of_dependency dep
 	| Optional, dep -> "{" ^ (string_of_dependency dep) ^ "}"
 
 let string_of_importance = function Required -> "required" | Optional -> "optional"
+
+let add_var name v vars =
+	vars |> OpamVariable.Full.Map.add (OpamVariable.Full.global (OpamVariable.of_string name)) v
+
+let native_system_vars () =
+	let state = OpamVariable.Full.Map.empty in
+	let system_variables = OpamSysPoll.variables in
+	List.fold_left
+		(fun state ((name: OpamVariable.t), value) ->
+			(Lazy.force value) |> Option.map (fun value ->
+				OpamVariable.Full.Map.add (OpamVariable.Full.global name) value state
+			) |> Option.default state
+		)
+		state system_variables
+
+let nixpkgs_vars () =
+	native_system_vars ()
+		|> add_var "os-distribution" (S "nixpkgs")
+		(* NixOS is more of a distribution, but for practical purposes
+		 * "nixpkgs" defines what packages are available, regardless of distro *)
+		|> add_var "os-version" (S "unknown")
+			(* I don't think we can easily get a number here, but it should
+			 * rarely matter *)
+
+let add_runtime_variables base_vars =
+	base_vars
+		|> add_var "make" (S "make")
+		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
+		|> add_var "preinstalled" (B false) (* XXX ? *)
+		|> add_var "pinned" (B false) (* probably ? *)
+		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
+		(* XXX best guesses... *)
+		|> add_var "ocaml-native" (B true)
+		|> add_var "ocaml-native-tools" (B true)
+		|> add_var "ocaml-native-dynlink" (B true)
+
+let init_variables () = add_runtime_variables (nixpkgs_vars ())
+
+let lookup_var vars key =
+	try Some (OpamVariable.Full.Map.find key vars)
+	with Not_found -> (
+		let key = (OpamVariable.Full.to_string key) in
+		if OpamStd.String.ends_with ~suffix:installed_suffix key then (
+			(* evidently not... *)
+			Some (B false)
+		) else (
+			debug "WARN: opam var %s not found..." key;
+			None
+		)
+	)
 
 let add_nix_inputs
 	~(add_native: importance -> string -> unit)
@@ -92,61 +145,62 @@ let add_nix_inputs
 		| Required -> "dep"
 		| Optional -> "optional dep"
 	in
-	(* let depend_on = add_input importance in *)
+	let nixpkgs_env = lookup_var (nixpkgs_vars ()) in
+	debug "Adding dependency: %s\n" (string_of_dependency dep);
 	match dep with
 		| NixDependency name ->
-				Printf.eprintf "  adding nix %s: %s\n" desc name;
 				add_native importance name
-		| OsDependency formula ->
-				iter_formula (fun importance (b, str) ->
-					Printf.eprintf "TODO: OS %s (%b,%s)\n" desc b str
-				) importance formula
 		| SimpleOpamDependency dep -> add_opam importance dep
 		| ExternalDependencies externals ->
-				let has_nix = ref false in
-				let add_all importance packages =
-					StringSet.iter (fun dep ->
-						Printf.eprintf "  adding nix %s: %s\n" desc dep;
+				let apply_filters env (deps, filter) =
+					try
+						if (OpamFilter.eval_to_bool ~default:false env filter) then
+							Some (deps)
+						else
+							None
+					with Invalid_argument desc -> (
+						Printf.eprintf "  Note: depext filter raised Invalid_argument: %s\n" desc;
+						None
+					)
+				in
+
+				let (importance, deps) =
+					let nixpkgs_deps = filter_map (apply_filters nixpkgs_env) externals in
+					if (nixpkgs_deps = []) then (
+						debug "  Note: package has depexts, but none of them `nixpkgs`:\n    %s\n"
+							(string_of_dependency dep);
+						debug "  Adding them all as `optional` dependencies.\n";
+						(Optional, List.map fst externals)
+					) else (Required, nixpkgs_deps)
+				in
+				List.iter (fun deps ->
+					List.iter (fun dep ->
+						debug "  adding nix %s: %s\n" desc dep;
 						add_native importance dep
-					) packages
-				in
+					) deps
+				) deps
 
-				StringSetMap.iter (fun environments packages ->
-					if StringSet.mem "nixpkgs" environments then (
-						has_nix := true;
-						add_all importance packages
-					)
-				) externals;
-				if not !has_nix then begin
-					Printf.eprintf
-						"  Note: package has depexts, but none of them `nixpkgs`:\n    %s\n"
-						(StringSetMap.to_string (StringSet.to_string) externals);
-					Printf.eprintf "  Adding them all as `optional` deps, with fingers firmly crossed.\n";
-					StringSetMap.iter (fun _environments packages ->
-						add_all Optional packages
-					) externals;
-				end
 
-		| PackageDependencies formula ->
-			let iter_dep importance (dep:OpamPackage.Name.t * (package_dep_flag list * OpamFormula.version_formula)) =
-				let (name, (flags, version_formula)) = dep in
-				let name = OpamPackage.Name.to_string name in
-				let needed_for_build = if List.length flags = 0
-					then true
-					else flags |> List.fold_left (fun required flag ->
-						required || (match flag with Depflag_Build -> true | _ -> false)) false
-				in
-				let build_importance = if needed_for_build then importance else Optional in
-				let version_desc = ref "" in
-				version_formula |> iter_formula (fun _importance (relop, version) ->
-					version_desc := !version_desc ^ (
-						(OpamFormula.string_of_relop relop) ^
-						(OpamPackage.Version.to_string version)
-					)
-				) build_importance;
-				add_opam build_importance name
-			in
-			iter_formula iter_dep importance formula
+		| PackageDependencies formula -> (
+			let add importance (pkg, _version) = add_opam importance (OpamPackage.Name.to_string pkg) in
+			OpamPackageVar.filter_depends_formula
+				~build:true
+				~post:false
+				~test:false
+				~doc:false
+				~default:false
+				~env:nixpkgs_env
+				formula |> OpamFormula.iter (add importance);
+
+			OpamPackageVar.filter_depends_formula
+				~build:true
+				~post:false
+				~test:true
+				~doc:true
+				~default:true
+				~env:nixpkgs_env
+				formula |> OpamFormula.iter (add Optional)
+		)
 
 module PackageMap = OpamPackage.Map
 
@@ -167,15 +221,25 @@ class dependency_map =
 			PackageMap.to_string reqs_to_string !map
 	end
 
-let url file: url = match (URL.kind file, URL.url file, URL.checksum file) with
-	| `http, (src, None), Some checksum -> `http (src, `md5 checksum)
-	| `http, (_src, Some _fragment), _ -> raise (Unsupported_archive "http with fragment")
-	| `http, (_, _), None -> raise (Unsupported_archive "checksum required")
-	| `local, (src, None), _ -> `local src
-	| `local, (_src, Some _fragment), _ -> raise (Unsupported_archive "local with fragment")
+let url file: url =
+	let (url, checksums) = URL.url file, URL.checksum file in
+	let OpamUrl.({ hash; transport; backend; _ }) = url in
+	let url_without_backend = OpamUrl.base_url url in
+	let require_checksums checksums =
+		if checksums = [] then
+			raise (Unsupported_archive "Checksum required")
+		else checksums
+	in
+	match (backend, transport, hash) with
 	| `git, _, _ -> raise (Unsupported_archive "git")
 	| `darcs, _, _ -> raise (Unsupported_archive "darcs")
 	| `hg, _, _ -> raise (Unsupported_archive "hg")
+
+	| `http, "file", None | `rsync, "file", None -> `local OpamUrl.(url.path)
+	| `http, _, None -> `http (url_without_backend, require_checksums checksums) (* drop the VCS portion *)
+	| `http, _, Some _ -> raise (Unsupported_archive "http with fragment")
+	| `rsync, transport, None -> raise (Unsupported_archive ("rsync transport: " ^ transport))
+	| `rsync, _, Some _ -> raise (Unsupported_archive "rsync with fragment")
 
 let load_url path =
 	if Sys.file_exists path then begin
@@ -191,7 +255,7 @@ let load_opam path =
 	let file = open_in path in
 	let rv = OPAM.read_from_channel file in
 	close_in file;
-	rv
+	OpamFormatUpgrade.opam_file rv
 
 let concat_address (addr, frag) =
 	match frag with
@@ -207,9 +271,9 @@ let nix_of_url ~add_input ~cache ~offline (url:url) =
 	let open Nix_expr in
 	match url with
 		| `local src -> `Lit src
-		| `http (src, checksum) ->
-			if (offline && not (Digest_cache.exists checksum cache)) then raise (Not_cached src);
-			let digest = Digest_cache.add src checksum cache in
+		| `http (src, checksums) ->
+			if (offline && not (Digest_cache.exists checksums cache)) then raise (Not_cached src);
+			let digest = Digest_cache.add src checksums cache in
 			add_input "fetchurl";
 			`Call [
 				`Id "fetchurl";
@@ -235,7 +299,7 @@ let add_implicit_build_dependencies ~add_dep commands =
 		let suffix = installed_suffix in
 		if OpamStd.String.ends_with ~suffix key then (
 			let pkgname = OpamStd.String.remove_suffix ~suffix key in
-			Printf.eprintf "  adding implied dep: %s\n" pkgname;
+			debug "  adding implied dep: %s\n" pkgname;
 			implicit_optdeps := !implicit_optdeps |> StringSet.add pkgname;
 			Some (B true)
 		) else (
@@ -255,11 +319,8 @@ let attrs_of_opam ~add_dep ~name (opam:OPAM.t) =
 	add_implicit_build_dependencies ~add_dep [OPAM.build opam; OPAM.install opam];
 	add_dep Optional (PackageDependencies (OPAM.depopts opam));
 	add_dep Required (PackageDependencies (OPAM.depends opam));
-	add_dep Required (OsDependency (OPAM.os opam));
-	let () = match OPAM.depexts opam with
-		| None -> ()
-		| Some deps -> add_dep Required (ExternalDependencies deps);
-	in
+	let depexts = OPAM.depexts opam in
+	if (depexts <> []) then add_dep Required (ExternalDependencies depexts);
 	[
 		"configurePhase",  Nix_expr.str "true"; (* configuration is done in build commands *)
 		"buildPhase",      `Lit "\"${opam2nix}/bin/opam2nix invoke build\"";
@@ -415,36 +476,3 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 		)
 	)
 
-
-let os_string = OpamStd.Sys.os_string
-
-let add_var name v vars =
-	vars |> OpamVariable.Full.Map.add (OpamVariable.Full.of_string name) v
-
-let init_variables () =
-	let state = OpamVariable.Full.Map.empty in
-	state
-		|> add_var "os" (S (os_string ()))
-		|> add_var "make" (S "make")
-		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
-		|> add_var "preinstalled" (B false) (* XXX ? *)
-		|> add_var "pinned" (B false) (* probably ? *)
-		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
-		(* XXX best guesses... *)
-		|> add_var "ocaml-native" (B true)
-		|> add_var "ocaml-native-tools" (B true)
-		|> add_var "ocaml-native-dynlink" (B true)
-		|> add_var "arch" (S (OpamStd.Sys.arch ()))
-
-let lookup_var vars key =
-	try Some (OpamVariable.Full.Map.find key vars)
-	with Not_found -> (
-		let key = (OpamVariable.Full.to_string key) in
-		if OpamStd.String.ends_with ~suffix:installed_suffix key then (
-			(* evidently not... *)
-			Some (B false)
-		) else (
-			prerr_endline ("WARN: opam var " ^ key ^ " not found...");
-			None
-		)
-	)
