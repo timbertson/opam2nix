@@ -426,8 +426,10 @@ let init_variables () =
 	state
 		|> add_var "os" (S (os_string ()))
 		|> add_var "make" (S "make")
-		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
-		|> add_var "preinstalled" (B false) (* XXX ? *)
+                |> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
+                (* With preinstalled packages suppose they can't write
+                   in the ocaml directory *)
+		|> add_var "preinstalled" (B true)
 		|> add_var "pinned" (B false) (* probably ? *)
 		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
 		(* XXX best guesses... *)
