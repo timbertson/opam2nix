@@ -337,7 +337,7 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 	let property_of_input src (name, importance) : Nix_expr.t =
 		match importance with
 			| Optional -> `Property_or (src, name, `Null)
-			| Required -> `Property (src, name)
+			| Required -> `PropertyPath (src, String.split_on_char '.' name)
 	in
 	let attr_of_input src (name, importance) : string * Nix_expr.t =
 		(name, property_of_input src (name, importance))
