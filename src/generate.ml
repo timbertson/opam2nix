@@ -37,12 +37,14 @@ let main arg_idx args =
 	let package_selection = ref [] in
 	let ignore_broken_packages = ref false in
 	let offline = ref false in
+	let verbose = ref false in
 	let opts = Arg.align [
 		("--src", Arg.Set_string repo, "DIR Opam repository");
 		("--dest", Arg.Set_string dest, "DIR Destination (must not exist, unless --unclean / --update given)");
 		("--num-versions", Arg.String (fun n -> num_versions := Some n), "NUM Versions of each *-versioned package to keep (default: all. Format: x.x.x)");
 		("--digest-map", Arg.Set_string digest_map, "FILE Digest mapping (digest.json; may exist)");
 		("--offline", Arg.Set offline, "Offline mode (packages requiring download will fail)");
+		("--verbose", Arg.Set verbose, "Verbose");
 		("--unclean",
 			Arg.Unit (fun () -> update_mode := `unclean),
 			"(bool) Write into an existing destination (no cleanup, leaves existing files)"
@@ -64,6 +66,7 @@ let main arg_idx args =
 		exit 0
 	) in
 
+	let verbose = !verbose in
 	let repo = nonempty !repo "--src" in
 	let dest = nonempty !dest "--dest" in
 	let digest_map = match !digest_map with
@@ -133,7 +136,7 @@ let main arg_idx args =
 				StringMap.add package [version] current
 	in
 
-	Repo.traverse `Opam ~repos:[repo] ~packages:package_selection (fun package version path ->
+	Repo.traverse `Opam ~repos:[repo] ~verbose ~packages:package_selection (fun package version path ->
 		let dest_parts = [package; (Repo.path_of_version `Nix version)] in
 		let version_dir = String.concat Filename.dir_sep (dest :: dest_parts) in
 		let dest_path = Filename.concat version_dir "default.nix" in
