@@ -119,12 +119,13 @@ let parse_version_filter s =
 		with _ -> failwith ("Invalid number in version filter: "^s)
 	in
 	let parts = Str.split (Str.regexp "\\.") s |> List.map parse_number in
+	(* Printf.eprintf "version filter: [%s]\n" (String.concat "," (List.map string_of_int parts)); *)
 	`Filter (version_filter parts)
 
 let parse_package_spec spec =
 	let sep = Str.regexp "@" in
 	match Str.bounded_split sep spec 2 with
-		| [package] -> (package, `All)
+		| [package] | [package; "*"] -> (package, `All)
 		| [package; version] ->
 			if (Str.string_match (Str.regexp "\\*") version 0) then (
 				let spec = String.sub version 1 ((String.length version) - 1) in
@@ -162,6 +163,7 @@ let traverse repo_type ~repos ~(packages:package_selections) (emit: string -> ve
 		let pkgroot = match repo_type with `Nix -> repo | `Opam -> Filename.concat repo "packages" in
 
 		let process_package package (version:version_selection) =
+			debug "processing package %s\n" package;
 			let package_base = Filename.concat pkgroot package in
 			let list_versions () =
 				debug "listing %s\n" package_base;
@@ -180,9 +182,18 @@ let traverse repo_type ~repos ~(packages:package_selections) (emit: string -> ve
 			in
 
 			let versions = match version with
-				| `All -> list_versions ()
-				| `Exact version -> [version]
-				| `Filter fn -> fn (list_versions ())
+				| `All ->
+						debug "processing all versions\n";
+						list_versions ()
+				| `Exact version ->
+						debug "selecting only version %s\n" (string_of_version version);
+						[version]
+				| `Filter fn ->
+						let all_versions = list_versions () in
+						let filtered = fn all_versions in
+						debug "filtered to %d versions (of %d total)\n"
+							(List.length filtered) (List.length all_versions);
+						filtered
 			in
 			versions |> List.iter (fun version ->
 				let path = Filename.concat package_base (version_join package version) in
