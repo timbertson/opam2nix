@@ -337,7 +337,7 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 	let property_of_input src (name, importance) : Nix_expr.t =
 		match importance with
 			| Optional -> `Property_or (src, name, `Null)
-			| Required -> `Property (src, name)
+			| Required -> `PropertyPath (src, String.split_on_char '.' name)
 	in
 	let attr_of_input src (name, importance) : string * Nix_expr.t =
 		(name, property_of_input src (name, importance))
@@ -426,8 +426,10 @@ let init_variables () =
 	state
 		|> add_var "os" (S (os_string ()))
 		|> add_var "make" (S "make")
-		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
-		|> add_var "preinstalled" (B false) (* XXX ? *)
+                |> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
+                (* With preinstalled packages suppose they can't write
+                   in the ocaml directory *)
+		|> add_var "preinstalled" (B true)
 		|> add_var "pinned" (B false) (* probably ? *)
 		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
 		(* XXX best guesses... *)

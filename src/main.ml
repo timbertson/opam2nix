@@ -15,7 +15,7 @@ let () =
 		let open Op in
 		Dir.of_string (Filename.get_temp_dir_name ()) / "opam2nix"
 	) ();
-	if Array.length Sys.argv = 0 then (
+	if Array.length Sys.argv <= 1 then (
 		eprintf "Usage: opam2nix <command> [args]\n\nAvailable commands: %s"
 		(commands |> List.map (fun (name, _) -> name) |> String.concat ", ");
 		exit 1
