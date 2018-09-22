@@ -1,5 +1,6 @@
-{ pkgs, stdenv, lib, ocamlPackages, nix-update-source, newScope, libev, fetchurl }:
+{ pkgs, stdenv, lib, nix-update-source, newScope, libev, fetchurl }:
 let
+	ocamlPackages = pkgs.ocaml-ng.ocamlPackages_4_06;
 	localPackages = lib.makeScope pkgs.newScope (self: with self; pkgs // {
 		ocamlPackages = lib.makeScope pkgs.newScope (self: with self; ocamlPackages // {
 			opam-lib = callPackage ./opam-lib.nix {};
