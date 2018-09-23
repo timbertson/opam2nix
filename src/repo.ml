@@ -13,6 +13,8 @@ module Package_set = Set.Make (struct
 		if r0 <> 0 then r0 else Pervasives.compare a2 b2
 end)
 
+type version_filter_component = [ `All | `Some of int ]
+
 type version_filter =
 	[ `Filter of (version list -> version list)
 	| `Exact of version
@@ -67,7 +69,7 @@ let version_filter filter_spec : (version list -> version list) = (fun versions 
 
 	let rec filter num_versions versions = (
 		let num_this, num_versions = match num_versions with
-			| [] -> (1, []) (* assume 1 version for any part left unspecified *)
+			| [] -> (`Some 1, []) (* assume 1 version for any part left unspecified *)
 			| num_this :: num_versions -> (num_this, num_versions)
 		in
 
@@ -84,7 +86,10 @@ let version_filter filter_spec : (version list -> version list) = (fun versions 
 
 		let groups = versions |> group_by (fun (version, parts) -> head_opt parts |> Option.default "0") in
 
-		let taken_groups = groups |> take num_this in
+		let taken_groups = match num_this with
+			| `Some num -> groups |> take num
+			| `All -> groups
+		in
 		(* Printf.eprintf "taking (%d/%d) groups, with keys: %s\n" *)
 		(* 	num_this *)
 		(* 	(List.length groups) *)
@@ -118,7 +123,11 @@ let parse_version_filter s =
 		try int_of_string s
 		with _ -> failwith ("Invalid number in version filter: "^s)
 	in
-	let parts = Str.split (Str.regexp "\\.") s |> List.map parse_number in
+	let parse_version_filter_component = function
+		| "*" -> `All
+		| n -> `Some (parse_number n)
+	in
+	let parts = Str.split (Str.regexp "\\.") s |> List.map parse_version_filter_component in
 	(* Printf.eprintf "version filter: [%s]\n" (String.concat "," (List.map string_of_int parts)); *)
 	`Filter (version_filter parts)
 
