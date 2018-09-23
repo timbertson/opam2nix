@@ -7,6 +7,8 @@ let print_version_list l =
 
 let v s = Version s
 
+let version_filter parts = version_filter (List.map (fun n -> `Some n) parts)
+
 let suite = "Repo" >:::
 [
 	"version_filter" >::: [
