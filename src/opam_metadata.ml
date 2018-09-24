@@ -359,6 +359,7 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 		|> sorted_bindings_of_input
 		|> List.map (attr_of_input (`Id "pkgs"))
 	in
+	let version_str = Repo.path_of_version `Nix version in
 
 	`Function (
 		`Id "world",
@@ -382,7 +383,8 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 			`Call [
 				`Id "pkgs.stdenv.mkDerivation";
 				`Attrs (AttrSet.build (!additional_env_vars @ [
-					"name", Nix_expr.str (name ^ "-" ^ (Repo.path_of_version `Nix version));
+					"name", Nix_expr.str (name ^ "-" ^ version_str);
+					"version", Nix_expr.str version_str;
 					"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
 						"spec", `Lit "./opam";
 						"deps", `Lit "opamDeps";
