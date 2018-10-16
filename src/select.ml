@@ -24,7 +24,13 @@ let build_universe ~repos ~package_names ~ocaml_version ~base_packages () =
 	Repo.traverse `Nix ~repos ~packages:[`All] (fun package version path ->
 		let opam = Opam_metadata.load_opam (Filename.concat path "opam") in
 		let available_filter = OpamFile.OPAM.available opam in
-		let available = package <> "opam" && OpamFilter.eval_to_bool env available_filter in
+		let available =
+			try package <> "opam" && OpamFilter.eval_to_bool env available_filter
+			with e -> (
+				Printf.eprintf "Assuming package %s is unavailable due to error: %s\n" package (Printexc.to_string e);
+				false
+			)
+		in
 		if available then (
 			let pkg = OpamPackage.create (Name.of_string package) (Repo.opam_version_of version) in
 			available_packages := OpamPackage.Set.add pkg !available_packages;

@@ -162,7 +162,7 @@ let traverse repo_type ~repos ~(packages:package_selections) (emit: string -> ve
 			try
 				emit package version path
 			with e -> (
-				Printf.eprintf "Error raised while processing %s" path;
+				Printf.eprintf "Error raised while processing %s:\n" path;
 				raise e
 			)
 		end
