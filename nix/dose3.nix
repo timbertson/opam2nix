@@ -7,16 +7,8 @@ stdenv.mkDerivation {
 	};
 	buildInputs = [ocaml findlib ocamlbuild camlp4 ocaml_extlib cudf ocamlgraph cppo re perl ];
 	createFindlibDestdir = true;
-	patchPhase = ''
-		sed -i 's@$(LIBDIR)@$(OCAMLFIND_DESTDIR)@' Makefile.config.in
-		sed -i 's@^OBFLAGS := @OBFLAGS := -cflag=-unsafe-string@' Makefile
-	'';
 	patches = [
-		# ./dose/0003-Removed-hard-failure-cases-in-favor-of-finer-diagnos.patch
-		# ./dose/0004-Remove-broken-assert.patch
-		# ./dose/0005-Add-a-check_request-function-allowing-more-control-o.patch
-
-		# ./dose/0002-ocamlgraph-1.8.6.diff {ocamlgraph:version >= "1.8.6"}
+		./dose/compilation.diff
 	];
 }
 
