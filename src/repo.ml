@@ -193,6 +193,7 @@ let traverse repo_type ~repos ~(packages:package_selections) (emit: string -> ve
 			let versions = match version with
 				| `All ->
 						debug "processing all versions\n";
+						list_versions ()
 				| `Exact version ->
 						debug "selecting only version %s\n" (string_of_version version);
 						[version]

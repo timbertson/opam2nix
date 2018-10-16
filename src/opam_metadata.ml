@@ -477,38 +477,3 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 			]
 		)
 	)
-
-let os_string = OpamStd.Sys.os_string
-
-let add_var name v vars =
-	vars |> OpamVariable.Full.Map.add (OpamVariable.Full.of_string name) v
-
-let init_variables () =
-	let state = OpamVariable.Full.Map.empty in
-	state
-		|> add_var "os" (S (os_string ()))
-		|> add_var "make" (S "make")
-		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
-		(* With preinstalled packages suppose they can't write
-		   in the ocaml directory *)
-		|> add_var "preinstalled" (B true)
-		|> add_var "pinned" (B false) (* probably ? *)
-		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
-		(* XXX best guesses... *)
-		|> add_var "ocaml-native" (B true)
-		|> add_var "ocaml-native-tools" (B true)
-		|> add_var "ocaml-native-dynlink" (B true)
-		|> add_var "arch" (S (OpamStd.Sys.arch ()))
-
-let lookup_var vars key =
-	try Some (OpamVariable.Full.Map.find key vars)
-	with Not_found -> (
-		let key = (OpamVariable.Full.to_string key) in
-		if OpamStd.String.ends_with ~suffix:installed_suffix key then (
-			(* evidently not... *)
-			Some (B false)
-		) else (
-			prerr_endline ("WARN: opam var " ^ key ^ " not found...");
-			None
-		)
-	)
