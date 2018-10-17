@@ -127,12 +127,19 @@ let init_variables () = add_runtime_variables (nixpkgs_vars ())
 let lookup_var vars key =
 	try Some (OpamVariable.Full.Map.find key vars)
 	with Not_found -> (
-		let key = (OpamVariable.Full.to_string key) in
-		if OpamStd.String.ends_with ~suffix:installed_suffix key then (
+		let keystr = (OpamVariable.Full.to_string key) in
+		if List.mem key OpamPackageVar.predefined_depends_variables then (
+			match keystr with
+			| "dev" -> Some (B false)
+			| "with-test" -> Some (B false)
+			| "with-doc" -> Some (B false)
+			| "build" -> Some (B true)
+			| _ -> None (* Computation delayed to the solver *)
+		) else if OpamStd.String.ends_with ~suffix:installed_suffix keystr then (
 			(* evidently not... *)
 			Some (B false)
 		) else (
-			debug "WARN: opam var %s not found..." key;
+			debug "WARN: opam var %s not found...\n" keystr;
 			None
 		)
 	)

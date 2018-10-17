@@ -47,14 +47,19 @@ let build_universe ~repos ~package_names ~ocaml_version ~base_packages () =
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
 		|> OpamPackage.Set.of_list
 	in
+	let get_depends depends opam =
+		OpamPackage.Map.map (fun opam ->
+			OpamFilter.partial_filter_formula env (depends opam)
+		) opams
+	in
 	{ OpamSolver.empty_universe with
 		u_packages  = OpamPackage.Set.empty;
 		u_action    = Install;
 		u_installed = base_packages;
 		u_base      = base_packages;
 		u_available = !available_packages;
-		u_depends   = OpamPackage.Map.map OpamFile.OPAM.depends opams;
-		u_depopts   = OpamPackage.Map.map OpamFile.OPAM.depopts opams;
+		u_depends   = get_depends OpamFile.OPAM.depends opams;
+		u_depopts   = get_depends OpamFile.OPAM.depopts opams;
 		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams
 		              |> OpamPackage.Map.map (OpamFilter.filter_formula env);
 	}
