@@ -24,7 +24,8 @@ let
 in
 with localPackages; with localPackages.ocamlPackages;
 let origin =
-	if lib.isStorePath ../. then {
+	let isStorePath = x: lib.isStorePath (builtins.toString x); in # workaround https://github.com/NixOS/nixpkgs/issues/48743
+	if isStorePath ../. then {
 		src = ../.;
 		version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
 	} else lib.warn "Importing opam2nix src from ${./src.json} since ${builtins.toString ../.} is not a store path" {
