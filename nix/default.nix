@@ -23,9 +23,16 @@ let
 	ocVersion = (builtins.parseDrvName (localPackages.ocamlPackages.ocaml.name)).version;
 in
 with localPackages; with localPackages.ocamlPackages;
+let origin =
+	if lib.isStorePath ../. then {
+		src = ../.;
+		version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
+	} else lib.warn "Importing opam2nix src from ${./src.json} since ${builtins.toString ../.} is not a store path" {
+		inherit (nix-update-source.fetch ./src.json) src version;
+	}; in
 stdenv.mkDerivation {
-	name = "opam2nix-${lib.removeSuffix "\n" (builtins.readFile ../VERSION)}";
-	src = if lib.isStorePath ../. then ../. else (nix-update-source.fetch ./src.json).src;
+	name = "opam2nix-${origin.version}";
+	src = origin.src;
 	buildPhase = "gup all";
 	installPhase = ''
 		mkdir $out
