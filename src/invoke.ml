@@ -173,7 +173,7 @@ let execute_install_file state =
 	if (Sys.file_exists install_file_path) then (
 		prerr_endline ("Installing from " ^ install_file_path);
 		let cmd =  [|
-			"opam-installer"; "install"; install_file_path; "--prefix"; destDir ()
+			"opam-installer"; "--prefix"; destDir (); install_file_path
 		|] in
 		let cmd_desc = String.concat " " (Array.to_list cmd) in
 		prerr_endline (" + " ^ cmd_desc);

@@ -141,7 +141,9 @@ let main idx args =
 		extra_attributes = [];
 		criteria = `Default;
 	} in
-	let () = match OpamSolver.resolve universe ~orphans:OpamPackage.Set.empty request with
+
+	let () = OpamSolverConfig.init () in
+	let () = (match OpamSolver.resolve universe ~orphans:OpamPackage.Set.empty request with
 		| Success solution ->
 				prerr_endline "Solved!";
 				OpamSolver.print_solution
@@ -203,5 +205,5 @@ let main idx args =
 					conflict
 			);
 			exit 1
-	in
+	) in
 	()

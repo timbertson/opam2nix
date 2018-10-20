@@ -11,8 +11,6 @@ module StringMap = struct
 	let from_list items = List.fold_right (fun (k,v) map -> add k v map) items empty
 end
 
-let installed_suffix = ":installed"
-
 type url = [
 	| `http of string * (Digest_cache.opam_digest list)
 	| `local of string
@@ -124,25 +122,52 @@ let add_runtime_variables base_vars =
 
 let init_variables () = add_runtime_variables (nixpkgs_vars ())
 
+let installed_pkg_var key = let open OpamVariable in match Full.scope key with
+	| Full.Package pkg when ((Full.variable key |> OpamVariable.to_string) = "installed") ->
+			Some pkg
+	| _ -> None
+
 let lookup_var vars key =
-	try Some (OpamVariable.Full.Map.find key vars)
-	with Not_found -> (
-		let keystr = (OpamVariable.Full.to_string key) in
-		if List.mem key OpamPackageVar.predefined_depends_variables then (
-			match keystr with
-			| "dev" -> Some (B false)
-			| "with-test" -> Some (B false)
-			| "with-doc" -> Some (B false)
-			| "build" -> Some (B true)
-			| _ -> None (* Computation delayed to the solver *)
-		) else if OpamStd.String.ends_with ~suffix:installed_suffix keystr then (
-			(* evidently not... *)
-			Some (B false)
-		) else (
-			debug "WARN: opam var %s not found...\n" keystr;
-			None
+	let open OpamVariable in
+	let keystr = (Full.to_string key) in
+	debug "Looking up opam var %s ..\n" keystr;
+	let result =
+		Full.read_from_env key |> Option.or_else_fn (fun () ->
+		try Some (Full.Map.find key vars)
+		with Not_found -> (
+			let r_true = Some (B true) and r_false = Some (B false) in
+			match Full.scope key with
+				| Full.Self -> None
+				| Full.Global ->
+					if List.mem key OpamPackageVar.predefined_depends_variables then (
+						match keystr with
+						| "dev" -> r_false
+						| "with-test" -> r_false
+						| "with-doc" -> r_false
+						| "build" -> r_true
+						| _ -> None (* Computation delayed to the solver *)
+					) else None
+				| Full.Package pkg ->
+					let pkg = OpamPackage.Name.to_string pkg in
+					let unqualified = Full.variable key |> OpamVariable.to_string in
+					debug "(variable `%s` of package `%s`)\n" unqualified pkg;
+					if (installed_pkg_var key |> Option.is_some) then (
+						(* evidently not... *)
+						r_false
+					) else if pkg = "ocaml" then (
+						match unqualified with
+							(* Assume true until inaccuracy here causes problems :) *)
+							| "native" -> r_true
+							| "native-dynlink" -> r_true
+							| "native-tools" -> r_true
+							| _ -> None
+					) else None
 		)
-	)
+	) in
+	debug " -> %s\n" (Option.to_string OpamVariable.string_of_variable_contents result);
+	if Option.is_none result then
+		Printf.eprintf "WARN: opam var %s not found...\n" keystr;
+	result
 
 let add_nix_inputs
 	~(add_native: importance -> string -> unit)
@@ -302,16 +327,13 @@ let add_implicit_build_dependencies ~add_dep commands =
 	(* If your build command depends on foo:installed, you have an implicit optional
 	 * build dependency on foo. Packages *should* declare this, but don't always... *)
 	let lookup_var key =
-		let key = (OpamVariable.Full.to_string key) in
-		let suffix = installed_suffix in
-		if OpamStd.String.ends_with ~suffix key then (
-			let pkgname = OpamStd.String.remove_suffix ~suffix key in
-			debug "  adding implied dep: %s\n" pkgname;
-			implicit_optdeps := !implicit_optdeps |> StringSet.add pkgname;
-			Some (B true)
-		) else (
-			None
-		)
+		match installed_pkg_var key with
+			| None -> None
+			| Some pkg ->
+				let pkgname = OpamPackage.Name.to_string pkg in
+				debug "  adding implied dep: %s\n" pkgname;
+				implicit_optdeps := !implicit_optdeps |> StringSet.add pkgname;
+				Some (B true)
 	in
 	commands |> List.iter (fun commands ->
 		let (_:string list list) = commands |> OpamFilter.commands lookup_var in
