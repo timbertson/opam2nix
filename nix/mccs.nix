@@ -2,8 +2,8 @@
 stdenv.mkDerivation {
 	name = "mccs";
 	src = fetchurl {
-		url = "https://github.com/AltGr/ocaml-mccs/archive/1.1+8.tar.gz";
-		sha256 = "0xavfvxfrcf3lmry8ymma1yzy0hw3ijbx94c9zq3pzlwnylrapa4";
+		url = "https://github.com/AltGr/ocaml-mccs/archive/1.1+9.tar.gz";
+		sha256 = "0gf86c65jdxxcwd96kcmrqxrmnnzc0570gb9ad6c57rl3fyy8yhv";
 	};
 	buildInputs = [ findlib ocaml dune cudf ocaml_extlib ];
 	configurePhase = "true";
