@@ -130,6 +130,11 @@ let load_env () =
 		files = !files;
 	}
 
+let rec waitpid_with_retry flags pid =
+	let open Unix in
+	try waitpid flags pid
+	with Unix_error (EINTR, _, _) -> waitpid_with_retry flags pid
+
 let run env get_commands =
 	let commands = get_commands env.spec in
 	let commands = commands |> OpamFilter.commands (Opam_metadata.lookup_var env.opam_vars) in
@@ -140,11 +145,7 @@ let run env get_commands =
 				let open Unix in
 				prerr_endline ("+ " ^ String.concat " " args);
 				let pid = create_process command (args |> Array.of_list) stdin stdout stderr in
-				let rec keep_waiting pid =
-					try waitpid [] pid
-					with Unix.Unix_error(EINTR, _, _) -> keep_waiting pid
-				in
-				let (_, status) = keep_waiting pid in
+				let (_, status) = waitpid_with_retry [] pid in
 				let quit code = prerr_endline "Command failed."; exit code in
 				match status with
 					| WEXITED 0 -> ()
@@ -177,8 +178,9 @@ let execute_install_file state =
 		|] in
 		let cmd_desc = String.concat " " (Array.to_list cmd) in
 		prerr_endline (" + " ^ cmd_desc);
+		let open Unix in
 		let pid = Unix.create_process (Array.get cmd 0) cmd Unix.stdin Unix.stdout Unix.stderr in
-		match Unix.waitpid [ Unix.WUNTRACED ] pid with
+		match waitpid_with_retry [ WUNTRACED ] pid with
 			| (_, WEXITED 0) -> ()
 			| _ -> failwith (cmd_desc ^ " failed")
 	) else (
