@@ -1,4 +1,4 @@
-let rec filter_map fn lst =
+let filter_map fn lst =
 	lst |> List.fold_left (fun acc item ->
 		match fn item with
 			| None -> acc
@@ -70,7 +70,7 @@ let rec drop n lst =
 		then lst
 		else match lst with
 			| [] -> []
-			| head :: tail -> drop (n-1) tail
+			| _ :: tail -> drop (n-1) tail
 
 let rec take n lst =
 	if n <= 0
