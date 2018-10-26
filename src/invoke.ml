@@ -28,18 +28,26 @@ let load_env () =
 	let open OpamTypes in
 	let pkgname = ref "" in
 	let state = ref (Opam_metadata.init_variables ()) in
-	let add_var name v = state := !state |> Opam_metadata.add_var name v in
 	let destDir = destDir () in
+	let add_global_var name value =
+		state := !state |> Opam_metadata.add_global_var name value
+	in
+	let add_package_var pkg name value =
+		state := !state |> Opam_metadata.add_package_var pkg name value
+	in
 
 	let add_package_vars ~pkg ?alias impl =
-		let prefixes = match pkg with
-			| Dependency p -> [p^":"]
-			| Self p -> [p^":"; "_:"; ""]
+		let add_var = match pkg with
+			| Dependency pkgname ->
+					add_package_var pkgname
+			| Self pkgname -> fun name value ->
+					add_package_var pkgname name value;
+					add_global_var name value
 		in
-		let add_var name value = prefixes |> List.iter (fun prefix ->
-			add_var (prefix^name) value
-		) in
-
+		(match pkg with
+			| Self name -> add_var "name" (S name)
+			| _ -> ()
+		);
 		(match impl with
 			| Absent ->
 				add_var "installed" (B false);
@@ -71,7 +79,7 @@ let load_env () =
 		)
 	in
 
-	add_var "prefix" (S destDir);
+	add_global_var "prefix" (S destDir);
 
 	let spec = ref None in
 	let files = ref None in
@@ -107,8 +115,7 @@ let load_env () =
 
 					| "name", `String name ->
 							pkgname := name;
-							add_package_vars ~pkg:(Self name) (Installed destDir);
-							add_var "name" (S name)
+							add_package_vars ~pkg:(Self name) (Installed destDir)
 					| "name", other -> unexpected_json "name" other
 
 					| "files", `String path -> files := Some path
@@ -120,8 +127,8 @@ let load_env () =
 							spec := Some (Opam_metadata.load_opam path)
 					| "spec", other -> unexpected_json "spec" other
 
-					(* TODO: use OpamSysPoll *)
-					| "ocaml-version", `String version -> add_var "ocaml-version" (S version)
+					| "ocaml-version", `String version ->
+							add_package_var "ocaml" "version" (S version)
 					| "ocaml-version", other -> unexpected_json "ocaml-version" other
 
 					| other, _ -> failwith ("unexpected opamEnv key: " ^ other)

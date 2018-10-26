@@ -85,8 +85,14 @@ let string_of_requirement = function
 
 let string_of_importance = function Required -> "required" | Optional -> "optional"
 
-let add_var name v vars =
-	vars |> OpamVariable.Full.Map.add (OpamVariable.Full.global (OpamVariable.of_string name)) v
+let add_var (scope: OpamVariable.t -> OpamVariable.Full.t) name v vars =
+	let var: OpamVariable.Full.t = scope (OpamVariable.of_string name) in
+	vars |> OpamVariable.Full.Map.add var v
+
+let global_var = OpamVariable.Full.global
+let add_global_var = add_var global_var
+let package_var pkgname = OpamVariable.Full.create (OpamPackage.Name.of_string pkgname)
+let add_package_var pkgname = add_var (package_var pkgname)
 
 let native_system_vars () =
 	let state = OpamVariable.Full.Map.empty in
@@ -101,26 +107,25 @@ let native_system_vars () =
 
 let nixpkgs_vars () =
 	native_system_vars ()
-		|> add_var "os-distribution" (S "nixpkgs")
+		|> add_global_var "os-distribution" (S "nixpkgs")
 		(* NixOS is more of a distribution, but for practical purposes
 		 * "nixpkgs" defines what packages are available, regardless of distro *)
-		|> add_var "os-version" (S "unknown")
+		|> add_global_var "os-version" (S "unknown")
 			(* I don't think we can easily get a number here, but it should
 			 * rarely matter *)
 
-let add_runtime_variables base_vars =
+let add_base_variables base_vars =
 	base_vars
-		|> add_var "make" (S "make")
-		|> add_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
-		|> add_var "preinstalled" (B false) (* XXX ? *)
-		|> add_var "pinned" (B false) (* probably ? *)
-		|> add_var "jobs" (S "1") (* XXX NIX_JOBS? *)
-		(* XXX best guesses... *)
-		|> add_var "ocaml-native" (B true)
-		|> add_var "ocaml-native-tools" (B true)
-		|> add_var "ocaml-native-dynlink" (B true)
+		|> add_global_var "make" (S "make")
+		|> add_global_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
+		|> add_global_var "preinstalled" (B false) (* XXX ? *)
+		|> add_global_var "pinned" (B false) (* probably ? *)
+		|> add_global_var "jobs" (S "1") (* XXX NIX_JOBS? *)
+		|> add_package_var "ocaml" "native" (B true)
+		|> add_package_var "ocaml" "native-tools" (B true)
+		|> add_package_var "ocaml" "native-dynlink" (B true)
 
-let init_variables () = add_runtime_variables (nixpkgs_vars ())
+let init_variables () = add_base_variables (nixpkgs_vars ())
 
 let installed_pkg_var key = let open OpamVariable in match Full.scope key with
 	| Full.Package pkg when ((Full.variable key |> OpamVariable.to_string) = "installed") ->
@@ -154,13 +159,6 @@ let lookup_var vars key =
 					if (installed_pkg_var key |> Option.is_some) then (
 						(* evidently not... *)
 						r_false
-					) else if pkg = "ocaml" then (
-						match unqualified with
-							(* Assume true until inaccuracy here causes problems :) *)
-							| "native" -> r_true
-							| "native-dynlink" -> r_true
-							| "native-tools" -> r_true
-							| _ -> None
 					) else None
 		)
 	) in
