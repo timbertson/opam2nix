@@ -1,5 +1,6 @@
 module JSON = Yojson.Basic
 module OPAM = OpamFile.OPAM
+open Util
 
 type env = {
 	opam_vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
@@ -24,8 +25,6 @@ let unexpected_json desc j =
 	failwith ("Unexpected " ^ desc ^ ": " ^ (JSON.pretty_to_string j))
 
 let load_env () =
-	let json_str = Unix.getenv "opamEnv" in
-	let json = JSON.from_string json_str in
 	let open OpamTypes in
 	let pkgname = ref "" in
 	let state = ref (Opam_metadata.init_variables ()) in
@@ -77,21 +76,28 @@ let load_env () =
 	let spec = ref None in
 	let files = ref None in
 	(* let specfile = ref None in *)
+	let json_str = Unix.getenv "opamEnv" in
+	debug "Using opamEnv: %s\n" json_str;
+	let json = JSON.from_string json_str in
 	let () = match json with
 		| `Assoc pairs -> begin
 			pairs |> List.iter (function
 					| "deps", `Assoc (attrs) -> begin
-						attrs |> List.iter (fun (pkg, value) ->
-							let pkg = Dependency pkg in
+						debug "adding deps from opamEnv\n";
+						attrs |> List.iter (fun (pkgname, value) ->
+							let pkg = Dependency pkgname in
 							match value with
 								| `Null ->
+									debug " - package %s is absent (null)\n" pkgname;
 									add_package_vars ~pkg Absent
 
 								| `Bool b ->
 									(* Bool is used for base packages, which have no corresponding path *)
+									debug " - base package %s: present? %b\n" pkgname b;
 									add_package_vars ~pkg (if b then Provided else Absent)
 
 								| `String path ->
+									debug " - package %s: installed at %s\n" pkgname path;
 									add_package_vars ~pkg (Installed path);
 
 								| other -> unexpected_json "`deps`" other
