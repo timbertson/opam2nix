@@ -251,8 +251,8 @@ class dependency_map =
 			PackageMap.to_string reqs_to_string !map
 	end
 
-let url file: url =
-	let (url, checksums) = URL.url file, URL.checksum file in
+let url urlfile: url =
+	let (url, checksums) = URL.url urlfile, URL.checksum urlfile in
 	let OpamUrl.({ hash; transport; backend; _ }) = url in
 	let url_without_backend = OpamUrl.base_url url in
 	let require_checksums checksums =
@@ -276,7 +276,7 @@ let load_url path =
 		let url_file = open_in path in
 		let rv = URL.read_from_channel url_file in
 		close_in url_file;
-		Some (url rv)
+		Some rv
 	end else None
 
 let load_opam path =
@@ -377,12 +377,6 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 	let additional_env_vars = ref [] in
 	let adder r = fun importance name -> r := InputMap.add name importance !r in
 
-	let url = try load_url (Filename.concat path "url")
-		with Unsupported_archive reason -> raise (
-			Unsupported_archive (name ^ "-" ^ (Repo.string_of_version version) ^ ": " ^ reason)
-		)
-	in
-
 	deps#init_package pkgid;
 
 	let opam_inputs = ref InputMap.empty in
@@ -391,16 +385,13 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 	let add_opam_input = adder opam_inputs in
 	let add_expression_input = adder pkgs_expression_inputs in
 
-	let src = Option.map (
-		nix_of_url ~add_input:(add_expression_input Required) ~cache ~offline
-	) url in
-
-	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
-	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)
 	let is_conf_pkg pkg =
 		let re = Str.regexp "^conf-" in
 		Str.string_match re pkg 0
 	in
+
+	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
+	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)
 	if not (name = "ocamlfind" || is_conf_pkg name)
 		then add_opam_input Optional "ocamlfind";
 	add_opam_input Required "ocaml"; (* pretend this is an `opam` input for convenience *)
@@ -413,6 +404,22 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 	in
 
 	let opam = load_opam (Filename.concat path "opam") in
+
+	let urlfile = match OPAM.url opam with
+		| Some _ as url -> url
+		| None -> load_url (Filename.concat path "url")
+	in
+	let url = urlfile |> Option.map (fun urlfile ->
+		try url urlfile
+		with Unsupported_archive reason -> raise (
+			Unsupported_archive (name ^ "-" ^ (Repo.string_of_version version) ^ ": " ^ reason)
+		)
+	) in
+
+	let src = Option.map (
+		nix_of_url ~add_input:(add_expression_input Required) ~cache ~offline
+	) url in
+
 	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep ~name opam in
 
 	let url_ends_with ext = (match url with
