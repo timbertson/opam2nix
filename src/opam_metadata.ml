@@ -77,7 +77,7 @@ let string_of_dependency = function
 		let string_of_atom : (OpamPackage.Name.t * filter filter_or_constraint OpamFormula.formula) -> string = fun (name, formula) ->
 			(OpamPackage.Name.to_string name) ^ ":" ^ (OpamFormula.string_of_formula string_of_filter formula)
 		in
-		"package:" ^ (OpamFormula.string_of_formula string_of_atom formula)
+		"package-formula:" ^ (OpamFormula.string_of_formula string_of_atom formula)
 
 let string_of_requirement = function
 	| Required, dep -> string_of_dependency dep
