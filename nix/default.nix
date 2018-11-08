@@ -41,6 +41,7 @@ stdenv.mkDerivation {
 		yojson
 		fileutils
 		basedir
+		gitAndTools.gitFull
 		gup
 		ounit
 		makeWrapper
