@@ -144,8 +144,7 @@ let parse_package_spec spec =
 			)
 		| _ -> failwith ("Invalid package specifier: " ^ spec)
 
-let traverse repo_type ~repos ~(packages:package_selections) ?verbose (emit: string -> version -> string -> unit) =
-	let verbose = Option.default false verbose in
+let traverse repo_type ~repos ~(packages:package_selections) (emit: string -> version -> string -> unit) =
 	let version_sep = "." in
 	let version_join package version =
 		let version_path = path_of_version repo_type version in
@@ -159,8 +158,13 @@ let traverse repo_type ~repos ~(packages:package_selections) ?verbose (emit: str
 			Printf.eprintf "Skipping %s (already loaded %s.%s)\n" path package (string_of_version version)
 		else begin
 			seen := Package_set.add id !seen;
-			if verbose then Printf.eprintf "Processing package %s\n" path;
-			emit package version path
+			debug "Processing package %s\n" path;
+			try
+				emit package version path
+			with e -> (
+				Printf.eprintf "Error raised while processing %s:\n" path;
+				raise e
+			)
 		end
 	in
 
@@ -168,10 +172,10 @@ let traverse repo_type ~repos ~(packages:package_selections) ?verbose (emit: str
 		let pkgroot = match repo_type with `Nix -> repo | `Opam -> Filename.concat repo "packages" in
 
 		let process_package package (version:version_selection) =
-			if verbose then Printf.eprintf "processing package %s\n" package;
+			debug "processing package %s\n" package;
 			let package_base = Filename.concat pkgroot package in
 			let list_versions () =
-				if verbose then Printf.eprintf "listing %s\n" package_base;
+				debug "listing %s\n" package_base;
 				let dirs = list_dirs package_base in
 				let version_dirs = match repo_type with
 					| `Nix -> dirs
@@ -188,15 +192,15 @@ let traverse repo_type ~repos ~(packages:package_selections) ?verbose (emit: str
 
 			let versions = match version with
 				| `All ->
-						if verbose then Printf.eprintf "processing all versions\n";
+						debug "processing all versions\n";
 						list_versions ()
 				| `Exact version ->
-						if verbose then Printf.eprintf "selecting only version %s\n" (string_of_version version);
+						debug "selecting only version %s\n" (string_of_version version);
 						[version]
 				| `Filter fn ->
 						let all_versions = list_versions () in
 						let filtered = fn all_versions in
-						if verbose then Printf.eprintf "filtered to %d versions (of %d total)\n"
+						debug "filtered to %d versions (of %d total)\n"
 							(List.length filtered) (List.length all_versions);
 						filtered
 			in

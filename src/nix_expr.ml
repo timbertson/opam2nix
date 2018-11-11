@@ -2,7 +2,7 @@ module AttrSet = struct
 	include Map.Make(String)
 	let build pairs = pairs |> List.fold_left (fun map (k,v) ->
 		add k v map) empty
-	let keys map = bindings map |> List.map(fun (a,b) -> a)
+	let keys map = bindings map |> List.map(fun (a,_) -> a)
 end
 
 type string_component = [

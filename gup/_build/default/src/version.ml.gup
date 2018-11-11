@@ -6,5 +6,7 @@ version="$(cat "$root/version.full")"
 
 cat >"$1" <<EOF
 let main _idx _args =
-	print_endline "$version"
+	print_endline "opam2nix: $version";
+	print_endline ("opam: " ^ OpamVersion.(to_string current));
+	()
 EOF

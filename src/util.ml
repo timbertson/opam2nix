@@ -1,4 +1,4 @@
-let rec filter_map fn lst =
+let filter_map fn lst =
 	lst |> List.fold_left (fun acc item ->
 		match fn item with
 			| None -> acc
@@ -56,9 +56,13 @@ module Option = struct
 	let may fn = function None -> () | Some x -> fn x
 	let bind fn = function None -> None | Some x -> fn x
 	let default d v = match v with Some v -> v | None -> d
+	let default_fn d v = match v with Some v -> v | None -> d ()
+	let or_else_fn alt v = match v with Some _ -> v | None -> alt ()
 	let exists fn = function None -> false | Some v -> fn v
 	let to_list = function None -> [] | Some v -> [v]
 	let is_some = function None -> false | Some _ -> true
+	let is_none = function None -> true | Some _ -> false
+	let to_string fn = function None -> "None" | Some x -> "Some(" ^ (fn x) ^ ")"
 end
 
 let rec drop n lst =
@@ -66,7 +70,7 @@ let rec drop n lst =
 		then lst
 		else match lst with
 			| [] -> []
-			| head :: tail -> drop (n-1) tail
+			| _ :: tail -> drop (n-1) tail
 
 let rec take n lst =
 	if n <= 0
@@ -139,3 +143,23 @@ let decode_nix_safe_path str =
 		| Delim x -> Hex.to_char x.[2] x.[3] |> String.make 1
 		| Text x -> x
 	) |> String.concat ""
+
+module List = struct
+	include List
+	let to_string fn lst = "[" ^ (String.concat ", " (map fn lst)) ^ "]"
+end
+
+let _verbose = ref false
+
+let verbose () = !_verbose
+
+let set_verbose v =
+	if v then Printf.eprintf "Verbose output enabled\n";
+	_verbose := v
+
+let debug fmt = (if verbose () then Printf.eprintf else Printf.ifprintf stderr) fmt
+
+let () = (
+	let envvar = try Unix.getenv "OPAM2NIX_VERBOSE" with Not_found -> "" in
+	set_verbose (envvar = "1" || envvar = "true")
+)

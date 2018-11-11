@@ -15,7 +15,7 @@ type checksum_result = [
 	| `ok
 	| `checksum_mismatch of string
 ]
-type opam_digest = [ `md5 of string ]
+type opam_digest = OpamHash.t
 
 type state = {
 	digests: nix_digest Cache.t;
@@ -62,12 +62,15 @@ let json_of_nix_digest = function
 		"error", `String desc;
 	]
 
-let key_of_opam_digest = function
-	| `md5 digest -> "md5:" ^ digest
+let key_of_opam_digest digest =
+	(digest |> OpamHash.kind |> OpamHash.string_of_kind |> String.lowercase_ascii)
+		^ ":" ^ (digest |> OpamHash.contents)
 
 let opam_digest_of_key key =
 	match String.split_on_char ':' key with
-		| ["md5"; digest] -> `md5 digest
+		| ["md5"; digest] -> OpamHash.md5 digest
+		| ["sha256"; digest] -> OpamHash.md5 digest
+		| ["sha512"; digest] -> OpamHash.md5 digest
 		| _ -> failwith ("Can't parse opam digest: " ^ key)
 
 let json_of_cache (cache: nix_digest Cache.t) : JSON.json =
@@ -143,47 +146,59 @@ let sha256_of_path p =
 		| lines -> failwith ("Unexpected nix-hash output:\n" ^ (String.concat "\n" lines))
 	) |> Lwt_main.run
 
-let md5_of_path p =
-	let open Lwt in
-	process_lines ~desc:"md5sum" [|"md5sum"; p|]
-	>>= (function
-		| [line] -> return (List.hd (String.split_on_char ' ' line))
-		| lines -> failwith ("Unexpected md5sum output:\n" ^ (String.concat "\n" lines))
-	) |> Lwt_main.run
+let check_digests (opam_digest:opam_digest list) path: checksum_result =
+	assert (opam_digest <> []);
+	let rec check = function
+		| [] -> `ok
+		| digest :: digests -> (
+			match OpamHash.mismatch path digest with
+				| Some actual -> `checksum_mismatch (
+					(OpamHash.to_string actual)
+					^ " did not match expected: "
+					^ (OpamHash.to_string digest)
+				)
+				| None -> check digests
+		)
+	in
+	check opam_digest
 
-let check_digest (opam_digest:opam_digest) path: checksum_result =
-	match opam_digest with
-		| `md5 expected ->
-			let actual = (md5_of_path path) in
-			if String.equal actual expected then `ok
-			else `checksum_mismatch ("md5 " ^ actual ^ " did not match expected: " ^ expected)
+let exists opam_digests cache : bool =
+	let keys = List.map key_of_opam_digest opam_digests in
+	List.exists (fun key -> Cache.mem key !cache.digests) keys
 
-let exists opam_digest cache : bool =
-	let key = key_of_opam_digest opam_digest in
-	Cache.mem key !cache.digests
-
-let add url opam_digest cache : nix_digest =
-	let key = key_of_opam_digest opam_digest in
+let add url opam_digests cache : nix_digest =
 	let digests = !cache.digests in
-	let active = StringSet.add key !cache.active in
-	if Cache.mem key digests then (
-		cache := { !cache with active };
-		Cache.find key digests
-	) else (
-		let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
-		Download.fetch dest_channel url;
-		let nix_digest = match check_digest opam_digest dest with
-			| `ok -> `sha256 (sha256_of_path dest)
-			| `checksum_mismatch desc -> `checksum_mismatch desc
-		in
-		cache := {
-			digests = Cache.add key nix_digest digests;
-			active;
-			path = !cache.path;
-		};
-		save cache;
-		nix_digest
-	)
+	let keys = List.map key_of_opam_digest opam_digests in
+	let active = List.fold_left (fun set key -> StringSet.add key set) !cache.active keys in
+	let rec find_first = function
+		| [] -> None
+		| key::keys -> (
+				try Some (Cache.find key digests)
+				with Not_found -> find_first keys
+	) in
+	let update_cache value =
+		cache := { !cache with
+			active = active;
+			digests = List.fold_left (fun map key -> Cache.add key value map) digests keys;
+		}
+	in
+
+	match find_first keys with
+		| Some value -> (
+			update_cache value;
+			value
+		)
+		| None -> (
+			let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
+			Download.fetch dest_channel url;
+			let nix_digest = match check_digests opam_digests dest with
+				| `ok -> `sha256 (sha256_of_path dest)
+				| `checksum_mismatch desc -> `checksum_mismatch desc
+			in
+			update_cache nix_digest;
+			save cache;
+			nix_digest
+		)
 
 let gc cache =
 	let { digests; active } = !cache in

@@ -3,139 +3,65 @@ open OpamTypes
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 
-(* consistent_* functions adapted from opamState.ml implementation *)
-let consistent_ocaml_version ~ocaml_version opam =
-	let atom (r,v) =
-		OpamCompiler.Version.eval_relop r (ocaml_version) v
-	in
-	match OpamFile.OPAM.ocaml_version opam with
-	| None -> true
-	| Some constr -> OpamFormula.eval atom constr
-
-let consistent_os ~target_os opam =
-	match OpamFile.OPAM.os opam with
-	| Empty -> true
-	| f ->
-		let atom (b, os) =
-			let ($) = if b then (=) else (<>) in
-			os $ target_os in
-		OpamFormula.eval atom f
-
-
-let resolve_variable ~ocaml_version ~global_vars v =
-	let string s = Some (S s)
-	and bool b = Some (B b) in
-
-	let lookup = Opam_metadata.lookup_var global_vars in
-
-	let get_env_var v =
-		let var_str =
-			OpamVariable.Full.to_string v
-			|> OpamStd.String.map (function '-' -> '_' | c -> c) in
-		try match OpamStd.Env.get ("OPAMVAR_" ^ var_str) with
-			| "true"  | "1" -> bool true
-			| "false" | "0" -> bool false
-			| s             -> string s
-		with Not_found -> None
-	in
-
-	let get_global_var v =
-		let ocaml_version = OpamCompiler.Version.to_string ocaml_version in
-		match OpamVariable.Full.to_string v with
-		| "ocaml-version" -> string ocaml_version
-		| "compiler" -> string ocaml_version (* XXX does this differ from version? *)
-		| _ -> None
-	in
-	let contents =
-		try
-			List.fold_left
-				(function None -> (fun (f,v) -> f v) | r -> (fun _ -> r))
-				None
-				[
-					get_env_var, v;
-					(* read_var, v; *)
-					get_global_var, v;
-					lookup, v;
-					(* get_package_var, v'; *)
-				]
-		with Exit -> None
-	in
-	contents
-
-
-let consistent_available_field ~ocaml_version ~vars opam =
-	OpamFilter.eval_to_bool ~default:false (resolve_variable ~ocaml_version ~global_vars:vars)
-		(OpamFile.OPAM.available opam)
-
 let print_universe chan u =
 	match u with { u_action; u_available; u_installed; _ } -> begin
 		let open Printf in
-		let string_of_packageset = OpamPackage.Set.to_string in
-		let string_of_name_set = OpamPackage.Name.Set.to_string in
-		let string_of_action = function
-			| Depends -> "Depends"
-			| Remove  -> "Remove"
-			| Init    -> "Init"
-			| Install names -> "Install: " ^ (string_of_name_set names)
-			| Switch  names -> "Switch: "  ^ (string_of_name_set names)
-			| Import  names -> "Import: "  ^ (string_of_name_set names)
-			| Upgrade   packages -> "Upgrade: "   ^ (string_of_packageset packages)
-			| Reinstall packages -> "Reinstall: " ^ (string_of_packageset packages)
-		in
+		let print_package_set = OpamPackage.Set.iter (fun pkg -> fprintf chan " - %s\n" (OpamPackage.to_string pkg)) in
 		fprintf chan "Available:\n";
-		u_available |> OpamPackage.Set.iter (fun pkg -> fprintf chan " - %s\n" (OpamPackage.to_string pkg));
+		u_available |> print_package_set;
 		fprintf chan "Installed:\n";
-		u_installed |> OpamPackage.Set.iter (fun pkg -> fprintf chan " - %s\n" (OpamPackage.to_string pkg));
-		fprintf chan "Action: %s\n" (string_of_action u_action);
+		u_installed |> print_package_set;
 		()
 	end
 
-let build_universe ~repos ~package_names ~ocaml_version ~base_packages ~target_os () =
+let build_universe ~repos ~package_names ~ocaml_version ~base_packages () =
 	let empty = OpamPackage.Set.empty in
 	let available_packages = ref empty in
 	let opams = ref OpamPackage.Map.empty in
 
-	let opam_vars = Opam_metadata.init_variables () in
-
-	let availability opam =
-		let ocaml_version = OpamCompiler.Version.of_string ocaml_version in
-		let rec check = function
-			| (fn, rejection) :: remaining ->
-					if fn opam
-						then check remaining
-						else `Unavailable rejection
-			| [] -> `Available
-		in
-		check [
-			consistent_ocaml_version ~ocaml_version, "OCaml version " ^ (OpamCompiler.Version.to_string ocaml_version);
-			consistent_os ~target_os, "OS " ^ (Opam_metadata.os_string ());
-			consistent_available_field ~ocaml_version ~vars:opam_vars, "`available` constraints";
-		]
-	in
+	let env = Opam_metadata.init_variables () |> Opam_metadata.lookup_var in
 
 	Repo.traverse `Nix ~repos ~packages:[`All] (fun package version path ->
 		let opam = Opam_metadata.load_opam (Filename.concat path "opam") in
-		match availability opam with
-			| `Available ->
-				let pkg = OpamPackage.create (Name.of_string package) (Repo.opam_version_of version) in
-				available_packages := OpamPackage.Set.add pkg !available_packages;
-				opams := OpamPackage.Map.add pkg opam !opams
-			| `Unavailable reason ->
-				Printf.eprintf "  # Ignoring package %s-%s (incomatible with %s)\n" package (Repo.string_of_version version) reason
+		let available_filter = OpamFile.OPAM.available opam in
+		let available =
+			try package <> "opam" && OpamFilter.eval_to_bool env available_filter
+			with e -> (
+				Printf.eprintf "Assuming package %s is unavailable due to error: %s\n" package (Printexc.to_string e);
+				false
+			)
+		in
+		if available then (
+			let pkg = OpamPackage.create (Name.of_string package) (Repo.opam_version_of version) in
+			available_packages := OpamPackage.Set.add pkg !available_packages;
+			opams := OpamPackage.Map.add pkg opam !opams
+		) else (
+			let vars = OpamFilter.variables available_filter in
+			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
+			Printf.eprintf "  # Ignoring package %s-%s (incompatible with %s)\n" package (Repo.string_of_version version) vars_str
+		)
 	);
 	let opams = !opams in
 	let ocaml_version = Version.of_string ocaml_version in
-	let base_packages = base_packages
+	let base_packages = ("ocaml" :: base_packages)
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
-		|> OpamPackage.Set.of_list in
+		|> OpamPackage.Set.of_list
+	in
+	let get_depends depends opam =
+		OpamPackage.Map.map (fun opam ->
+			OpamFilter.partial_filter_formula env (depends opam)
+		) opams
+	in
 	{ OpamSolver.empty_universe with
-		u_action    = Install (OpamPackage.Name.Set.of_list package_names);
+		u_packages  = OpamPackage.Set.empty;
+		u_action    = Install;
 		u_installed = base_packages;
 		u_base      = base_packages;
 		u_available = !available_packages;
-		u_depends   = OpamPackage.Map.map OpamFile.OPAM.depends opams;
-		u_depopts   = OpamPackage.Map.map OpamFile.OPAM.depopts opams;
-		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams;
+		u_depends   = get_depends OpamFile.OPAM.depends opams;
+		u_depopts   = get_depends OpamFile.OPAM.depopts opams;
+		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams
+		              |> OpamPackage.Map.map (OpamFilter.filter_formula env);
 	}
 
 let newer_versions available pkg =
@@ -160,17 +86,14 @@ let main idx args =
 	let set_ocaml_attr arg =
 		ocaml_attr := Str.split (Str.regexp (Str.quote ".")) arg in
 	let base_packages = ref "" in
-	let target_os = ref (Opam_metadata.os_string ()) in
-	let verbose = ref false in
 	let opts = Arg.align [
 		("--repo", Arg.String (fun repo -> repos := repo :: !repos), "Repository root");
 		("--dest", Arg.Set_string dest, "Destination .nix file");
-		("--os", Arg.Set_string target_os, "Target OS");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version");
 		("--ocaml-attr", Arg.String set_ocaml_attr, "Ocaml nixpkgs attribute path (e.g `ocaml`, `ocaml-ng.ocamlPackages_4_05.ocaml`)");
 		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated)");
-		("--verbose", Arg.Set verbose, "Verbose");
-		("-v", Arg.Set verbose, "Verbose");
+		("--verbose", Arg.Set Util._verbose, "Verbose");
+		("-v", Arg.Set Util._verbose, "Verbose");
 	]; in
 	let packages = ref [] in
 	let add_package x = packages := x :: !packages in
@@ -182,16 +105,8 @@ let main idx args =
 	let repos = nonempty_list !repos "--repo" in
 
 	let () =
-		(* make sure opam uses external solver - internal solver is prone to picking old versions *)
 		let open OpamTypes in
-		OpamSolverConfig.update
-			~external_solver:(lazy (Some ([CIdent "aspcud", None])))
-			(* cribbed from https://github.com/ocaml/opam/blob/84d01df940297963c82936b0d0de3722f479b56c/src/solver/opamSolverConfig.ml *)
-			~solver_preferences_default:(Some (lazy "-removed,-notuptodate,-changed"))
-			();
-		if not (OpamCudf.external_solver_available ()) then
-			failwith "External solver (aspcud) not available";
-		if !verbose then
+		if Util.verbose () then
 			OpamCoreConfig.update ~debug_level:2 ()
 	in
 
@@ -199,7 +114,7 @@ let main idx args =
 		let relop_re = Str.regexp "[!<=>]+" in
 		match Str.full_split relop_re spec with
 			| [Str.Text name; Str.Delim relop; Str.Text ver] ->
-				let relop = OpamFormula.relop_of_string relop in
+				let relop = OpamLexer.relop relop in
 				let ver = OpamPackage.Version.of_string ver in
 				(OpamPackage.Name.of_string name, Some (relop, ver))
 			| [Str.Text name] -> (OpamPackage.Name.of_string name, None)
@@ -216,9 +131,8 @@ let main idx args =
 		~package_names
 		~base_packages
 		~ocaml_version
-		~target_os:!target_os
 		() in
-	if !verbose then print_universe stderr universe;
+	if Util.verbose () then print_universe stderr universe;
 	(* let request = OpamSolver.request ~install:requested_packages in *)
 	let request = {
 		wish_install = requested_packages;
@@ -227,13 +141,16 @@ let main idx args =
 		extra_attributes = [];
 		criteria = `Default;
 	} in
-	let () = match OpamSolver.resolve ~verbose:true universe ~orphans:OpamPackage.Set.empty request with
+
+	let () = OpamSolverConfig.init () in
+	let () = (match OpamSolver.resolve universe ~orphans:OpamPackage.Set.empty request with
 		| Success solution ->
 				prerr_endline "Solved!";
 				OpamSolver.print_solution
 					~messages:(fun pkg -> [OpamPackage.to_string pkg])
-					~rewrite:(fun x -> x)
+					~append:(OpamPackage.to_string)
 					~requested:(package_names |> OpamPackage.Name.Set.of_list)
+					~reinstall:OpamPackage.Set.empty
 					solution;
 				let open Nix_expr in
 				let new_packages = OpamSolver.new_packages solution in
@@ -276,10 +193,17 @@ let main idx args =
 				close_out oc
 		| Conflicts conflict ->
 			prerr_endline (
-				OpamCudf.string_of_conflict
-					(fun p -> "package " ^ (OpamFormula.string_of_atom p) ^ " unavailable")
+				OpamCudf.string_of_conflict (universe.u_available)
+					(fun (p, version_formula) -> (
+						"package " ^ (OpamPackage.Name.to_string p)
+						^ " version " ^ (
+							OpamFormula.string_of_formula
+								(fun (op, ver) -> (OpamPrinter.relop op) ^ (OpamPackage.Version.to_string ver))
+								version_formula
+						) ^ " unavailable"
+					))
 					conflict
 			);
 			exit 1
-	in
+	) in
 	()
