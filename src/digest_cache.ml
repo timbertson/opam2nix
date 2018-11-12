@@ -48,12 +48,12 @@ let value_of_json : JSON.json -> nix_digest option = function
 				(* assume sha256 *)
 				Some (`sha256 digest)
 			| (Some "checksum_mismatch", _, Some error) -> Some (`checksum_mismatch error)
-			| other -> (
+			| _other -> (
 				Printf.eprintf "Unknown digest value; ignoring: %s\n" (JSON.to_string (`Assoc properties));
 				None
 			)
 	)
-	| other -> failwith "Expected digest value to be an object"
+	| other -> failwith ("Expected digest value to be an object, got " ^ (JSON.to_string other))
 
 let json_of_nix_digest = function
 	| `sha256 digest -> `Assoc [ "digest", `String digest ]
@@ -190,7 +190,7 @@ let add url opam_digests cache : nix_digest =
 		)
 		| None -> (
 			let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
-			Download.fetch dest_channel url;
+			Download.fetch ~dest:dest_channel url;
 			let nix_digest = match check_digests opam_digests dest with
 				| `ok -> `sha256 (sha256_of_path dest)
 				| `checksum_mismatch desc -> `checksum_mismatch desc
@@ -201,7 +201,7 @@ let add url opam_digests cache : nix_digest =
 		)
 
 let gc cache =
-	let { digests; active } = !cache in
+	let { digests; active; _ } = !cache in
 	let is_active key _ = StringSet.mem key active in
 	let active_digests = Cache.filter is_active digests in
 	cache := { !cache with digests = active_digests }

@@ -1,4 +1,4 @@
 #!bash -eu
 gup --always
-jbuilder build @install
+dune build @install
 ln -sfn _build/install/default/bin "$1"

@@ -4,7 +4,7 @@ module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 
 let print_universe chan u =
-	match u with { u_action; u_available; u_installed; _ } -> begin
+	match u with { u_available; u_installed; _ } -> begin
 		let open Printf in
 		let print_package_set = OpamPackage.Set.iter (fun pkg -> fprintf chan " - %s\n" (OpamPackage.to_string pkg)) in
 		fprintf chan "Available:\n";
@@ -14,7 +14,7 @@ let print_universe chan u =
 		()
 	end
 
-let build_universe ~repos ~package_names ~ocaml_version ~base_packages () =
+let build_universe ~repos ~ocaml_version ~base_packages () =
 	let empty = OpamPackage.Set.empty in
 	let available_packages = ref empty in
 	let opams = ref OpamPackage.Map.empty in
@@ -47,7 +47,7 @@ let build_universe ~repos ~package_names ~ocaml_version ~base_packages () =
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
 		|> OpamPackage.Set.of_list
 	in
-	let get_depends depends opam =
+	let get_depends depends =
 		OpamPackage.Map.map (fun opam ->
 			OpamFilter.partial_filter_formula env (depends opam)
 		) opams
@@ -58,8 +58,8 @@ let build_universe ~repos ~package_names ~ocaml_version ~base_packages () =
 		u_installed = base_packages;
 		u_base      = base_packages;
 		u_available = !available_packages;
-		u_depends   = get_depends OpamFile.OPAM.depends opams;
-		u_depopts   = get_depends OpamFile.OPAM.depopts opams;
+		u_depends   = get_depends OpamFile.OPAM.depends;
+		u_depopts   = get_depends OpamFile.OPAM.depopts;
 		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams
 		              |> OpamPackage.Map.map (OpamFilter.filter_formula env);
 	}
@@ -105,7 +105,6 @@ let main idx args =
 	let repos = nonempty_list !repos "--repo" in
 
 	let () =
-		let open OpamTypes in
 		if Util.verbose () then
 			OpamCoreConfig.update ~debug_level:2 ()
 	in
@@ -128,7 +127,6 @@ let main idx args =
 
 	let universe = build_universe
 		~repos:repos
-		~package_names
 		~base_packages
 		~ocaml_version
 		() in

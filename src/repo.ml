@@ -76,7 +76,7 @@ let version_filter filter_spec : (version list -> version list) = (fun versions 
 		(* special-case: include all versions with a non-digit terminal.
 		 * This is because typically non-digit patchlevels like +system are variants
 		 * rather than versions, and should all be included *)
-		let is_nondigit_terminal = fun (version, parts) -> (
+		let is_nondigit_terminal = fun (_version, parts) -> (
 			let is_digit s = Str.string_match digits s 0 in
 			match parts with
 				| [p] when not (is_digit p) -> true
@@ -84,7 +84,7 @@ let version_filter filter_spec : (version list -> version list) = (fun versions 
 		) in
 		let (nondigit_terminals, versions) = versions |> List.partition is_nondigit_terminal in
 
-		let groups = versions |> group_by (fun (version, parts) -> head_opt parts |> Option.default "0") in
+		let groups = versions |> group_by (fun (_version, parts) -> head_opt parts |> Option.default "0") in
 
 		let taken_groups = match num_this with
 			| `Some num -> groups |> take num

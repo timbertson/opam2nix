@@ -36,7 +36,7 @@ let load_env () =
 		state := !state |> Opam_metadata.add_package_var pkg name value
 	in
 
-	let add_package_vars ~pkg ?alias impl =
+	let add_package_vars ~pkg impl =
 		let add_var = match pkg with
 			| Dependency pkgname ->
 					add_package_var pkgname
@@ -63,7 +63,7 @@ let load_env () =
 						| Dependency pkg -> S (Filename.concat base pkg)
 						(* XXX this difference for the current package seems to be how opam works.
 						 * It doesn't seem to be documented anywhere, but odoc's build relies on it *)
-						| Self pkg -> S base
+						| Self _ -> S base
 				in
 
 				(* https://opam.ocaml.org/doc/Manual.html#package-name-install *)
@@ -181,8 +181,6 @@ let remove_empty_dir d =
 
 let execute_install_file state =
 	let name = state.pkgname in
-	let open OpamTypes in
-
 	let install_file_path = (name ^ ".install") in
 	if (Sys.file_exists install_file_path) then (
 		prerr_endline ("Installing from " ^ install_file_path);

@@ -352,7 +352,7 @@ let add_implicit_build_dependencies ~add_dep commands =
 	)
 ;;
 
-let attrs_of_opam ~add_dep ~name (opam:OPAM.t) =
+let attrs_of_opam ~add_dep (opam:OPAM.t) =
 	add_implicit_build_dependencies ~add_dep [OPAM.build opam; OPAM.install opam];
 	add_dep Optional (PackageDependencies (OPAM.depopts opam));
 	add_dep Required (PackageDependencies (OPAM.depends opam));
@@ -430,7 +430,7 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 		nix_of_url ~add_input:(add_expression_input Required) ~cache ~offline
 	) url in
 
-	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep ~name opam in
+	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep opam in
 
 	let url_ends_with ext = (match url with
 		| Some (`http (url,_)) | Some (`local url) -> ends_with ext url

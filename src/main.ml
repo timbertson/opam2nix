@@ -22,7 +22,7 @@ let () =
 	) else (
 		let commandName = Sys.argv.(1) in
 		let command =
-			try Some (commands |> List.find (fun (name, action) -> name = commandName))
+			try Some (commands |> List.find (fun (name, _action) -> name = commandName))
 			with Not_found -> None in
 		match command with
 			| Some (_name, action) -> begin

@@ -1,5 +1,3 @@
-open Lwt
-
 exception Download_failed of string
 
 let fetch ~dest url =
@@ -18,7 +16,7 @@ let fetch ~dest url =
 			Curl.set_url connection url;
 			Curl.perform connection;
 			Curl.cleanup connection
-		with Curl.CurlException (reason, code, str) ->
+		with Curl.CurlException (_reason, _code, _str) ->
 			Printf.eprintf "Curl error: %s\n" !errbuf;
 			raise (Download_failed url)
 	end;

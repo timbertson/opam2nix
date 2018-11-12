@@ -1,5 +1,3 @@
-
-open Printf
 open Util
 module StringMap = struct
 	include Map.Make(String)
@@ -16,7 +14,7 @@ let rec mkdirp_in base dirs =
 	with Unix_error (ENOENT, _, _) -> begin
 		let () = match (List.rev dirs) with
 			| [] -> fail ()
-			| dir :: prefix -> mkdirp_in base (List.rev prefix)
+			| _dir :: prefix -> mkdirp_in base (List.rev prefix)
 		in
 		mkdir fullpath 0o0750
 	end
@@ -180,7 +178,7 @@ let main arg_idx args =
 
 	Digest_cache.save cache;
 
-	Repo.traverse_versions `Nix ~root:dest (fun package versions base ->
+	Repo.traverse_versions `Nix ~root:dest (fun _package versions base ->
 		let import_version ver =
 			(* If the version has special characters, quote it.
 			* e.g `import ./fpo`, vs `import (./. + "/foo bar")`
