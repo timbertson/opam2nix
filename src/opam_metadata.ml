@@ -132,7 +132,7 @@ let installed_pkg_var key = let open OpamVariable in match Full.scope key with
 			Some pkg
 	| _ -> None
 
-let lookup_var vars key =
+let rec lookup_var vars key =
 	let open OpamVariable in
 	let keystr = (Full.to_string key) in
 	debug "Looking up opam var %s ..\n" keystr;
@@ -151,6 +151,9 @@ let lookup_var vars key =
 						| "with-doc" -> r_false
 						| "build" -> r_true
 						| _ -> None (* Computation delayed to the solver *)
+					) else if keystr = "sys-ocaml-version" then (
+						(* delegate to the installed ocaml version *)
+						lookup_var vars (OpamVariable.Full.create (OpamPackage.Name.of_string "ocaml") (OpamVariable.of_string "version"))
 					) else None
 				| Full.Package pkg ->
 					let pkg = OpamPackage.Name.to_string pkg in
