@@ -257,12 +257,18 @@ let apply_patches env =
 
 	let iter_patches f =
 		List.fold_left (fun acc (base, filter) ->
-				if OpamFilter.opt_eval_to_bool (filter_env) filter
-				then
-					try f base; acc with e ->
-						OpamStd.Exn.fatal e; OpamFilename.Base.to_string base :: acc
-				else acc
-			) [] patches in
+			let fail e =
+				OpamStd.Exn.fatal e;
+				OpamFilename.Base.to_string base :: acc
+			in
+			if OpamFilter.opt_eval_to_bool (filter_env) filter
+			then
+				let result = try f base with e -> Some e in
+				match result with
+					| Some (e: exn) -> fail e
+					| None -> acc
+			else acc
+		) [] patches in
 
 	let all = OpamFile.OPAM.substs opam in
 	let patches =
@@ -278,7 +284,7 @@ let apply_patches env =
 		iter_patches (fun filename ->
 			let filename_str = (OpamFilename.Base.to_string filename) in
 			Printf.eprintf "applying patch: %s\n" filename_str;
-			OpamSystem.patch filename_str
+			OpamSystem.patch ~dir:(Sys.getcwd ()) filename_str |> OpamProcess.Job.run
 		)
 	in
 
