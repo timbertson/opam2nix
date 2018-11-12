@@ -216,6 +216,13 @@ let add_nix_inputs
 
 		| PackageDependencies formula -> (
 			let add importance (pkg, _version) = add_opam importance (OpamPackage.Name.to_string pkg) in
+			let rec add_formula importance = let open OpamFormula in function
+				| Empty    -> ()
+				| Atom x   -> add importance x
+				| Block x  -> add_formula importance x
+				| And(x,y) -> add_formula importance x; add_formula importance y
+				| Or(x,y) -> add_formula Optional x; add_formula Optional y
+			in
 			OpamPackageVar.filter_depends_formula
 				~build:true
 				~post:false
@@ -223,7 +230,7 @@ let add_nix_inputs
 				~doc:false
 				~default:false
 				~env:nixpkgs_env
-				formula |> OpamFormula.iter (add importance);
+				formula |> add_formula importance;
 
 			OpamPackageVar.filter_depends_formula
 				~build:true
@@ -232,7 +239,7 @@ let add_nix_inputs
 				~doc:true
 				~default:true
 				~env:nixpkgs_env
-				formula |> OpamFormula.iter (add Optional)
+				formula |> add_formula Optional
 		)
 
 module PackageMap = OpamPackage.Map
