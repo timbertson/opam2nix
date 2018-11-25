@@ -259,13 +259,19 @@ let apply_patches env =
 				OpamStd.Exn.fatal e;
 				OpamFilename.Base.to_string base :: acc
 			in
+			let filename_str = (OpamFilename.Base.to_string base) in
 			if OpamFilter.opt_eval_to_bool (filter_env) filter
-			then
-				let result = try f base with e -> Some e in
+			then (
+				Printf.eprintf "applying patch: %s\n" filename_str;
+				let result = try f filename_str with e -> Some e in
 				match result with
 					| Some (e: exn) -> fail e
 					| None -> acc
-			else acc
+				)
+			else (
+				Printf.eprintf "skipping patch: %s\n" filename_str;
+				acc
+			)
 		) [] patches in
 
 	let all = OpamFile.OPAM.substs opam in
@@ -280,9 +286,7 @@ let apply_patches env =
 	(* Apply the patches *)
 	let patching_errors =
 		iter_patches (fun filename ->
-			let filename_str = (OpamFilename.Base.to_string filename) in
-			Printf.eprintf "applying patch: %s\n" filename_str;
-			OpamSystem.patch ~dir:(Sys.getcwd ()) filename_str |> OpamProcess.Job.run
+			OpamSystem.patch ~dir:(Sys.getcwd ()) filename |> OpamProcess.Job.run
 		)
 	in
 

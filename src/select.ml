@@ -38,7 +38,7 @@ let build_universe ~repos ~ocaml_version ~base_packages () =
 		) else (
 			let vars = OpamFilter.variables available_filter in
 			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
-			Printf.eprintf "  # Ignoring package %s-%s (incompatible with %s)\n" package (Repo.string_of_version version) vars_str
+			Util.debug "  # Ignoring package %s-%s (incompatible with %s)\n" package (Repo.string_of_version version) vars_str
 		)
 	);
 	let opams = !opams in
