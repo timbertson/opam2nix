@@ -83,14 +83,16 @@ let main idx args =
 	(* XXX this should be more integrated... *)
 	let ocaml_version = ref "" in
 	let ocaml_attr = ref None in
-	let set_ocaml_attr arg =
-		ocaml_attr := Some (Str.split (Str.regexp (Str.quote ".")) arg) in
+	let set_ocaml_attr arg = ocaml_attr := Some (Str.split (Str.regexp (Str.quote ".")) arg) in
+	let ocaml_drv = ref None in
+	let set_ocaml_drv arg = ocaml_drv := Some arg in
 	let base_packages = ref "" in
 	let opts = Arg.align [
 		("--repo", Arg.String (fun repo -> repos := repo :: !repos), "Repository root");
 		("--dest", Arg.Set_string dest, "Destination .nix file");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version");
-		("--ocaml-attr", Arg.String set_ocaml_attr, "Ocaml nixpkgs attribute path (e.g `ocaml`, `ocaml-ng.ocamlPackages_4_05.ocaml`)");
+		("--ocaml-attr", Arg.String set_ocaml_attr, "Ocaml nixpkgs attribute path (e.g `ocaml`, `ocaml-ng.ocamlPackages_4_05.ocaml`) (optional)");
+		("--ocaml-drv", Arg.String set_ocaml_drv, "Concrete path to the ocaml derivation (.drv) to use (optional)");
 		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated)");
 		("--verbose", Arg.Set Util._verbose, "Verbose");
 		("-v", Arg.Set Util._verbose, "Verbose");
@@ -123,7 +125,19 @@ let main idx args =
 
 	let ocaml_version = nonempty !ocaml_version "--ocaml-version" in
 	let ocaml_attr = !ocaml_attr in
+	let ocaml_drv = !ocaml_drv in
 	let base_packages = nonempty !base_packages "--base-packages" |> Str.split (Str.regexp ",") in
+	let ocaml_attrs = let expr = match (ocaml_drv, ocaml_attr) with
+		| Some _, Some _ -> failwith "both --ocaml and --ocaml-attribute provided"
+		| Some drv, None -> Some (`Call [`Lit "import"; Nix_expr.str drv])
+		| None, Some attr -> Some (`PropertyPath (`Id "self.pkgs", attr))
+		| None, None ->
+				Printf.eprintf
+					"Note: neither --ocaml-attr nor --ocaml given; you will need to supply an `ocaml` attribute at import time";
+				None
+		in
+		match expr with Some expr -> ["ocaml", expr] | None -> []
+	in
 
 	let universe = build_universe
 		~repos:repos
@@ -179,14 +193,7 @@ let main idx args =
 					"ocamlVersion", str ocaml_version;
 					"repositories", `List (repos |> List.map str);
 					"selection", `Attrs selection
-				] in
-				let attrs = match ocaml_attr with
-					| None ->
-							Printf.eprintf
-								"Note: --ocaml-attr not given; you will need to supply an `ocaml` attribute at import time";
-							attrs
-					| Some attr -> ("ocaml", `PropertyPath (`Id "self.pkgs", attr)) :: attrs
-				in
+				] @ ocaml_attrs in
 
 				let expr = `Function (
 					`NamedArguments [`Id "super"; `Id "self"],
