@@ -82,9 +82,9 @@ let main idx args =
 	let dest = ref "" in
 	(* XXX this should be more integrated... *)
 	let ocaml_version = ref "" in
-	let ocaml_attr = ref ["ocaml"] in
+	let ocaml_attr = ref None in
 	let set_ocaml_attr arg =
-		ocaml_attr := Str.split (Str.regexp (Str.quote ".")) arg in
+		ocaml_attr := Some (Str.split (Str.regexp (Str.quote ".")) arg) in
 	let base_packages = ref "" in
 	let opts = Arg.align [
 		("--repo", Arg.String (fun repo -> repos := repo :: !repos), "Repository root");
@@ -175,16 +175,24 @@ let main idx args =
 				let selection = AttrSet.add "ocaml" (`Property (`Id "self", "ocaml")) selection in
 				let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
 
+				let attrs = [
+					"ocamlVersion", str ocaml_version;
+					"repositories", `List (repos |> List.map str);
+					"selection", `Attrs selection
+				] in
+				let attrs = match ocaml_attr with
+					| None ->
+							Printf.eprintf
+								"Note: --ocaml-attr not given; you will need to supply an `ocaml` attribute at import time";
+							attrs
+					| Some attr -> ("ocaml", `PropertyPath (`Id "self.pkgs", attr)) :: attrs
+				in
+
 				let expr = `Function (
 					`NamedArguments [`Id "super"; `Id "self"],
 					(`Let_bindings (AttrSet.build [
 						"opamPackages", `Property (`Id "self", "opamPackages");
-					], `Attrs (AttrSet.build [
-						"ocaml", `PropertyPath (`Id "self.pkgs", ocaml_attr);
-						"ocamlVersion", str ocaml_version;
-						"repositories", `List (repos |> List.map str);
-						"selection", `Attrs selection
-					])));
+					], `Attrs (AttrSet.build attrs)));
 				) in
 				let oc = open_out dest in
 				Nix_expr.write oc expr;
