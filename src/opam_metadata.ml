@@ -118,9 +118,12 @@ let add_base_variables base_vars =
 	base_vars
 		|> add_global_var "make" (S "make")
 		|> add_global_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
-		|> add_global_var "preinstalled" (B false) (* XXX ? *)
 		|> add_global_var "pinned" (B false) (* probably ? *)
 		|> add_global_var "jobs" (S "1") (* XXX NIX_JOBS? *)
+		(* With preinstalled packages suppose they can't write
+		   in the ocaml directory *)
+		|> add_global_var "preinstalled" (B true)
+		|> add_package_var "ocaml" "preinstalled" (B true)
 		|> add_package_var "ocaml" "native" (B true)
 		|> add_package_var "ocaml" "native-tools" (B true)
 		|> add_package_var "ocaml" "native-dynlink" (B true)
