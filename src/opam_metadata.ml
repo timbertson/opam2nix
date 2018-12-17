@@ -398,15 +398,6 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 	let add_opam_input = adder opam_inputs in
 	let add_expression_input = adder pkgs_expression_inputs in
 
-	let is_conf_pkg pkg =
-		let re = Str.regexp "^conf-" in
-		Str.string_match re pkg 0
-	in
-
-	(* If ocamlfind is in use by _anyone_ make it used by _everyone_. Otherwise,
-	 * we end up with inconsistent install paths. XXX this is a bit hacky... *)
-	if not (name = "ocamlfind" || is_conf_pkg name)
-		then add_opam_input Optional "ocamlfind";
 	add_opam_input Required "ocaml"; (* pretend this is an `opam` input for convenience *)
 
 	let add_dep = fun importance dep ->
@@ -484,7 +475,7 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 						`BinaryOp (
 							`List nix_deps,
 							"++",
-							`Lit "(lib.attrValues opamDeps)"
+							`Lit "lib.attrValues opamDeps"
 						);
 				];
 			] @ expression_args) ),

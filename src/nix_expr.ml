@@ -109,7 +109,9 @@ let write dest (t:t) =
 			| `Int i -> put (string_of_int i)
 			| `Lit str -> put str
 			| `Null -> put "null"
-			| `BinaryOp (a, op, b) -> _write a; put " "; put op; put " "; _write b
+			| `BinaryOp (a, op, b) ->
+					let bracket expr = put "("; _write expr; put ")" in
+					bracket a; put " "; put op; put " "; bracket b
 			| `Property (src, name) -> parens_if_needed src; property name
 			| `PropertyPath (src, path) -> parens_if_needed src; path |> List.iter property
 			| `Property_or (src, name, alt) ->
