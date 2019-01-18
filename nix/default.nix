@@ -5,6 +5,7 @@ let
 	localPackages = lib.makeScope pkgs.newScope (self: with self; pkgs // {
 		ocamlPackages = lib.makeScope pkgs.newScope (self:
 			let opam = callPackage ./opam.nix { ocamlPackages = self; }; in with self; ocamlPackages // {
+			ocamlgraph = callPackage ./ocamlgraph.nix {}; # override builtin drv without lablgtk support
 			opam-core = callPackage opam.core {};
 			opam-format = callPackage opam.format {};
 			opam-file-format = callPackage ./opam-file-format.nix {};
