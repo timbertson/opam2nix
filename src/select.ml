@@ -104,7 +104,7 @@ let main idx args =
 	if !packages = [] then failwith "At least one package required";
 	let packages = !packages in
 	let dest = nonempty !dest "--dest" in
-	let repos = nonempty_list !repos "--repo" in
+	let repos = nonempty_list (List.rev !repos) "--repo" in
 
 	let () =
 		if Util.verbose () then
