@@ -19,20 +19,22 @@ let build_universe ~repos ~ocaml_version ~base_packages () =
 	let available_packages = ref empty in
 	let opams = ref OpamPackage.Map.empty in
 
-	let env = Opam_metadata.init_variables () |> Opam_metadata.lookup_var in
+	let global_vars = Opam_metadata.init_variables () in
+	let get_var ~version = Opam_metadata.lookup_var ~version global_vars in
 
 	Repo.traverse `Nix ~repos ~packages:[`All] (fun package version path ->
 		let opam = Opam_metadata.load_opam (Filename.concat path "opam") in
 		let available_filter = OpamFile.OPAM.available opam in
+		let pkg_version = Repo.opam_version_of version in
 		let available =
-			try package <> "opam" && OpamFilter.eval_to_bool env available_filter
+			try package <> "opam" && OpamFilter.eval_to_bool (get_var ~version:pkg_version) available_filter
 			with e -> (
 				Printf.eprintf "Assuming package %s is unavailable due to error: %s\n" package (Printexc.to_string e);
 				false
 			)
 		in
 		if available then (
-			let pkg = OpamPackage.create (Name.of_string package) (Repo.opam_version_of version) in
+			let pkg = OpamPackage.create (Name.of_string package) pkg_version in
 			available_packages := OpamPackage.Set.add pkg !available_packages;
 			opams := OpamPackage.Map.add pkg opam !opams
 		) else (
@@ -47,9 +49,17 @@ let build_universe ~repos ~ocaml_version ~base_packages () =
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
 		|> OpamPackage.Set.of_list
 	in
-	let get_depends depends =
-		OpamPackage.Map.map (fun opam ->
-			OpamFilter.partial_filter_formula env (depends opam)
+	let get_depends deptype_access =
+		OpamPackage.Map.mapi (fun pkg opam ->
+			let version = OpamPackage.version pkg in
+			OpamFilter.partial_filter_formula (get_var ~version) (deptype_access opam)
+		) opams
+	in
+	let conflicts =
+		OpamPackage.Map.mapi (fun pkg opam ->
+			let version = OpamPackage.version pkg in
+			let conflicts = OpamFile.OPAM.conflicts opam in
+			OpamFilter.filter_formula (get_var ~version) conflicts
 		) opams
 	in
 	{ OpamSolver.empty_universe with
@@ -60,8 +70,7 @@ let build_universe ~repos ~ocaml_version ~base_packages () =
 		u_available = !available_packages;
 		u_depends   = get_depends OpamFile.OPAM.depends;
 		u_depopts   = get_depends OpamFile.OPAM.depopts;
-		u_conflicts = OpamPackage.Map.map OpamFile.OPAM.conflicts opams
-		              |> OpamPackage.Map.map (OpamFilter.filter_formula env);
+		u_conflicts = conflicts;
 	}
 
 let newer_versions available pkg =

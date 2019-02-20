@@ -135,7 +135,7 @@ let installed_pkg_var key = let open OpamVariable in match Full.scope key with
 			Some pkg
 	| _ -> None
 
-let rec lookup_var vars key =
+let rec lookup_var ?version vars key =
 	let open OpamVariable in
 	let keystr = (Full.to_string key) in
 	debug "Looking up opam var %s ..\n" keystr;
@@ -146,18 +146,21 @@ let rec lookup_var vars key =
 			let r_true = Some (B true) and r_false = Some (B false) in
 			match Full.scope key with
 				| Full.Self -> None
-				| Full.Global ->
-					if List.mem key OpamPackageVar.predefined_depends_variables then (
-						match keystr with
+				| Full.Global -> (
+					match keystr with
 						| "dev" -> r_false
-						| "with-test" -> r_false
-						| "with-doc" -> r_false
+						(* test and doc are undocumented, but appear in the wild... *)
+						| "test" | "with-test" -> r_false
+						| "doc" | "with-doc" -> r_false
 						| "build" -> r_true
-						| _ -> None (* Computation delayed to the solver *)
-					) else if keystr = "sys-ocaml-version" then (
-						(* delegate to the installed ocaml version *)
-						lookup_var vars (OpamVariable.Full.create (OpamPackage.Name.of_string "ocaml") (OpamVariable.of_string "version"))
-					) else None
+						| "sys-ocaml-version" ->
+							(* delegate to the installed ocaml version *)
+							lookup_var vars (OpamVariable.Full.create (OpamPackage.Name.of_string "ocaml") (OpamVariable.of_string "version"))
+						| "version" ->
+								(* lookup this package's version, if we're in the context of a package *)
+								version |> Option.map (fun v -> S (OpamPackage.Version.to_string v))
+						| _ -> None
+				)
 				| Full.Package pkg ->
 					let pkg = OpamPackage.Name.to_string pkg in
 					let unqualified = Full.variable key |> OpamVariable.to_string in
