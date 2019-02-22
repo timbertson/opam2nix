@@ -314,7 +314,11 @@ let libDir dest =
 	let open OpamFilename.Op in
 	dest / "lib"
 
-let outputDirs dest = [ binDir dest; libDir dest ]
+let stublibsDir dest =
+	let open OpamFilename.Op in
+	(libDir dest) / "stublibs"
+
+let outputDirs dest = [ binDir dest; stublibsDir dest; libDir dest ]
 
 let pre_build env =
 	let dest = destDir () |> OpamFilename.Dir.of_string in
