@@ -1,0 +1,10 @@
+#!bash -eu
+set -x
+gup --always
+if [ "$2" = "release" ]; then
+	pwd
+	dune build -p opam2nix
+else
+	dune build @install
+fi
+ln -sfn _build/install/default/bin "$1"

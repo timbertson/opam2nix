@@ -1,4 +1,0 @@
-#!bash -eu
-gup --always
-dune build @install
-ln -sfn _build/install/default/bin "$1"

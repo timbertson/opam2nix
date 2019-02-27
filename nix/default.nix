@@ -35,7 +35,7 @@ let origin =
 stdenv.mkDerivation {
 	name = "opam2nix-${origin.version}";
 	src = origin.src;
-	buildPhase = "gup all";
+	buildPhase = "gup release";
 	installPhase = ''
 		mkdir $out
 		cp -r --dereference bin $out/bin
