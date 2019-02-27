@@ -31,7 +31,7 @@ type value_partial = {
 }
 let empty_partial = { val_type = None; val_digest = None; val_error = None }
 
-let value_of_json : JSON.json -> nix_digest option = function
+let value_of_json : JSON.t -> nix_digest option = function
 	| `Assoc properties -> (
 		let {val_type; val_digest; val_error} = properties |> List.fold_left (fun partial item ->
 			match item with
@@ -73,7 +73,7 @@ let opam_digest_of_key key =
 		| ["sha512"; digest] -> OpamHash.md5 digest
 		| _ -> failwith ("Can't parse opam digest: " ^ key)
 
-let json_of_cache (cache: nix_digest Cache.t) : JSON.json =
+let json_of_cache (cache: nix_digest Cache.t) : JSON.t =
 	let sorted_bindings = Cache.bindings cache
 		|> List.sort (fun (a, _) (b, _) -> String.compare a b)
 		|> List.rev in
