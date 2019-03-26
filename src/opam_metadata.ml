@@ -89,10 +89,12 @@ let add_var (scope: OpamVariable.t -> OpamVariable.Full.t) name v vars =
 	let var: OpamVariable.Full.t = scope (OpamVariable.of_string name) in
 	vars |> OpamVariable.Full.Map.add var v
 
-let global_var = OpamVariable.Full.global
-let add_global_var = add_var global_var
 let package_var pkgname = OpamVariable.Full.create (OpamPackage.Name.of_string pkgname)
+let global_var = OpamVariable.Full.global
+let self_var = OpamVariable.Full.self
+let add_global_var = add_var global_var
 let add_package_var pkgname = add_var (package_var pkgname)
+let add_self_var name = add_var self_var name
 
 let native_system_vars () =
 	let state = OpamVariable.Full.Map.empty in

@@ -35,6 +35,9 @@ let load_env () =
 	let add_package_var pkg name value =
 		state := !state |> Opam_metadata.add_package_var pkg name value
 	in
+	let add_self_var name value =
+		state := !state |> Opam_metadata.add_self_var name value
+	in
 
 	let add_package_vars ~pkg impl =
 		let add_var = match pkg with
@@ -42,7 +45,8 @@ let load_env () =
 					add_package_var pkgname
 			| Self pkgname -> fun name value ->
 					add_package_var pkgname name value;
-					add_global_var name value
+					add_global_var name value;
+					add_self_var name value
 		in
 		(match pkg with
 			| Self name -> add_var "name" (S name)
@@ -136,11 +140,12 @@ let load_env () =
 		end
 		| other -> unexpected_json "toplevel" other
 	in
+	let spec = (match !spec with Some s -> s | None -> failwith "missing `spec` in opamEnv") in
 	{
 		opam_vars = !state;
 		pkgname = !pkgname;
-		spec = (match !spec with Some s -> s | None -> failwith "missing `spec` in opamEnv");
 		files = !files;
+		spec;
 	}
 
 let rec waitpid_with_retry flags pid =
