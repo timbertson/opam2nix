@@ -64,10 +64,7 @@ let load_env () =
 				let package_dir suffix =
 					let base = (Filename.concat path suffix) in
 					match pkg with
-						| Dependency pkg -> S (Filename.concat base pkg)
-						(* XXX this difference for the current package seems to be how opam works.
-						 * It doesn't seem to be documented anywhere, but odoc's build relies on it *)
-						| Self _ -> S base
+						| Dependency name | Self name -> S (Filename.concat base name)
 				in
 
 				(* https://opam.ocaml.org/doc/Manual.html#package-name-install *)
