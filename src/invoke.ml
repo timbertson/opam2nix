@@ -2,6 +2,12 @@ module JSON = Yojson.Basic
 module OPAM = OpamFile.OPAM
 open Util
 
+let getenv k =
+	try Unix.getenv k
+	with Not_found as e ->
+		Printf.eprintf "Missing environment variable: %s\n" k;
+		raise e
+
 type env = {
 	opam_vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
 	spec : OpamFile.OPAM.t;
@@ -18,7 +24,7 @@ type package_relation =
 	| Dependency of string
 	| Self of string
 
-let destDir () = (Unix.getenv "out")
+let destDir () = (getenv "out")
 let libDestDir () = Filename.concat (destDir ()) "lib"
 
 let unexpected_json desc j =
@@ -88,7 +94,7 @@ let load_env () =
 	let spec = ref None in
 	let files = ref None in
 	(* let specfile = ref None in *)
-	let json_str = Unix.getenv "opamEnv" in
+	let json_str = getenv "opamEnv" in
 	debug "Using opamEnv: %s\n" json_str;
 	let json = JSON.from_string json_str in
 	let () = match json with
@@ -153,9 +159,11 @@ let rec waitpid_with_retry flags pid =
 	try waitpid flags pid
 	with Unix_error (EINTR, _, _) -> waitpid_with_retry flags pid
 
+let resolve commands opam_vars =
+	commands |> OpamFilter.commands (Opam_metadata.lookup_var opam_vars)
+
 let run env get_commands =
-	let commands = get_commands env.spec in
-	let commands = commands |> OpamFilter.commands (Opam_metadata.lookup_var env.opam_vars) in
+	let commands = resolve (get_commands env.spec) env.opam_vars in
 	commands |> List.iter (fun args ->
 		match args with
 			| [] -> ()
@@ -210,7 +218,7 @@ let isdir path =
 
 (* NOTE: unused - delete if we don't want to go back to using this *)
 let ocamlfindDestDir () =
-	try Some (Unix.getenv "OCAMLFIND_DESTDIR")
+	try Some (getenv "OCAMLFIND_DESTDIR")
 	with Not_found -> None
 let fixup_opam_install env =
 	Printf.eprintf "Running post-opam install fixup ...\n";
@@ -341,12 +349,23 @@ let install env =
 	let dest = destDir () |> OpamFilename.Dir.of_string in
 	outputDirs dest |> List.iter remove_empty_dir
 
+let dump env =
+	let dump get_commands =
+		let commands = resolve (get_commands env.spec) env.opam_vars in
+		commands |> List.iter (fun args ->
+			Printf.printf "+ %s\n" (String.concat " " (List.map String.escaped args))
+		)
+	in
+	dump OPAM.build;
+	dump OPAM.install
+
 let main idx args =
 	let action = try Some (Array.get args (idx+1)) with Not_found -> None in
 	let action = match action with
 		| Some "prebuild" -> pre_build
 		| Some "build" -> build
 		| Some "install"-> install
+		| Some "dump"-> dump
 		| Some other -> failwith ("Unknown action: " ^ other)
 		| None -> failwith "No action given"
 	in
