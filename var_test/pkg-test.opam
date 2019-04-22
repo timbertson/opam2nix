@@ -1,0 +1,5 @@
+opam-version: "2.0"
+build: [
+  [make "all"]
+  [make "test"] {with-test}
+]

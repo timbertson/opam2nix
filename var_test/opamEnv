@@ -1,0 +1,10 @@
+{
+	"deps": {
+		"pkg-dep": "/path/to/dep",
+		"base-present": true,
+		"base-absent": false,
+		"pkg-optional": null
+	},
+	"name": "pkg-test",
+	"spec": "./pkg-test.opam"
+}
