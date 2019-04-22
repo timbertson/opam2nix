@@ -3,16 +3,15 @@
     "args": {
       "owner": "timbertson",
       "repo": "opam2nix",
-      "rev": "version-0.4.16",
-      "sha256": "0zcvlj1cvfzzv61wqg7109m8qc0nalq66dg02s2g7pvzgjxbbl1a"
+      "rev": "cc19634d5b7a826d2ed0693365ec8e025a119f8a",
+      "sha256": "0i9sslj1m9xb0i3231p0ihj833hpmvlxdkk4gaiks9ynla9wvjys"
     },
     "fn": "fetchFromGitHub",
-    "rev": "version-0.4.16",
-    "version": "0.4.16"
+    "rev": "cc19634d5b7a826d2ed0693365ec8e025a119f8a",
+    "version": "0.4.17-dev"
   },
   "localRepo": "..",
   "owner": "timbertson",
   "repo": "opam2nix",
-  "rev": "version-{version}",
   "type": "fetchFromGitHub"
 }

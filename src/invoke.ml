@@ -2,125 +2,90 @@ module JSON = Yojson.Basic
 module OPAM = OpamFile.OPAM
 open Util
 
+let getenv k =
+	try Unix.getenv k
+	with Not_found as e ->
+		Printf.eprintf "Missing environment variable: %s\n" k;
+		raise e
+
 type env = {
-	opam_vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
+	vars : Vars.env;
 	spec : OpamFile.OPAM.t;
 	files : string option;
 	pkgname : string;
 }
 
-type package_implementation =
-	| Provided
-	| Installed of string
-	| Absent
-
-type package_relation =
-	| Dependency of string
-	| Self of string
-
-let destDir () = (Unix.getenv "out")
+let destDir () = (getenv "out")
 let libDestDir () = Filename.concat (destDir ()) "lib"
 
 let unexpected_json desc j =
-	failwith ("Unexpected " ^ desc ^ ": " ^ (JSON.pretty_to_string j))
+	failwith ("Unexpected " ^ desc ^ ": " ^ (JSON.to_string j))
 
 let load_env () =
-	let open OpamTypes in
-	let pkgname = ref "" in
-	let state = ref (Opam_metadata.init_variables ()) in
+	let open Vars in
 	let destDir = destDir () in
-	let add_global_var name value =
-		state := !state |> Opam_metadata.add_global_var name value
-	in
-	let add_package_var pkg name value =
-		state := !state |> Opam_metadata.add_package_var pkg name value
-	in
-	let add_self_var name value =
-		state := !state |> Opam_metadata.add_self_var name value
-	in
+	let self_name = ref None in
+	let self_version = ref None in
+	let packages = ref StringMap.empty in
 
-	let add_package_vars ~pkg impl =
-		let add_var = match pkg with
-			| Dependency pkgname ->
-					add_package_var pkgname
-			| Self pkgname -> fun name value ->
-					add_package_var pkgname name value;
-					add_global_var name value;
-					add_self_var name value
-		in
-		(match pkg with
-			| Self name -> add_var "name" (S name)
-			| _ -> ()
+	let add_package name impl =
+		debug " - package %s: %s\n" name (match impl with
+			| Absent -> "absent"
+			| Provided -> "provided"
+			| Installed { path; version } ->
+				Printf.sprintf "%s (%s)"
+					(Option.to_string id path)
+					(Option.to_string id version)
 		);
-		(match impl with
-			| Absent ->
-				add_var "installed" (B false);
-			| Provided ->
-				add_var "installed" (B true);
-			| Installed path ->
-				add_var "installed" (B true);
-
-				let dir suffix = S (Filename.concat path suffix) in
-				let package_dir suffix =
-					let base = (Filename.concat path suffix) in
-					match pkg with
-						| Dependency pkg -> S (Filename.concat base pkg)
-						(* XXX this difference for the current package seems to be how opam works.
-						 * It doesn't seem to be documented anywhere, but odoc's build relies on it *)
-						| Self _ -> S base
-				in
-
-				(* https://opam.ocaml.org/doc/Manual.html#package-name-install *)
-				add_var "bin" (dir "bin");
-				add_var "stublibs" (dir "lib/stublibs");
-				add_var "man" (dir "man");
-
-				add_var "lib" (package_dir "lib");
-				add_var "libexec" (package_dir "libexec");
-				add_var "etc" (package_dir "etc");
-				add_var "doc" (package_dir "doc");
-				add_var "share" (package_dir "share");
-		)
+		packages := StringMap.add name impl !packages
 	in
-
-	add_global_var "prefix" (S destDir);
 
 	let spec = ref None in
 	let files = ref None in
 	(* let specfile = ref None in *)
-	let json_str = Unix.getenv "opamEnv" in
+	let json_str = getenv "opamEnv" in
 	debug "Using opamEnv: %s\n" json_str;
 	let json = JSON.from_string json_str in
 	let () = match json with
 		| `Assoc pairs -> begin
 			pairs |> List.iter (function
 					| "deps", `Assoc (attrs) -> begin
-						debug "adding deps from opamEnv\n";
+						debug "adding packages from opamEnv\n";
 						attrs |> List.iter (fun (pkgname, value) ->
-							let pkg = Dependency pkgname in
 							match value with
-								| `Null ->
-									debug " - package %s is absent (null)\n" pkgname;
-									add_package_vars ~pkg Absent
+								| `Null -> add_package pkgname Absent
 
-								| `Bool b ->
 									(* Bool is used for base packages, which have no corresponding path *)
-									debug " - base package %s: present? %b\n" pkgname b;
-									add_package_vars ~pkg (if b then Provided else Absent)
+								| `Bool b -> add_package pkgname (if b then Provided else Absent)
 
-								| `String path ->
-									debug " - package %s: installed at %s\n" pkgname path;
-									add_package_vars ~pkg (Installed path);
+								| `Assoc attrs -> (
+									let path = ref None in
+									let version = ref None in
+									attrs |> List.iter (fun (key, value) ->
+										match (key, value) with
+											| "path", `String value -> path := Some value
+											| "version", `String value -> version := Some value
+											| "version", `Null -> version := None
+											| _, other -> unexpected_json ("deps." ^ pkgname) other
+									);
+									add_package pkgname (Installed {
+										(* path is optional in the type, but by `invoke` time all paths
+										 * should be defined *)
+										path = Some (!path |> Option.or_failwith "missing `path` in deps");
+										version = !version;
+									})
+								)
 
-								| other -> unexpected_json "`deps`" other
+								| other -> unexpected_json "deps value" other
 						)
 					end
 					| "deps", other -> unexpected_json "deps" other
 
-					| "name", `String name ->
-							pkgname := name;
-							add_package_vars ~pkg:(Self name) (Installed destDir)
+					| "name", `String name -> self_name := Some name;
 					| "name", other -> unexpected_json "name" other
+
+					| "version", `String version -> self_version := Some version;
+					| "version", other -> unexpected_json "version" other
 
 					| "files", `String path -> files := Some path
 					| "files", `Null -> ()
@@ -131,19 +96,26 @@ let load_env () =
 							spec := Some (Opam_metadata.load_opam path)
 					| "spec", other -> unexpected_json "spec" other
 
-					| "ocaml-version", `String version ->
-							add_package_var "ocaml" "version" (S version)
-					| "ocaml-version", other -> unexpected_json "ocaml-version" other
-
 					| other, _ -> failwith ("unexpected opamEnv key: " ^ other)
 			)
 		end
 		| other -> unexpected_json "toplevel" other
 	in
 	let spec = (match !spec with Some s -> s | None -> failwith "missing `spec` in opamEnv") in
+	let self = !self_name |> Option.or_failwith "self name not specified" in
+	let self_impl = Vars.{
+		path = Some destDir;
+		version = Some (!self_version |> Option.or_failwith "self version not specified");
+	} in
+
 	{
-		opam_vars = !state;
-		pkgname = !pkgname;
+		vars = Vars.({
+			prefix = Some destDir;
+			packages = !packages |> StringMap.add self (Installed self_impl);
+			self = self;
+			vars = Opam_metadata.init_variables ();
+		});
+		pkgname = self;
 		files = !files;
 		spec;
 	}
@@ -153,9 +125,11 @@ let rec waitpid_with_retry flags pid =
 	try waitpid flags pid
 	with Unix_error (EINTR, _, _) -> waitpid_with_retry flags pid
 
+let resolve commands vars =
+	commands |> OpamFilter.commands (Vars.lookup vars)
+
 let run env get_commands =
-	let commands = get_commands env.spec in
-	let commands = commands |> OpamFilter.commands (Opam_metadata.lookup_var env.opam_vars) in
+	let commands = resolve (get_commands env.spec) env.vars in
 	commands |> List.iter (fun args ->
 		match args with
 			| [] -> ()
@@ -208,52 +182,10 @@ let isdir path =
 	try (stat path).st_kind = S_DIR
 	with Unix_error(ENOENT, _, _) -> false
 
-(* NOTE: unused - delete if we don't want to go back to using this *)
-let ocamlfindDestDir () =
-	try Some (Unix.getenv "OCAMLFIND_DESTDIR")
-	with Not_found -> None
-let fixup_opam_install env =
-	Printf.eprintf "Running post-opam install fixup ...\n";
-	let name = env.pkgname in
-	let lib_dest = Filename.concat (destDir ()) "lib" in
-	let unwanted = Filename.concat lib_dest name in
-	let fixed = ocamlfindDestDir () in
-	match fixed with
-		| None -> Printf.eprintf "$OCAMLFIND_DESTDIR not set, skipping\n"; ()
-		| Some ocamlfind_dest -> (
-			let ocamlfind_dest = Filename.concat ocamlfind_dest name in
-			if isdir unwanted then (
-				(* XXX is installing under lib/ocaml/version/pkg instead of just lib/ really worth all this hassle? *)
-				if Sys.file_exists ocamlfind_dest then
-					Printf.eprintf
-						"WARN: Looks like incorrectly-installed ocaml libraries in %s\n - but dest (%s) already exists; ignoring...\n"
-						unwanted ocamlfind_dest
-				else (
-					Printf.eprintf
-						"WARN: Found incorrectly-installed ocaml libraries in %s\n - moving them to %s\n"
-						unwanted ocamlfind_dest;
-					Unix.rename unwanted ocamlfind_dest
-				)
-			) else (
-				Printf.eprintf "No unwanted files found in %s\n" unwanted;
-			);
-
-			(* If we have `lib/pkgconfig`, make a symlink `lib/<pkgname>` to `lib/ocaml/<...>/pkgname` *)
-			let pkgconfig = Filename.concat lib_dest "pkgconfig" in
-			if isdir pkgconfig then (
-				if not (Sys.file_exists unwanted) then (
-					Printf.eprintf "NOTE: linking %s -> %s for the benefit of pkgconfig\n" unwanted ocamlfind_dest;
-					Unix.symlink ocamlfind_dest unwanted
-				) else (
-					Printf.eprintf "NOTE: can't create link %s -> %s\n" unwanted ocamlfind_dest;
-				)
-			)
-		)
-
 let apply_patches env =
 	(* extracted from OpamAction.prepare_package_build *)
 	let opam = env.spec in
-	let filter_env = Opam_metadata.lookup_var env.opam_vars in
+	let filter_env = Vars.lookup env.vars in
 
 	(* Substitute the patched files.*)
 	let patches = OpamFile.OPAM.patches opam in
@@ -341,12 +273,24 @@ let install env =
 	let dest = destDir () |> OpamFilename.Dir.of_string in
 	outputDirs dest |> List.iter remove_empty_dir
 
+let dump env =
+	let dump desc get_commands =
+		let commands = resolve (get_commands env.spec) env.vars in
+		Printf.printf "# %s:\n" desc;
+		commands |> List.iter (fun args ->
+			Printf.printf "+ %s\n" (String.concat " " args)
+		)
+	in
+	dump "build" OPAM.build;
+	dump "install" OPAM.install
+
 let main idx args =
 	let action = try Some (Array.get args (idx+1)) with Not_found -> None in
 	let action = match action with
 		| Some "prebuild" -> pre_build
 		| Some "build" -> build
 		| Some "install"-> install
+		| Some "dump"-> dump
 		| Some other -> failwith ("Unknown action: " ^ other)
 		| None -> failwith "No action given"
 	in

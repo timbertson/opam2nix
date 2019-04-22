@@ -20,20 +20,43 @@ let build_universe ~repos ~ocaml_version ~base_packages () =
 	let opams = ref OpamPackage.Map.empty in
 
 	let global_vars = Opam_metadata.init_variables () in
-	let get_var ~version = Opam_metadata.lookup_var ~version global_vars in
+
+	let lookup_var package version = Vars.(lookup {
+		packages = (StringMap.from_list (
+			[
+				package, (Installed {
+					path = None; (* not yet known *)
+					version = Some version;
+				});
+				"ocaml", (Installed {
+					path = None; (* not yet known *)
+					version = Some ocaml_version;
+				})
+			] @ (base_packages |> List.map (fun name -> (name, Provided)))
+		));
+		prefix = None; (* not known *)
+		self = package;
+		vars = global_vars;
+	}) in
+
+	let lookup_var_opam pkg =
+		lookup_var
+			(OpamPackage.name pkg |> Name.to_string)
+			(OpamPackage.version pkg |> Version.to_string) in
 
 	Repo.traverse `Nix ~repos ~packages:[`All] (fun package version path ->
+		let lookup_var = lookup_var package (Repo.string_of_version version) in
 		let opam = Opam_metadata.load_opam (Filename.concat path "opam") in
 		let available_filter = OpamFile.OPAM.available opam in
-		let pkg_version = Repo.opam_version_of version in
 		let available =
-			try package <> "opam" && OpamFilter.eval_to_bool (get_var ~version:pkg_version) available_filter
+			try package <> "opam" && OpamFilter.eval_to_bool lookup_var available_filter
 			with e -> (
 				Printf.eprintf "Assuming package %s is unavailable due to error: %s\n" package (Printexc.to_string e);
 				false
 			)
 		in
 		if available then (
+			let pkg_version = Repo.opam_version_of version in
 			let pkg = OpamPackage.create (Name.of_string package) pkg_version in
 			available_packages := OpamPackage.Set.add pkg !available_packages;
 			opams := OpamPackage.Map.add pkg opam !opams
@@ -51,15 +74,13 @@ let build_universe ~repos ~ocaml_version ~base_packages () =
 	in
 	let get_depends deptype_access =
 		OpamPackage.Map.mapi (fun pkg opam ->
-			let version = OpamPackage.version pkg in
-			OpamFilter.partial_filter_formula (get_var ~version) (deptype_access opam)
+			OpamFilter.partial_filter_formula (lookup_var_opam pkg) (deptype_access opam)
 		) opams
 	in
 	let conflicts =
 		OpamPackage.Map.mapi (fun pkg opam ->
-			let version = OpamPackage.version pkg in
 			let conflicts = OpamFile.OPAM.conflicts opam in
-			OpamFilter.filter_formula (get_var ~version) conflicts
+			OpamFilter.filter_formula (lookup_var_opam pkg) conflicts
 		) opams
 	in
 	{ OpamSolver.empty_universe with
@@ -199,7 +220,6 @@ let main idx args =
 				let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
 
 				let attrs = [
-					"ocamlVersion", str ocaml_version;
 					"repositories", `List (repos |> List.map str);
 					"selection", `Attrs selection
 				] @ ocaml_attrs in

@@ -5,7 +5,6 @@ let filter_map fn lst =
 			| Some result -> result :: acc
 	) [] |> List.rev
 
-
 let ends_with suffix s =
 	let suffix_len = String.length suffix in
 	let len = String.length s in
@@ -41,6 +40,8 @@ let rec rm_r root =
 		Unix.rmdir root
 	)
 
+let id x = x
+
 let nonempty value arg =
 	if value = ""
 	then failwith (arg ^ " required")
@@ -57,7 +58,9 @@ module Option = struct
 	let bind fn = function None -> None | Some x -> fn x
 	let default d v = match v with Some v -> v | None -> d
 	let default_fn d v = match v with Some v -> v | None -> d ()
+	let or_else alt v = match v with Some _ -> v | None -> alt
 	let or_else_fn alt v = match v with Some _ -> v | None -> alt ()
+	let or_failwith msg v = match v with Some v -> v | None -> failwith msg
 	let exists fn = function None -> false | Some v -> fn v
 	let to_list = function None -> [] | Some v -> [v]
 	let is_some = function None -> false | Some _ -> true
@@ -163,3 +166,10 @@ let () = (
 	let envvar = try Unix.getenv "OPAM2NIX_VERBOSE" with Not_found -> "" in
 	set_verbose (envvar = "1" || envvar = "true")
 )
+
+module StringMap = struct
+	include Map.Make(String)
+	let singleton key value = add key value empty
+	let find_opt key map = try Some (find key map) with Not_found -> None
+	let from_list items = List.fold_right (fun (k,v) map -> add k v map) items empty
+end

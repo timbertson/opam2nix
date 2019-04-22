@@ -37,6 +37,8 @@ and t = [
 
 let str s = `String [`Lit s]
 
+let attrset pairs = `Attrs (AttrSet.build pairs)
+
 let apply_replacements (replacements: (Str.regexp * string) list) (s: string) : string =
 	List.fold_left (fun s (re, repl) ->
 		Str.global_replace re repl s

@@ -6,11 +6,6 @@ open OpamTypes
 module StringSet = OpamStd.String.Set
 module StringSetMap = OpamStd.String.SetMap
 
-module StringMap = struct
-	include Map.Make(String)
-	let from_list items = List.fold_right (fun (k,v) map -> add k v map) items empty
-end
-
 type url = [
 	| `http of string * (Digest_cache.opam_digest list)
 	| `local of string
@@ -137,47 +132,6 @@ let installed_pkg_var key = let open OpamVariable in match Full.scope key with
 			Some pkg
 	| _ -> None
 
-let rec lookup_var ?version vars key =
-	let open OpamVariable in
-	let keystr = (Full.to_string key) in
-	debug "Looking up opam var %s ..\n" keystr;
-	let result =
-		Full.read_from_env key |> Option.or_else_fn (fun () ->
-		try Some (Full.Map.find key vars)
-		with Not_found -> (
-			let r_true = Some (B true) and r_false = Some (B false) in
-			match Full.scope key with
-				| Full.Self -> None
-				| Full.Global -> (
-					match keystr with
-						| "dev" -> r_false
-						(* test and doc are undocumented, but appear in the wild... *)
-						| "test" | "with-test" -> r_false
-						| "doc" | "with-doc" -> r_false
-						| "build" -> r_true
-						| "sys-ocaml-version" ->
-							(* delegate to the installed ocaml version *)
-							lookup_var vars (OpamVariable.Full.create (OpamPackage.Name.of_string "ocaml") (OpamVariable.of_string "version"))
-						| "version" ->
-								(* lookup this package's version, if we're in the context of a package *)
-								version |> Option.map (fun v -> S (OpamPackage.Version.to_string v))
-						| _ -> None
-				)
-				| Full.Package pkg ->
-					let pkg = OpamPackage.Name.to_string pkg in
-					let unqualified = Full.variable key |> OpamVariable.to_string in
-					debug "(variable `%s` of package `%s`)\n" unqualified pkg;
-					if (installed_pkg_var key |> Option.is_some) then (
-						(* evidently not... *)
-						r_false
-					) else None
-		)
-	) in
-	debug " -> %s\n" (Option.to_string OpamVariable.string_of_variable_contents result);
-	if Option.is_none result then
-		Printf.eprintf "WARN: opam var %s not found...\n" keystr;
-	result
-
 let add_nix_inputs
 	~(add_native: importance -> string -> unit)
 	~(add_opam:importance -> string -> unit)
@@ -186,7 +140,7 @@ let add_nix_inputs
 		| Required -> "dep"
 		| Optional -> "optional dep"
 	in
-	let nixpkgs_env = lookup_var (nixpkgs_vars ()) in
+	let nixpkgs_env = Vars.simple_lookup ~vars:(nixpkgs_vars ()) in
 	debug "Adding dependency: %s\n" (string_of_dependency dep);
 	match dep with
 		| NixDependency name ->
@@ -343,12 +297,13 @@ let add_implicit_build_dependencies ~add_dep commands =
 	(* If your build command depends on foo:installed, you have an implicit optional
 	 * build dependency on foo. Packages *should* declare this, but don't always... *)
 	let lookup_var key =
-		match installed_pkg_var key with
+		match Vars.implicit_package_var key with
 			| None -> None
 			| Some pkg ->
 				let pkgname = OpamPackage.Name.to_string pkg in
 				debug "  adding implied dep: %s\n" pkgname;
 				implicit_optdeps := !implicit_optdeps |> StringSet.add pkgname;
+				(* value doesn't actually matter, since we don't use the result *)
 				Some (B true)
 	in
 	commands |> List.iter (fun commands ->
@@ -474,14 +429,17 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 				"opam2nix", `Property (`Id "world", "opam2nix");
 				"pkgs", `Property (`Id "world", "pkgs");
 				"opamDeps", `Attrs opam_inputs;
+				"isPseudo", `Function (`Id "pkg", `Lit "lib.elem pkg [true false null]");
+				"specOfPackage",
+					`Function (`Id "pkg", `Lit "if isPseudo pkg then pkg else { path = pkg.outPath; version = pkg.version or null; }");
 				"inputs", `Call [
-						`Id "lib.filter";
-						`Lit "(dep: dep != true && dep != null)";
-						`BinaryOp (
-							`List nix_deps,
-							"++",
-							`Lit "lib.attrValues opamDeps"
-						);
+					`Id "lib.filter";
+					`Lit "(dep: !isPseudo dep)";
+					`BinaryOp (
+						`List nix_deps,
+						"++",
+						`Lit "lib.attrValues opamDeps"
+					);
 				];
 			] @ expression_args) ),
 			`Call [
@@ -491,10 +449,10 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 					"version", Nix_expr.str version_str;
 					"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
 						"spec", `Lit "./opam";
-						"deps", `Lit "opamDeps";
+						"deps", `Lit "lib.mapAttrs (lib.const specOfPackage) opamDeps";
 						"name", Nix_expr.str name;
+						"version", Nix_expr.str version_str;
 						"files", if has_files then `Lit "./files" else `Null;
-						"ocaml-version", `Property (`Id "world", "ocamlVersion");
 					])];
 					"buildInputs", `Lit "inputs";
 					(* TODO: don't include build-only deps *)

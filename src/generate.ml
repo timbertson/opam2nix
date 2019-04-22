@@ -1,8 +1,4 @@
 open Util
-module StringMap = struct
-	include Map.Make(String)
-	let find_opt key map = try Some (find key map) with Not_found -> None
-end
 
 let rec mkdirp_in base dirs =
 	let relpath = String.concat Filename.dir_sep dirs in
