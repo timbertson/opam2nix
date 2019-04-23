@@ -2,7 +2,6 @@
 	"type": "fetchFromGitHub",
 	"repo": "opam2nix",
 	"owner": "timbertson",
-	"rev": "version-{version}",
 	"localRepo": ".."
 }
 
