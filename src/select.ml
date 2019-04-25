@@ -169,7 +169,7 @@ let main idx args =
 				prerr_endline "Solved!";
 				OpamSolver.print_solution
 					~messages:(fun pkg -> [OpamPackage.to_string pkg])
-					~append:(OpamPackage.to_string)
+					~append:(fun _nv -> "")
 					~requested:(package_names |> OpamPackage.Name.Set.of_list)
 					~reinstall:OpamPackage.Set.empty
 					solution;
