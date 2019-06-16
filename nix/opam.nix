@@ -1,41 +1,39 @@
-{ stdenv, pkgs, fetchFromGitHub, ocamlPackages }:
-let base = name: {
+{ pkgs, fetchFromGitHub, ocamlPackages }:
+let
+	version = "2.0.4";
+	base = name: {
 		propagatedBuildInputs ? [],
 		buildInputs ? [],
 		... } @ attrs: attrs // {
-	name = "opam-${name}"; # TODO: name individually
-	src = fetchFromGitHub {
-		owner = "ocaml";
-		repo = "opam";
-		rev = "2.0.0-rc3";
-		sha256 = "07zzabv8qrgqglzxm3jkb33byfjvsrimly5m1jgi6m9mdcqzp8wb";
+		pname = "opam-${name}";
+		inherit version buildInputs propagatedBuildInputs;
+		src = fetchFromGitHub {
+			owner = "ocaml";
+			repo = "opam";
+			rev = version;
+			sha256 = "1yx5k8v5vnnc20fmz5zx8kqd242j48qcknlk6vmkr7rkq886ipq2";
+		};
+		configureFlags = "--disable-checks";
 	};
-	createFindlibDestdir = true;
-	propagatedBuildInputs = [ ocamlPackages.findlib] ++ propagatedBuildInputs;
-	buildInputs = [ ocamlPackages.ocaml ocamlPackages.dune ] ++ buildInputs;
-	buildFlags = "opam-${name}.install";
-	installPhase = "dune install -p opam-${name} --prefix $out opam-${name} || (ls -lr; env; exit 1)";
-	configureFlags = "--disable-checks";
-};
 in
 {
-	core = { cppo, dune, ocamlgraph, re, cmdliner }: stdenv.mkDerivation (base "core" {
+	core = { cppo, dune, ocamlgraph, re, cmdliner }: ocamlPackages.buildDunePackage (base "core" {
 		propagatedBuildInputs = [ ocamlgraph re ];
 		buildInputs = [cppo cmdliner];
 	});
-	format = { opam-core, opam-file-format, re}: stdenv.mkDerivation (base "format" {
+	format = { opam-core, opam-file-format, re}: ocamlPackages.buildDunePackage (base "format" {
 		propagatedBuildInputs = [ opam-core opam-file-format re];
 	});
-	installer = { cmdliner, opam-format }: stdenv.mkDerivation (base "installer" {
+	installer = { cmdliner, opam-format }: ocamlPackages.buildDunePackage (base "installer" {
 		propagatedBuildInputs = [ cmdliner opam-format ];
 	});
-	repository = { opam-format }: stdenv.mkDerivation (base "repository" {
+	repository = { opam-format }: ocamlPackages.buildDunePackage (base "repository" {
 		propagatedBuildInputs = [ opam-format ];
 	});
-	solver = { cudf, dose3, mccs, opam-format }: stdenv.mkDerivation (base "solver" {
+	solver = { cudf, dose3, mccs, opam-format }: ocamlPackages.buildDunePackage (base "solver" {
 		propagatedBuildInputs = [ cudf dose3 mccs opam-format ];
 	});
-	state = { opam-repository }: stdenv.mkDerivation (base "state" {
+	state = { opam-repository }: ocamlPackages.buildDunePackage (base "state" {
 		propagatedBuildInputs = [ opam-repository ];
 	});
 }

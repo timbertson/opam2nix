@@ -15,7 +15,6 @@ let
 			opam-state = callPackage opam.state {};
 			cudf = callPackage ./cudf.nix {};
 			dose3 = callPackage ./dose3.nix {};
-			dune = callPackage ./dune.nix {};
 			mccs = callPackage ./mccs.nix {};
 			basedir = callPackage ./basedir.nix {};
 		});
