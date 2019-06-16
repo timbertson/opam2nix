@@ -1,0 +1,5 @@
+; vim: set syntax=lisp commentstring=;\ %s:
+
+(executable
+ (name test)
+ (libraries oUnit opam2nix))
