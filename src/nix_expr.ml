@@ -33,6 +33,7 @@ and t = [
 	| `Lit of string
 	| `BinaryOp of t * string * t
 	| `Null
+	| `With of (t * t)
 ]
 
 let str s = `String [`Lit s]
@@ -183,6 +184,11 @@ let write dest (t:t) =
 				pp_close_box formatter ();
 				nl ();
 				put "}";
+			| `With (scope, expr) ->
+					put "with ";
+					_write scope;
+					put "; ";
+					_write expr;
 	in
 	pp_open_box formatter 0;
 	_write t;

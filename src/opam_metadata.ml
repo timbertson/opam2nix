@@ -269,16 +269,15 @@ let string_of_url url =
 		| `http addr -> addr
 		| `git addr -> "git:" ^ (concat_address addr)
 
-let nix_of_url ~add_input ~cache ~offline (url:url) =
+let nix_of_url ~cache ~offline (url:url) : Nix_expr.t =
 	let open Nix_expr in
 	match url with
 		| `local src -> `Lit src
 		| `http (src, checksums) ->
 			if (offline && not (Digest_cache.exists checksums cache)) then raise (Not_cached src);
 			let digest = Digest_cache.add src checksums cache in
-			add_input "fetchurl";
 			`Call [
-				`Id "fetchurl";
+				`Lit "pkgs.fetchurl";
 				`Attrs (AttrSet.build [
 					"url", str src;
 					(match digest with
@@ -315,17 +314,12 @@ let add_implicit_build_dependencies ~add_dep commands =
 	)
 ;;
 
-let attrs_of_opam ~add_dep (opam:OPAM.t) =
+let add_opam_deps ~add_dep (opam:OPAM.t) =
 	add_implicit_build_dependencies ~add_dep [OPAM.build opam; OPAM.install opam];
 	add_dep Optional (PackageDependencies (OPAM.depopts opam));
 	add_dep Required (PackageDependencies (OPAM.depends opam));
 	let depexts = OPAM.depexts opam in
-	if (depexts <> []) then add_dep Required (ExternalDependencies depexts);
-	[
-		"configurePhase",  Nix_expr.str "true"; (* configuration is done in build commands *)
-		"buildPhase",      `Lit "\"${opam2nix}/bin/opam2nix invoke build\"";
-		"installPhase",    `Lit "\"${opam2nix}/bin/opam2nix invoke install\"";
-	]
+	if (depexts <> []) then add_dep Required (ExternalDependencies depexts)
 ;;
 
 module InputMap = struct
@@ -338,27 +332,18 @@ module InputMap = struct
 			| _ -> add k v map
 end
 
-let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.t =
-	let pkgid = OpamPackage.create
-		(OpamPackage.Name.of_string name)
-		(Repo.opam_version_of version)
-	in
+let nix_of_opam ~pkg ~cache ~offline ~deps ~opam_src path : Nix_expr.t =
+	let name = OpamPackage.name pkg |> OpamPackage.Name.to_string in
+	let version = OpamPackage.version pkg |> OpamPackage.Version.to_string in
 	let open Nix_expr in
-	let pkgs_expression_inputs = ref (InputMap.from_list [
-		"lib", Required;
-	]) in
-	let additional_env_vars = ref [] in
 	let adder r = fun importance name -> r := InputMap.add name importance !r in
 
-	deps#init_package pkgid;
+	deps#init_package pkg;
 
 	let opam_inputs = ref InputMap.empty in
 	let nix_deps = ref InputMap.empty in
 	let add_native = adder nix_deps in
 	let add_opam_input = adder opam_inputs in
-	let add_expression_input = adder pkgs_expression_inputs in
-
-	add_opam_input Required "ocaml"; (* pretend this is an `opam` input for convenience *)
 
 	let add_dep = fun importance dep ->
 		add_nix_inputs
@@ -373,18 +358,19 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 		| Some _ as url -> url
 		| None -> load_url (Filename.concat path "url")
 	in
+	(* TODO drop these packages before the solver runs *)
 	let url = urlfile |> Option.map (fun urlfile ->
 		try url urlfile
 		with Unsupported_archive reason -> raise (
-			Unsupported_archive (name ^ "-" ^ (Repo.string_of_version version) ^ ": " ^ reason)
+			Unsupported_archive (name ^ "-" ^ version ^ ": " ^ reason)
 		)
 	) in
 
 	let src = Option.map (
-		nix_of_url ~add_input:(add_expression_input Required) ~cache ~offline
+		nix_of_url ~cache ~offline
 	) url in
 
-	let buildAttrs : (string * Nix_expr.t) list = attrs_of_opam ~add_dep opam in
+	let () = add_opam_deps ~add_dep opam in
 
 	let url_ends_with ext = (match url with
 		| Some (`http (url,_)) | Some (`local url) -> ends_with ext url
@@ -397,9 +383,6 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 		match importance with
 			| Optional -> `Property_or (src, name, `Null)
 			| Required -> `PropertyPath (src, String.split_on_char '.' name)
-	in
-	let attr_of_input src (name, importance) : string * Nix_expr.t =
-		(name, property_of_input src (name, importance))
 	in
 	let sorted_bindings_of_input input = input
 		|> InputMap.bindings
@@ -414,67 +397,14 @@ let nix_of_opam ~name ~version ~cache ~offline ~deps ~has_files path : Nix_expr.
 		|> sorted_bindings_of_input
 		|> List.map (property_of_input (`Id "pkgs"))
 	in
-	let expression_args : (string * Nix_expr.t) list = !pkgs_expression_inputs
-		|> sorted_bindings_of_input
-		|> List.map (attr_of_input (`Id "pkgs"))
-	in
-	let version_str = Repo.path_of_version `Nix version in
 
-	`Function (
-		`Id "world",
-		`Let_bindings (
-			(AttrSet.build ([
-				"lib", `Lit "world.pkgs.lib";
-				"selection", `Property (`Id "world", "selection");
-				"opam2nix", `Property (`Id "world", "opam2nix");
-				"pkgs", `Property (`Id "world", "pkgs");
-				"opamDeps", `Attrs opam_inputs;
-				"isPseudo", `Function (`Id "pkg", `Lit "lib.elem pkg [true false null]");
-				"specOfPackage",
-					`Function (`Id "pkg", `Lit "if isPseudo pkg then pkg else { path = pkg.outPath; version = pkg.version or null; }");
-				"inputs", `Call [
-					`Id "lib.filter";
-					`Lit "(dep: !isPseudo dep)";
-					`BinaryOp (
-						`List nix_deps,
-						"++",
-						`Lit "lib.attrValues opamDeps"
-					);
-				];
-			] @ expression_args) ),
-			`Call [
-				`Id "pkgs.stdenv.mkDerivation";
-				`Attrs (AttrSet.build (!additional_env_vars @ [
-					"name", Nix_expr.str (name ^ "-" ^ version_str);
-					"version", Nix_expr.str version_str;
-					"opamEnv", `Call [`Id "builtins.toJSON"; `Attrs (AttrSet.build [
-						"spec", `Lit "./opam";
-						"deps", `Lit "lib.mapAttrs (lib.const specOfPackage) opamDeps";
-						"name", Nix_expr.str name;
-						"version", Nix_expr.str version_str;
-						"files", if has_files then `Lit "./files" else `Null;
-					])];
-					"buildInputs", `Lit "inputs";
-					(* TODO: don't include build-only deps *)
-					"propagatedBuildInputs", `Lit "inputs";
-					"passthru", `Attrs (AttrSet.build [
-						"selection", `Id "selection";
-					]);
-				] @ (
-					if has_files
-						then [
-							"prePatch", `String [`Lit "cp -r "; `Expr (`Lit "./files"); `Lit "/* ./" ]
-						]
-						else []
-				) @ buildAttrs @ (
-					match src with
-						| Some src -> [ "src", src ]
-						| None -> [ "unpackPhase", str "true" ]
-				) @ (
-					if url_ends_with ".tbz" then
-						["unpackCmd", Nix_expr.str "tar -xf \"$curSrc\""]
-					else []
-				)))
-			]
-		)
-	)
+	(* TODO expression_args *)
+	`Attrs (AttrSet.build [
+		"pname", Nix_expr.str name;
+		"version", Nix_expr.str version;
+		"src", (src |> Option.default `Null);
+		(* TODO: separate build-only deps from propagated *)
+		"buildInputs", `List nix_deps;
+		"opamInputs", `Attrs opam_inputs;
+		"opamSrc", opam_src;
+	])

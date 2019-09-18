@@ -10,8 +10,8 @@ let getenv k =
 
 type env = {
 	vars : Vars.env;
-	spec : OpamFile.OPAM.t;
-	files : string option;
+	opam : OpamFile.OPAM.t;
+	opam_src: string;
 	pkgname : string;
 }
 
@@ -26,6 +26,7 @@ let load_env () =
 	let destDir = destDir () in
 	let self_name = ref None in
 	let self_version = ref None in
+	let self_opam_src = ref None in
 	let packages = ref StringMap.empty in
 
 	let add_package name impl =
@@ -40,9 +41,6 @@ let load_env () =
 		packages := StringMap.add name impl !packages
 	in
 
-	let spec = ref None in
-	let files = ref None in
-	(* let specfile = ref None in *)
 	let json_str = getenv "opamEnv" in
 	debug "Using opamEnv: %s\n" json_str;
 	let json = JSON.from_string json_str in
@@ -87,27 +85,28 @@ let load_env () =
 					| "version", `String version -> self_version := Some version;
 					| "version", other -> unexpected_json "version" other
 
-					| "files", `String path -> files := Some path
-					| "files", `Null -> ()
-					| "files", other -> unexpected_json "files" other
-
-					| "spec", `String path ->
-							Printf.eprintf "Loading %s\n" path;
-							spec := Some (Opam_metadata.load_opam path)
-					| "spec", other -> unexpected_json "spec" other
+					| "opamSrc", `String path ->
+							self_opam_src := Some path
+					| "opamSrc", other -> unexpected_json "opamSrc" other
 
 					| other, _ -> failwith ("unexpected opamEnv key: " ^ other)
 			)
 		end
 		| other -> unexpected_json "toplevel" other
 	in
-	let spec = (match !spec with Some s -> s | None -> failwith "missing `spec` in opamEnv") in
+
+	let self_opam_src = (match !self_opam_src with Some s -> s | None -> failwith "missing `opamSrc` in opamEnv") in
 	let self = !self_name |> Option.or_failwith "self name not specified" in
 	let self_impl = Vars.{
 		path = Some destDir;
 		version = Some (!self_version |> Option.or_failwith "self version not specified");
 	} in
 
+	let opam =
+		let path = Filename.concat self_opam_src "opam" in
+		Printf.eprintf "Loading %s\n" path;
+		Opam_metadata.load_opam path
+	in
 	{
 		vars = Vars.({
 			prefix = Some destDir;
@@ -116,34 +115,25 @@ let load_env () =
 			vars = Opam_metadata.init_variables ();
 		});
 		pkgname = self;
-		files = !files;
-		spec;
+		opam_src = self_opam_src;
+		opam;
 	}
-
-let rec waitpid_with_retry flags pid =
-	let open Unix in
-	try waitpid flags pid
-	with Unix_error (EINTR, _, _) -> waitpid_with_retry flags pid
 
 let resolve commands vars =
 	commands |> OpamFilter.commands (Vars.lookup vars)
 
 let run env get_commands =
-	let commands = resolve (get_commands env.spec) env.vars in
+	let commands = resolve (get_commands env.opam) env.vars in
 	commands |> List.iter (fun args ->
 		match args with
 			| [] -> ()
-			| command :: _ -> begin
-				let open Unix in
-				prerr_endline ("+ " ^ String.concat " " args);
-				let pid = create_process command (args |> Array.of_list) stdin stdout stderr in
-				let (_, status) = waitpid_with_retry [] pid in
+			| _ :: _ -> (
 				let quit code = prerr_endline "Command failed."; exit code in
-				match status with
-					| WEXITED 0 -> ()
-					| WEXITED code -> quit code
-					| _ -> quit 1
-			end
+				match Util.run_cmd (Array.of_list args) with
+					| Ok () -> ()
+					| Error (Command_failed (Some code, _)) -> quit code
+					| Error (Command_failed (None, _)) -> quit 1
+			)
 	)
 
 let ensure_dir_exists d =
@@ -163,16 +153,8 @@ let execute_install_file state =
 	let install_file_path = (name ^ ".install") in
 	if (Sys.file_exists install_file_path) then (
 		prerr_endline ("Installing from " ^ install_file_path);
-		let cmd =  [|
-			"opam-installer"; "--prefix"; destDir (); install_file_path
-		|] in
-		let cmd_desc = String.concat " " (Array.to_list cmd) in
-		prerr_endline (" + " ^ cmd_desc);
-		let open Unix in
-		let pid = Unix.create_process (Array.get cmd 0) cmd Unix.stdin Unix.stdout Unix.stderr in
-		match waitpid_with_retry [ WUNTRACED ] pid with
-			| (_, WEXITED 0) -> ()
-			| _ -> failwith (cmd_desc ^ " failed")
+		Util.run_cmd_exn ~print:true
+			[| "opam-installer"; "--prefix"; destDir (); install_file_path |]
 	) else (
 		prerr_endline "no .install file found!";
 	)
@@ -184,7 +166,7 @@ let isdir path =
 
 let apply_patches env =
 	(* extracted from OpamAction.prepare_package_build *)
-	let opam = env.spec in
+	let opam = env.opam in
 	let filter_env = Vars.lookup env.vars in
 
 	(* Substitute the patched files.*)
@@ -257,14 +239,23 @@ let stublibsDir dest =
 
 let outputDirs dest = [ binDir dest; stublibsDir dest; libDir dest ]
 
-let pre_build env =
-	let dest = destDir () |> OpamFilename.Dir.of_string in
-	ensure_dir_exists dest;
-	outputDirs dest |> List.iter ensure_dir_exists;
+let patch env =
+	(* copy all files into ./ if present *)
+	let files_path = Filename.concat env.opam_src "files" in
+	if Sys.file_exists files_path then
+		let contents = Sys.readdir files_path
+			|> Array.map (Filename.concat files_path) in
+		Util.run_cmd_exn (Array.concat [
+			[| "cp"; "-r" |];
+			contents;
+			[| "./" |]
+		]);
 	apply_patches env
 
 let build env =
-	pre_build env;
+	let dest = destDir () |> OpamFilename.Dir.of_string in
+	ensure_dir_exists dest;
+	outputDirs dest |> List.iter ensure_dir_exists;
 	run env OPAM.build
 
 let install env =
@@ -275,7 +266,7 @@ let install env =
 
 let dump env =
 	let dump desc get_commands =
-		let commands = resolve (get_commands env.spec) env.vars in
+		let commands = resolve (get_commands env.opam) env.vars in
 		Printf.printf "# %s:\n" desc;
 		commands |> List.iter (fun args ->
 			Printf.printf "+ %s\n" (String.concat " " args)
@@ -287,7 +278,7 @@ let dump env =
 let main idx args =
 	let action = try Some (Array.get args (idx+1)) with Not_found -> None in
 	let action = match action with
-		| Some "prebuild" -> pre_build
+		| Some "patch" -> patch
 		| Some "build" -> build
 		| Some "install"-> install
 		| Some "dump"-> dump

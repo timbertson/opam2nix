@@ -2,6 +2,7 @@ open Util
 
 let (%) f g x = f (g x)
 
+(* TODO: remove need for nix traversal *)
 type repo_type = [ `Nix | `Opam ]
 
 type version = Version of string
@@ -15,6 +16,7 @@ end)
 
 type version_filter_component = [ `All | `Some of int ]
 
+(* TODO unnecessary *)
 type version_filter =
 	[ `Filter of (version list -> version list)
 	| `Exact of version
@@ -144,7 +146,19 @@ let parse_package_spec spec =
 			)
 		| _ -> failwith ("Invalid package specifier: " ^ spec)
 
-let traverse repo_type ~repos ~(packages:package_selections) (emit: string -> version -> string -> unit) =
+type package = {
+	repo_base: string;
+	path: string;
+	(* TODO should these just be OpamPackage and OpamVersion? *)
+	name: string;
+	version: version;
+}
+
+let package_path pkg = Filename.concat pkg.repo_base pkg.path
+
+let package_desc pkg = Printf.sprintf "%s@%s" pkg.name (string_of_version pkg.version)
+
+let traverse repo_type ~repos ~(packages:package_selections) (emit: package -> unit) =
 	let version_sep = "." in
 	let version_join package version =
 		let version_path = path_of_version repo_type version in
@@ -152,31 +166,33 @@ let traverse repo_type ~repos ~(packages:package_selections) (emit: string -> ve
 			| `Nix -> version_path
 			| `Opam -> package ^ version_sep ^ version_path in
 	let seen = ref Package_set.empty in
-	let emit package version path =
-		let id = (package, version) in
+	let emit package =
+		let id = (package.name, package.version) in
 		if Package_set.mem id !seen then
-			Printf.eprintf "Skipping %s (already loaded %s.%s)\n" path package (string_of_version version)
+			Printf.eprintf "Skipping %s (already loaded %s.%s)\n" package.path package.name (string_of_version package.version)
 		else begin
 			seen := Package_set.add id !seen;
-			debug "Processing package %s\n" path;
+			debug "Processing package %s\n" package.path;
 			try
-				emit package version path
+				emit package
 			with e -> (
-				Printf.eprintf "Error raised while processing %s:\n" path;
+				Printf.eprintf "Error raised while processing %s:\n" package.path;
 				raise e
 			)
 		end
 	in
 
 	repos |> List.iter (fun repo ->
-		let pkgroot = match repo_type with `Nix -> repo | `Opam -> Filename.concat repo "packages" in
+		let abs = Filename.concat repo in
+		let packages_base = match repo_type with `Nix -> "" | `Opam -> "packages" in
 
 		let process_package package (version:version_selection) =
 			debug "processing package %s\n" package;
-			let package_base = Filename.concat pkgroot package in
+			let package_base = Filename.concat packages_base package in
+			let package_abs = abs package_base in
 			let list_versions () =
-				debug "listing %s\n" package_base;
-				let dirs = list_dirs package_base in
+				debug "listing %s\n" package_abs;
+				let dirs = list_dirs package_abs in
 				let version_dirs = match repo_type with
 					| `Nix -> dirs
 					| `Opam ->
@@ -206,11 +222,15 @@ let traverse repo_type ~repos ~(packages:package_selections) (emit: string -> ve
 			in
 			versions |> List.iter (fun version ->
 				let path = Filename.concat package_base (version_join package version) in
-				emit package version path
+				emit {
+					repo_base = repo;
+					name = package;
+					version; path;
+				}
 			)
 		in
 
-		let list_packages () = list_dirs pkgroot in
+		let list_packages () = list_dirs (abs packages_base) in
 		packages |> List.iter (function
 			| `All ->
 				list_packages ()

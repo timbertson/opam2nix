@@ -3,9 +3,9 @@ open Opam2nix
 open Util
 
 let commands : (string * (int -> string array -> unit)) list = [
-	"generate", Generate.main;
 	"invoke", Invoke.main;
-	"select", Select.main;
+	"resolve", Select.main ~update_opam:false;
+	"update", Select.main ~update_opam:true;
 	"version", Version.main;
 ]
 
