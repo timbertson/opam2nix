@@ -2,17 +2,10 @@
 ocaml, findlib, utop, opam-installer, opam-solver, opam-state, ocaml_lwt, ocurl, yojson, fileutils, basedir, gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
 coreutils, nix-update-source }:
 let
-origin =
-	let isStorePath = x: lib.isStorePath (builtins.toString x); in # workaround https://github.com/NixOS/nixpkgs/issues/48743
-	if isStorePath ../. then {
-		src = ../.;
-		version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
-	} else lib.warn "Importing opam2nix src from ${./src.json} since ${builtins.toString ../.} is not a store path" {
-		inherit (nix-update-source.fetch ./src.json) src version;
-	};
+version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
 self = stdenv.mkDerivation {
-	name = "opam2nix-${origin.version}";
-	src = origin.src;
+	name = "opam2nix-${version}";
+	src = null;
 	buildPhase = "gup release";
 	installPhase = ''
 		mkdir $out

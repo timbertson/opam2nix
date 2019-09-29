@@ -1,0 +1,16 @@
+diff --git a/src/ocb_stubblr.ml b/src/ocb_stubblr.ml
+index b68c37a..ba716fe 100644
+--- a/src/ocb_stubblr.ml
++++ b/src/ocb_stubblr.ml
+@@ -39,9 +39,8 @@ module Pkg_config = struct
+   let var = "PKG_CONFIG_PATH"
+ 
+   let path () =
+-    let opam = Lazy.force opam_prefix
+-    and rest = try [Sys.getenv var] with Not_found -> [] in
+-    opam/"lib"/"pkgconfig" :: opam/"share"/"pkgconfig" :: rest
++    let rest = try [Sys.getenv var] with Not_found -> [] in
++    rest
+       |> String.concat ~sep:":"
+ 
+   let run ~flags package =

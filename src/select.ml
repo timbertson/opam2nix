@@ -375,15 +375,10 @@ let main ~update_opam idx args =
 	let opts = Arg.align [
 		("--repo-commit", Arg.Set_string repo_commit, "Repository commit, default " ^
 			(if update_opam then "update and use origin/HEAD" else "extract from DEST, otherwise current HEAD"));
-		(* TODO: default to opam-packages.nix *)
-		("--dest", Arg.Set_string dest, "Destination .nix file");
+		("--dest", Arg.Set_string dest, "Destination .nix file (default " ^ !dest ^ ")");
 		("--from", Arg.Set_string detect_from, "Use instead of DEST as existing nix file (for commit / version detection)");
-
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version, default extract from DEST, falling back to current nixpkgs.ocaml version");
-
-		(* TODO: default per-version? *)
-		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated)");
-
+		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated, not typically necessary)");
 		("--verbose", Arg.Set Util._verbose, "Verbose");
 		("-v", Arg.Set Util._verbose, "Verbose");
 	]; in
@@ -425,8 +420,8 @@ let main ~update_opam idx args =
 		~update:update_opam
 		~ocaml_version:!ocaml_version in
 
-	(* TODO detect from ocaml_version *)
-	let base_packages = nonempty !base_packages "--base-packages" |> Str.split (Str.regexp ",") in
+	(* Note: seems to be unnecessary as of opam 2 *)
+	let base_packages = !base_packages "--base-packages" |> Str.split (Str.regexp ",") in
 
 	Printf.eprintf "Loading repository...\n"; flush stderr;
 	let (opam_sources, universe) = build_universe

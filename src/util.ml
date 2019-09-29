@@ -186,6 +186,7 @@ type process = {
 	stderr: (Unix.file_descr, string) result;
 }
 
+(* TODO extract into its own module, clean up *)
 module Cmd = struct
 	let chunk_stream fd =
 		let len = 1024 in
