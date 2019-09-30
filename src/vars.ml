@@ -9,7 +9,7 @@ open OpamVariable
 
 type package_installation = {
 	path: string option;
-	version: string option;
+	version: OpamPackage.Version.t option;
 }
 
 type package_implementation =
@@ -83,7 +83,7 @@ let package_var ~packages =
 							)
 						| "post" -> r_false (* dep is to be installed after (or unrelated to) this package. Doesn't make much sense in nix *)
 						| "pinned" -> r_false (* dep is to be installed after (or unrelated to) this package. Doesn't make much sense in nix *)
-						| "version" -> version |> Option.bind s
+						| "version" -> version |> Option.map OpamPackage.Version.to_string |> Option.bind s
 						| "hash" | "depends" ->
 								(* no reasonable way to implement these, and no use cases reported *)
 								s "NOT_IMPLEMENTED_IN_OPAM2NIX"

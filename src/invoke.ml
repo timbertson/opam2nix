@@ -1,5 +1,6 @@
 module JSON = Yojson.Basic
 module OPAM = OpamFile.OPAM
+module Version = OpamPackage.Version
 open Util
 
 let getenv k =
@@ -36,7 +37,7 @@ let load_env () =
 			| Installed { path; version } ->
 				Printf.sprintf "%s (%s)"
 					(Option.to_string id path)
-					(Option.to_string id version)
+					(Option.to_string Version.to_string version)
 		);
 		packages := StringMap.add name impl !packages
 	in
@@ -62,7 +63,7 @@ let load_env () =
 									attrs |> List.iter (fun (key, value) ->
 										match (key, value) with
 											| "path", `String value -> path := Some value
-											| "version", `String value -> version := Some value
+											| "version", `String value -> version := Some (Version.of_string value)
 											| "version", `Null -> version := None
 											| _, other -> unexpected_json ("deps." ^ pkgname) other
 									);
@@ -82,7 +83,7 @@ let load_env () =
 					| "name", `String name -> self_name := Some name;
 					| "name", other -> unexpected_json "name" other
 
-					| "version", `String version -> self_version := Some version;
+					| "version", `String version -> self_version := Some (Version.of_string version);
 					| "version", other -> unexpected_json "version" other
 
 					| "opamSrc", `String path ->

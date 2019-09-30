@@ -31,31 +31,29 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 
 	let global_vars = Opam_metadata.init_variables () in
 
-	let lookup_var package version = Vars.(lookup {
-		packages = (StringMap.from_list (
-			[
-				package, (Installed {
-					path = None; (* not yet known *)
-					version = Some version;
-				});
-				"ocaml", (Installed {
-					path = None; (* not yet known *)
-					version = Some ocaml_version;
-				})
-			] @ (base_packages |> List.map (fun name -> (name, Provided)))
-		));
-		prefix = None; (* not known *)
-		self = package;
-		vars = global_vars;
-	}) in
-
-	let lookup_var_opam pkg =
-		lookup_var
-			(OpamPackage.name pkg |> Name.to_string)
-			(OpamPackage.version pkg |> Version.to_string) in
+	let lookup_var package =
+		let version = OpamPackage.version package in
+		let name = OpamPackage.name package |> Name.to_string in
+		Vars.(lookup {
+			packages = (StringMap.from_list (
+				[
+					name, (Installed {
+						path = None; (* not yet known *)
+						version = Some version;
+					});
+					"ocaml", (Installed {
+						path = None; (* not yet known *)
+						version = Some ocaml_version;
+					})
+				] @ (base_packages |> List.map (fun name -> (name, Provided)))
+			));
+			prefix = None; (* not known *)
+			self = name;
+			vars = global_vars;
+		}) in
 
 	let add_package (package:Repo.package) =
-		let lookup_var = lookup_var package.name (Repo.string_of_version package.version) in
+		let lookup_var = lookup_var package.package in
 		let full_path = Repo.package_path package in
 		(* TODO if we don't support multiple repos, this can be simpler *)
 		let repository_var = `Id "repo" in
@@ -66,17 +64,15 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 		} in
 		let available_filter = OpamFile.OPAM.available opam in
 		let available =
-			try package.name <> "opam" && OpamFilter.eval_to_bool lookup_var available_filter
+			try package.package.name <> (Name.of_string "opam") && OpamFilter.eval_to_bool lookup_var available_filter
 			with e -> (
 				Printf.eprintf "Assuming package %s is unavailable due to error: %s\n" (Repo.package_desc package) (Printexc.to_string e);
 				false
 			)
 		in
 		if available then (
-			let pkg_version = Repo.opam_version_of package.version in
-			let pkg = OpamPackage.create (Name.of_string package.name) pkg_version in
-			available_packages := OpamPackage.Set.add pkg !available_packages;
-			opam_sources := OpamPackage.Map.add pkg opam_source !opam_sources
+			available_packages := OpamPackage.Set.add package.package !available_packages;
+			opam_sources := OpamPackage.Map.add package.package opam_source !opam_sources
 		) else (
 			let vars = OpamFilter.variables available_filter in
 			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
@@ -84,24 +80,23 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 		)
 	in
 
-	Repo.traverse `Opam ~repos ~packages:[`All] add_package;
+	Repo.traverse ~repos add_package;
 	direct_packages |> List.iter add_package;
 
 	let opam_sources = !opam_sources in
-	let ocaml_version = Version.of_string ocaml_version in
 	let base_packages = ("ocaml" :: base_packages)
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
 		|> OpamPackage.Set.of_list
 	in
 	let get_depends deptype_access =
 		OpamPackage.Map.mapi (fun pkg { opam; _ } ->
-			OpamFilter.partial_filter_formula (lookup_var_opam pkg) (deptype_access opam)
+			OpamFilter.partial_filter_formula (lookup_var pkg) (deptype_access opam)
 		) opam_sources
 	in
 	let conflicts =
 		OpamPackage.Map.mapi (fun pkg { opam; _ } ->
 			let conflicts = OpamFile.OPAM.conflicts opam in
-			OpamFilter.filter_formula (lookup_var_opam pkg) conflicts
+			OpamFilter.filter_formula (lookup_var pkg) conflicts
 		) opam_sources
 	in
 	(opam_sources, { OpamSolver.empty_universe with
@@ -201,7 +196,7 @@ let nix_digest_of_git_repo p =
 
 type external_constraints = {
 	repo_commit: string;
-	ocaml_version: string;
+	ocaml_version: Version.t;
 	repo_sha256: string;
 }
 
@@ -240,7 +235,7 @@ let setup_external_constraints
 		) else None
 	) in
 
-	let ocaml_version = match ocaml_version with
+	let ocaml_version = Version.of_string (match ocaml_version with
 		| "" -> (
 			match Lazy.force detected_commit_and_ocaml_version with
 				| Some (_commit, version) -> (
@@ -253,7 +248,7 @@ let setup_external_constraints
 				)
 		)
 		| version -> version
-	in
+	) in
 
 	let repo_commit = match (repo_commit, update) with
 		| (None, false) -> (
@@ -343,7 +338,7 @@ let write_solution ~external_constraints ~opam_sources ~cache ~base_packages ~un
 	let attrs = [
 		"format-version", `Int 4;
 		"opam-commit", `Id "opam-commit";
-		"ocaml-version", str external_constraints.ocaml_version;
+		"ocaml-version", str (external_constraints.ocaml_version |> Version.to_string);
 		"selection", `Attrs selection
 	] in
 
@@ -431,11 +426,11 @@ let main ~update_opam idx args =
 		(* 	(OpamParserTypes.Eq, v) *)
 		(* ) in *)
 		(* ((p, opam), (name, version)) *)
+		let version = opam.version |> Option.default_fn (fun () -> Version.of_string "TODO-make-optional") in
 		Repo.({
-			name = name |> Name.to_string;
+			package = OpamPackage.create name version;
 			repo_base = "TODO";
 			path = "TODO";
-			version = opam.version |> Option.map (fun v -> Version (OpamPackage.Version.to_string v)) |> Option.default_fn (fun () -> Version "TODO-make-optional");
 		})
 	) in
 
@@ -451,7 +446,7 @@ let main ~update_opam idx args =
 	) in
 	let requested_packages = requested_packages @ (direct_packages |> List.map (fun package ->
 		(* TODO conversion spaghetti *)
-		(OpamPackage.Name.of_string package.Repo.name, Some (`Eq, Repo.opam_version_of package.Repo.version))
+		(OpamPackage.name package.Repo.package, Some (`Eq, package.Repo.package.version))
 	)) in
 	let package_names : OpamPackage.Name.t list = requested_packages |> List.map (fun (name, _) -> name) in
 
