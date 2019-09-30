@@ -24,7 +24,7 @@ type opam_source = {
 	opam: OpamFile.OPAM.t;
 }
 
-let build_universe ~repos ~ocaml_version ~base_packages () =
+let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 	let empty = OpamPackage.Set.empty in
 	let available_packages = ref empty in
 	let opam_sources = ref OpamPackage.Map.empty in
@@ -54,7 +54,7 @@ let build_universe ~repos ~ocaml_version ~base_packages () =
 			(OpamPackage.name pkg |> Name.to_string)
 			(OpamPackage.version pkg |> Version.to_string) in
 
-	Repo.traverse `Opam ~repos ~packages:[`All] (fun package ->
+	let add_package (package:Repo.package) =
 		let lookup_var = lookup_var package.name (Repo.string_of_version package.version) in
 		let full_path = Repo.package_path package in
 		(* TODO if we don't support multiple repos, this can be simpler *)
@@ -82,7 +82,11 @@ let build_universe ~repos ~ocaml_version ~base_packages () =
 			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
 			Util.debug "  # Ignoring package %s (incompatible with %s)\n" (Repo.package_desc package) vars_str
 		)
-	);
+	in
+
+	Repo.traverse `Opam ~repos ~packages:[`All] add_package;
+	direct_packages |> List.iter add_package;
+
 	let opam_sources = !opam_sources in
 	let ocaml_version = Version.of_string ocaml_version in
 	let base_packages = ("ocaml" :: base_packages)
@@ -183,8 +187,11 @@ let nix_digest_of_git_repo p =
 	let cleanup () = rm_r tempdir in
 	try
 		run_cmd_full ~print ~stdin:Pipe ~collect:Cmd.collect_exn [| "tar"; "x"; "-C"; tempdir |] (fun proc ->
-			run_cmd_full ~print ~stdout:(Fd (proc.stdin |> Cmd.assert_fd)) ~collect:Cmd.collect_exn
-				[| "git"; "-C"; p; "archive"; "HEAD" |] ignore
+			let pipe = (proc.stdin |> Cmd.assert_fd) in
+			run_cmd_full ~print ~stdout:(Fd pipe) ~collect:Cmd.collect_exn
+				[| "git"; "-C"; p; "archive"; "HEAD" |] ignore;
+			(* TODO shouldn't this auto-close? *)
+			Unix.close pipe;
 		);
 		let ret = nix_digest_of_path tempdir in
 		cleanup ();
@@ -366,6 +373,10 @@ let write_solution ~external_constraints ~opam_sources ~cache ~base_packages ~un
 	Printf.eprintf "Wrote %s\n" dest;
 ;;
 
+let is_likely_path p =
+	String.contains p '.' &&
+	Str.string_match (Str.regexp ".*opam$") p 0
+
 let main ~update_opam idx args =
 	let dest = ref "opam-packages.nix" in
 	let detect_from = ref "" in
@@ -379,6 +390,15 @@ let main ~update_opam idx args =
 		("--from", Arg.Set_string detect_from, "Use instead of DEST as existing nix file (for commit / version detection)");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version, default extract from DEST, falling back to current nixpkgs.ocaml version");
 		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated, not typically necessary)");
+
+		(* TODO how to deal with non-repo deps? --assume?
+		 * --provided vdoml=1.0.0
+		 * then, in nix:
+		 * {
+			 * overrides = { ... };
+			 * provided = { vdoml = { version, ... }
+			 * }
+		 *)
 		("--verbose", Arg.Set Util._verbose, "Verbose");
 		("-v", Arg.Set Util._verbose, "Verbose");
 	]; in
@@ -386,17 +406,40 @@ let main ~update_opam idx args =
 	let add_package x = packages := x :: !packages in
 	Arg.parse_argv ~current:(ref idx) args opts add_package "opam2nix: usage...";
 
-	if !packages = [] then failwith "At least one package required";
-	let packages = !packages in
-	let dest = !dest in
-	let detect_from = match !detect_from with "" -> dest | other -> other in
-
 	let () =
 		if Util.verbose () then
 			OpamCoreConfig.update ~debug_level:2 ()
 	in
 
-	let requested_packages : OpamFormula.atom list = packages |> List.map (fun spec ->
+	if !packages = [] then failwith "At least one package required";
+	let (repo_packages, direct_packages) = List.partition (fun pkg ->
+		not (is_likely_path pkg && Sys.file_exists pkg)
+	) !packages in
+	let dest = !dest in
+	let detect_from = match !detect_from with "" -> dest | other -> other in
+
+	let direct_packages = direct_packages |> List.map (fun p ->
+		let open OpamFile.OPAM in
+		let opam = Opam_metadata.load_opam p in
+		let name = opam.name |> Option.default_fn (fun () ->
+			let filename = Filename.basename p in
+			match String.split_on_char '.' filename with
+				| [ name; "opam" ] -> Name.of_string name
+				| _ -> failwith ("Can't determine name of package in " ^ p)
+		) in
+		(* let version = opam.version |> Option.map (fun v -> *)
+		(* 	(OpamParserTypes.Eq, v) *)
+		(* ) in *)
+		(* ((p, opam), (name, version)) *)
+		Repo.({
+			name = name |> Name.to_string;
+			repo_base = "TODO";
+			path = "TODO";
+			version = opam.version |> Option.map (fun v -> Version (OpamPackage.Version.to_string v)) |> Option.default_fn (fun () -> Version "TODO-make-optional");
+		})
+	) in
+
+	let requested_packages : OpamFormula.atom list = repo_packages |> List.map (fun spec ->
 		let relop_re = Str.regexp "[!<=>]+" in
 		match Str.full_split relop_re spec with
 			| [Str.Text name; Str.Delim relop; Str.Text ver] ->
@@ -406,6 +449,10 @@ let main ~update_opam idx args =
 			| [Str.Text name] -> (OpamPackage.Name.of_string name, None)
 			| _ -> failwith ("Invalid version spec: " ^ spec)
 	) in
+	let requested_packages = requested_packages @ (direct_packages |> List.map (fun package ->
+		(* TODO conversion spaghetti *)
+		(OpamPackage.Name.of_string package.Repo.name, Some (`Eq, Repo.opam_version_of package.Repo.version))
+	)) in
 	let package_names : OpamPackage.Name.t list = requested_packages |> List.map (fun (name, _) -> name) in
 
 	let config_base = Filename.concat (Unix.getenv "HOME") ".cache/opam2nix" in
@@ -421,13 +468,14 @@ let main ~update_opam idx args =
 		~ocaml_version:!ocaml_version in
 
 	(* Note: seems to be unnecessary as of opam 2 *)
-	let base_packages = !base_packages "--base-packages" |> Str.split (Str.regexp ",") in
+	let base_packages = !base_packages |> Str.split (Str.regexp ",") in
 
 	Printf.eprintf "Loading repository...\n"; flush stderr;
 	let (opam_sources, universe) = build_universe
 		~repos:[opam_repo] (* TODO custom repos *)
 		~base_packages
 		~ocaml_version:external_constraints.ocaml_version
+		~direct_packages
 		() in
 	if Util.verbose () then print_universe stderr universe;
 	(* let request = OpamSolver.request ~install:requested_packages in *)
