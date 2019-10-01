@@ -332,7 +332,9 @@ module InputMap = struct
 			| _ -> add k v map
 end
 
-let nix_of_opam ~pkg ~cache ~offline ~deps ~opam_src path : Nix_expr.t =
+type opam_src = [ `Dir of Nix_expr.t | `File of Nix_expr.t ]
+
+let nix_of_opam ~pkg ~cache ~offline ~deps ~(opam_src:opam_src) ~opam ~url () : Nix_expr.t =
 	let name = OpamPackage.name pkg |> OpamPackage.Name.to_string in
 	let version = OpamPackage.version pkg |> OpamPackage.Version.to_string in
 	let open Nix_expr in
@@ -351,20 +353,6 @@ let nix_of_opam ~pkg ~cache ~offline ~deps ~opam_src path : Nix_expr.t =
 			~add_opam:add_opam_input
 			importance dep
 	in
-
-	let opam = load_opam (Filename.concat path "opam") in
-
-	let urlfile = match OPAM.url opam with
-		| Some _ as url -> url
-		| None -> load_url (Filename.concat path "url")
-	in
-	(* TODO drop these packages before the solver runs *)
-	let url = urlfile |> Option.map (fun urlfile ->
-		try url urlfile
-		with Unsupported_archive reason -> raise (
-			Unsupported_archive (name ^ "-" ^ version ^ ": " ^ reason)
-		)
-	) in
 
 	let src = Option.map (
 		nix_of_url ~cache ~offline
@@ -398,7 +386,6 @@ let nix_of_opam ~pkg ~cache ~offline ~deps ~opam_src path : Nix_expr.t =
 		|> List.map (property_of_input (`Id "pkgs"))
 	in
 
-	(* TODO expression_args *)
 	`Attrs (AttrSet.build [
 		"pname", Nix_expr.str name;
 		"version", Nix_expr.str version;
@@ -406,5 +393,8 @@ let nix_of_opam ~pkg ~cache ~offline ~deps ~opam_src path : Nix_expr.t =
 		(* TODO: separate build-only deps from propagated *)
 		"buildInputs", `List nix_deps;
 		"opamInputs", `Attrs opam_inputs;
-		"opamSrc", opam_src;
+		(match opam_src with
+			| `Dir expr -> "opamDir", expr
+			| `File expr -> "opamFile", expr
+		);
 	])

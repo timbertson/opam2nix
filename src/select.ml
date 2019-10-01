@@ -2,6 +2,26 @@ open Util
 open OpamTypes
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
+module OPAM = OpamFile.OPAM
+
+type direct_package = {
+	direct_opam_relative: string;
+	direct_opam: OPAM.t;
+	direct_name: Name.t;
+	direct_version: Version.t option;
+}
+
+type opam_source = {
+	opam: OPAM.t;
+	repository_expr: Opam_metadata.opam_src Lazy.t;
+	url: Opam_metadata.url option Lazy.t;
+}
+
+type external_constraints = {
+	repo_commit: string;
+	ocaml_version: Version.t;
+	repo_sha256: string;
+}
 
 let repo_owner = "ocaml"
 let repo_name = "opam-repository"
@@ -18,11 +38,39 @@ let print_universe chan u =
 		()
 	end
 
-type opam_source = {
-	package: Repo.package;
-	repository_var: Nix_expr.t;
-	opam: OpamFile.OPAM.t;
-}
+let nix_digest_of_path p =
+	let hash_cmd = [| "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" |] in
+	let hash = run_cmd_full ~print:false ~stdin:Pipe ~stdout:Pipe ~collect:Cmd.collect_exn hash_cmd (fun hash_proc ->
+		let collector = Cmd.file_contents_in_bg (hash_proc.stdout |> Cmd.assert_fd) in
+		let stdin = hash_proc.stdin |> Cmd.assert_fd in
+		let pipe = Fd stdin in
+		run_cmd_full ~print:false ~stdout:pipe ~collect:Cmd.collect_exn [| "nix-store"; "--dump"; p |] ignore;
+		Unix.close stdin;
+		Cmd.join_bg collector
+	) in
+	"sha256:" ^ hash
+
+let unique_file_counter = ref 0;;
+let nix_digest_of_git_repo p =
+	let print = false in
+	let tempname = Printf.sprintf "opam2nix-%d-%d" (Unix.getpid ()) !unique_file_counter in
+	incr unique_file_counter;
+	let tempdir = Filename.concat (Filename.get_temp_dir_name ()) tempname in
+	Unix.mkdir tempdir 0o700;
+	let cleanup () = rm_r tempdir in
+	try
+		run_cmd_full ~print ~stdin:Pipe ~collect:Cmd.collect_exn [| "tar"; "x"; "-C"; tempdir |] (fun proc ->
+			let pipe = (proc.stdin |> Cmd.assert_fd) in
+			run_cmd_full ~print ~stdout:(Fd pipe) ~collect:Cmd.collect_exn
+				[| "git"; "-C"; p; "archive"; "HEAD" |] ignore;
+			(* TODO shouldn't this auto-close? *)
+			Unix.close pipe;
+		);
+		let ret = nix_digest_of_path tempdir in
+		cleanup ();
+		ret
+	with e -> (cleanup (); raise e)
+
 
 let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 	let empty = OpamPackage.Set.empty in
@@ -52,36 +100,69 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 			vars = global_vars;
 		}) in
 
-	let add_package (package:Repo.package) =
-		let lookup_var = lookup_var package.package in
-		let full_path = Repo.package_path package in
-		(* TODO if we don't support multiple repos, this can be simpler *)
-		let repository_var = `Id "repo" in
-		let opam = Opam_metadata.load_opam (Filename.concat full_path "opam") in
+	let add_package ~(package:OpamPackage.t) ~(opam:OPAM.t) ~(repository_expr:Opam_metadata.opam_src Lazy.t) ~url =
+		let lookup_var = lookup_var package in
+		(* TODO just accept opam_source? *)
 		let opam_source = {
-			opam; repository_var;
-			package = package;
+			opam; repository_expr; url;
 		} in
-		let available_filter = OpamFile.OPAM.available opam in
+		let available_filter = OPAM.available opam in
 		let available =
-			try package.package.name <> (Name.of_string "opam") && OpamFilter.eval_to_bool lookup_var available_filter
+			try package.name <> (Name.of_string "opam") && OpamFilter.eval_to_bool lookup_var available_filter
 			with e -> (
-				Printf.eprintf "Assuming package %s is unavailable due to error: %s\n" (Repo.package_desc package) (Printexc.to_string e);
+				Printf.eprintf "Assuming package %s is unavailable due to error: %s\n" (OpamPackage.to_string package) (Printexc.to_string e);
 				false
 			)
 		in
 		if available then (
-			available_packages := OpamPackage.Set.add package.package !available_packages;
-			opam_sources := OpamPackage.Map.add package.package opam_source !opam_sources
+			available_packages := OpamPackage.Set.add package !available_packages;
+			opam_sources := OpamPackage.Map.add package opam_source !opam_sources
 		) else (
 			let vars = OpamFilter.variables available_filter in
 			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
-			Util.debug "  # Ignoring package %s (incompatible with %s)\n" (Repo.package_desc package) vars_str
+			Util.debug "  # Ignoring package %s (incompatible with %s)\n" (OpamPackage.to_string package) vars_str
 		)
 	in
 
-	Repo.traverse ~repos add_package;
-	direct_packages |> List.iter add_package;
+	Repo.traverse ~repos (fun package ->
+		let full_path = Repo.package_path package in
+		let repository_expr = lazy (
+			let digest = nix_digest_of_path (Repo.package_path package) in
+			`Dir (Nix_expr.(`Call [
+				`Id "repoPath";
+				`Id "repo";
+				`Attrs (AttrSet.build [
+					"package", str package.path;
+					"hash", str digest;
+				])
+			]))
+		) in
+		let opam = Opam_metadata.load_opam (Filename.concat full_path "opam") in
+		let url = lazy (
+			let open Opam_metadata in
+			let urlfile = match OPAM.url opam with
+				| Some _ as url -> url
+				| None -> load_url (Filename.concat full_path "url")
+			in
+			(* TODO skip these packages instead of failing *)
+			urlfile |> Option.map (fun urlfile ->
+				try url urlfile
+				with Unsupported_archive reason -> raise (
+					Unsupported_archive (OpamPackage.to_string package.package ^ ": " ^ reason)
+				)
+			)
+		) in
+		add_package ~package:package.package
+			~opam ~url ~repository_expr
+	);
+	direct_packages |> List.iter (fun package ->
+		let name = package.direct_name in
+		let version = package.direct_version |> Option.default (Version.of_string "development") in
+		add_package ~package:(OpamPackage.create name version)
+			~opam:package.direct_opam
+			~url:(Lazy.from_val None) (* source is expected to be overridden *)
+			~repository_expr:(Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative)))
+	);
 
 	let opam_sources = !opam_sources in
 	let base_packages = ("ocaml" :: base_packages)
@@ -95,7 +176,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 	in
 	let conflicts =
 		OpamPackage.Map.mapi (fun pkg { opam; _ } ->
-			let conflicts = OpamFile.OPAM.conflicts opam in
+			let conflicts = OPAM.conflicts opam in
 			OpamFilter.filter_formula (lookup_var pkg) conflicts
 		) opam_sources
 	in
@@ -105,8 +186,8 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 		u_installed = base_packages;
 		u_base      = base_packages;
 		u_available = !available_packages;
-		u_depends   = get_depends OpamFile.OPAM.depends;
-		u_depopts   = get_depends OpamFile.OPAM.depopts;
+		u_depends   = get_depends OPAM.depends;
+		u_depopts   = get_depends OPAM.depopts;
 		u_conflicts = conflicts;
 	})
 
@@ -159,46 +240,6 @@ let setup_repo ~update ~path ~commit : string =
 	if not (Sys.file_exists path) then clone_repo ();
 	update_repo ()
 ;;
-
-let nix_digest_of_path p =
-	let hash_cmd = [| "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" |] in
-	let hash = run_cmd_full ~print:false ~stdin:Pipe ~stdout:Pipe ~collect:Cmd.collect_exn hash_cmd (fun hash_proc ->
-		let collector = Cmd.file_contents_in_bg (hash_proc.stdout |> Cmd.assert_fd) in
-		let stdin = hash_proc.stdin |> Cmd.assert_fd in
-		let pipe = Fd stdin in
-		run_cmd_full ~print:false ~stdout:pipe ~collect:Cmd.collect_exn [| "nix-store"; "--dump"; p |] ignore;
-		Unix.close stdin;
-		Cmd.join_bg collector
-	) in
-	"sha256:" ^ hash
-
-let unique_file_counter = ref 0;;
-let nix_digest_of_git_repo p =
-	let print = false in
-	let tempname = Printf.sprintf "opam2nix-%d-%d" (Unix.getpid ()) !unique_file_counter in
-	incr unique_file_counter;
-	let tempdir = Filename.concat (Filename.get_temp_dir_name ()) tempname in
-	Unix.mkdir tempdir 0o700;
-	let cleanup () = rm_r tempdir in
-	try
-		run_cmd_full ~print ~stdin:Pipe ~collect:Cmd.collect_exn [| "tar"; "x"; "-C"; tempdir |] (fun proc ->
-			let pipe = (proc.stdin |> Cmd.assert_fd) in
-			run_cmd_full ~print ~stdout:(Fd pipe) ~collect:Cmd.collect_exn
-				[| "git"; "-C"; p; "archive"; "HEAD" |] ignore;
-			(* TODO shouldn't this auto-close? *)
-			Unix.close pipe;
-		);
-		let ret = nix_digest_of_path tempdir in
-		cleanup ();
-		ret
-	with e -> (cleanup (); raise e)
-
-
-type external_constraints = {
-	repo_commit: string;
-	ocaml_version: Version.t;
-	repo_sha256: string;
-}
 
 let setup_external_constraints
 	~repo_commit ~detect_from ~ocaml_version ~opam_repo ~update : external_constraints =
@@ -295,11 +336,11 @@ let write_solution ~external_constraints ~opam_sources ~cache ~base_packages ~un
 	let open Nix_expr in
 
 	let selection = OpamPackage.Set.fold (fun pkg map ->
+		let open Opam_metadata in
 		(* TODO *)
-		let { package; repository_var; _ } = OpamPackage.Map.find pkg opam_sources in
+		let { opam; url; repository_expr; _ } = OpamPackage.Map.find pkg opam_sources in
 
 		let expr : Nix_expr.t option = (
-			let open Opam_metadata in
 			(* TODO, obvs *)
 			let offline = false in
 			let ignore_broken_packages = ref false in
@@ -308,20 +349,9 @@ let write_solution ~external_constraints ~opam_sources ~cache ~base_packages ~un
 					prerr_endline ("Warn: " ^ desc); None
 				) else raise e
 			in
-			let digest = nix_digest_of_path (Repo.package_path package) in
-			let opam_src = Nix_expr.(`Call [
-				`Id "repoPath";
-				(* TODO Accumulate repository_var in toplevel let *)
-				repository_var;
-				`Attrs (AttrSet.build [
-					"package", str package.path;
-					"hash", str digest;
-				])
-			]) in
-
 			try
 				(* TODO simplify args *)
-				Some (nix_of_opam ~cache ~offline ~deps ~pkg ~opam_src (Repo.package_path package))
+				Some (nix_of_opam ~cache ~offline ~deps ~pkg ~opam_src:(Lazy.force repository_expr) ~opam ~url:(Lazy.force url) ())
 			with
 			| Unsupported_archive desc as e -> handle_error ("Unsupported archive: " ^ desc) e
 			| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
@@ -414,24 +444,20 @@ let main ~update_opam idx args =
 	let detect_from = match !detect_from with "" -> dest | other -> other in
 
 	let direct_packages = direct_packages |> List.map (fun p ->
-		let open OpamFile.OPAM in
+		let open OPAM in
+		let opam_filename = Filename.basename p in
 		let opam = Opam_metadata.load_opam p in
 		let name = opam.name |> Option.default_fn (fun () ->
-			let filename = Filename.basename p in
-			match String.split_on_char '.' filename with
+			match String.split_on_char '.' opam_filename with
 				| [ name; "opam" ] -> Name.of_string name
 				| _ -> failwith ("Can't determine name of package in " ^ p)
 		) in
-		(* let version = opam.version |> Option.map (fun v -> *)
-		(* 	(OpamParserTypes.Eq, v) *)
-		(* ) in *)
-		(* ((p, opam), (name, version)) *)
-		let version = opam.version |> Option.default_fn (fun () -> Version.of_string "TODO-make-optional") in
-		Repo.({
-			package = OpamPackage.create name version;
-			repo_base = "TODO";
-			path = "TODO";
-		})
+		{
+			direct_name = name;
+			direct_version = opam.version;
+			direct_opam = opam;
+			direct_opam_relative = opam_filename;
+		}
 	) in
 
 	let requested_packages : OpamFormula.atom list = repo_packages |> List.map (fun spec ->
@@ -445,8 +471,7 @@ let main ~update_opam idx args =
 			| _ -> failwith ("Invalid version spec: " ^ spec)
 	) in
 	let requested_packages = requested_packages @ (direct_packages |> List.map (fun package ->
-		(* TODO conversion spaghetti *)
-		(OpamPackage.name package.Repo.package, Some (`Eq, package.Repo.package.version))
+		(package.direct_name, package.direct_version |> Option.map (fun v -> `Eq, v))
 	)) in
 	let package_names : OpamPackage.Name.t list = requested_packages |> List.map (fun (name, _) -> name) in
 

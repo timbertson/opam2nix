@@ -12,12 +12,21 @@ let getenv k =
 type env = {
 	vars : Vars.env;
 	opam : OpamFile.OPAM.t;
-	opam_src: string;
+	opam_src: [`File of string | `Dir of string];
 	pkgname : string;
 }
 
 let destDir () = (getenv "out")
 let libDestDir () = Filename.concat (destDir ()) "lib"
+
+let opam_path = function
+	| `File path -> path
+	| `Dir path -> Filename.concat path "opam"
+
+let opam_file_path src name =
+	match src with
+	| `File _ -> None
+	| `Dir path -> Some (Filename.concat path name)
 
 let unexpected_json desc j =
 	failwith ("Unexpected " ^ desc ^ ": " ^ (JSON.to_string j))
@@ -87,8 +96,10 @@ let load_env () =
 					| "version", other -> unexpected_json "version" other
 
 					| "opamSrc", `String path ->
-							self_opam_src := Some path
-					| "opamSrc", other -> unexpected_json "opamSrc" other
+							self_opam_src := Some (
+								if Sys.is_directory path then (`Dir path) else (`File path)
+							)
+					| "opamSrc", other -> unexpected_json "opamDir" other
 
 					| other, _ -> failwith ("unexpected opamEnv key: " ^ other)
 			)
@@ -104,7 +115,7 @@ let load_env () =
 	} in
 
 	let opam =
-		let path = Filename.concat self_opam_src "opam" in
+		let path = opam_path self_opam_src in
 		Printf.eprintf "Loading %s\n" path;
 		Opam_metadata.load_opam path
 	in
@@ -242,15 +253,17 @@ let outputDirs dest = [ binDir dest; stublibsDir dest; libDir dest ]
 
 let patch env =
 	(* copy all files into ./ if present *)
-	let files_path = Filename.concat env.opam_src "files" in
-	if Sys.file_exists files_path then
+	opam_file_path env.opam_src "files"
+		|> Option.filter Sys.file_exists
+		|> Option.may (fun files_path ->
 		let contents = Sys.readdir files_path
 			|> Array.map (Filename.concat files_path) in
 		Util.run_cmd_exn (Array.concat [
 			[| "cp"; "-r" |];
 			contents;
 			[| "./" |]
-		]);
+		])
+	);
 	apply_patches env
 
 let build env =
