@@ -4,6 +4,8 @@ module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 module OPAM = OpamFile.OPAM
 
+(* a direct package is passed on the commandline, and is
+ * not from any repository *)
 type direct_package = {
 	direct_opam_relative: string;
 	direct_opam: OPAM.t;
@@ -11,12 +13,15 @@ type direct_package = {
 	direct_version: Version.t option;
 }
 
-type opam_source = {
+(* an opam_source is a package from the opam repo *)
+type loaded_package = {
 	opam: OPAM.t;
 	repository_expr: Opam_metadata.opam_src Lazy.t;
 	url: Opam_metadata.url option Lazy.t;
 }
 
+(* external constraints are the preselected boundaries of
+ * the selection - what repo and compiler we're using *)
 type external_constraints = {
 	repo_commit: string;
 	ocaml_version: Version.t;
@@ -50,11 +55,17 @@ let nix_digest_of_path p =
 	) in
 	"sha256:" ^ hash
 
-let unique_file_counter = ref 0;;
+let unique_file_counter =
+	let state = ref 0 in
+	fun () -> (
+		let ret = !state in
+		incr state;
+		ret
+	)
+
 let nix_digest_of_git_repo p =
 	let print = false in
-	let tempname = Printf.sprintf "opam2nix-%d-%d" (Unix.getpid ()) !unique_file_counter in
-	incr unique_file_counter;
+	let tempname = Printf.sprintf "opam2nix-%d-%d" (Unix.getpid ()) (unique_file_counter ()) in
 	let tempdir = Filename.concat (Filename.get_temp_dir_name ()) tempname in
 	Unix.mkdir tempdir 0o700;
 	let cleanup () = rm_r tempdir in
@@ -71,11 +82,8 @@ let nix_digest_of_git_repo p =
 		ret
 	with e -> (cleanup (); raise e)
 
-
 let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
-	let empty = OpamPackage.Set.empty in
-	let available_packages = ref empty in
-	let opam_sources = ref OpamPackage.Map.empty in
+	let available_packages = ref OpamPackage.Map.empty in
 
 	let global_vars = Opam_metadata.init_variables () in
 
@@ -100,13 +108,9 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 			vars = global_vars;
 		}) in
 
-	let add_package ~(package:OpamPackage.t) ~(opam:OPAM.t) ~(repository_expr:Opam_metadata.opam_src Lazy.t) ~url =
+	let add_package ~(package:OpamPackage.t) loaded =
 		let lookup_var = lookup_var package in
-		(* TODO just accept opam_source? *)
-		let opam_source = {
-			opam; repository_expr; url;
-		} in
-		let available_filter = OPAM.available opam in
+		let available_filter = OPAM.available loaded.opam in
 		let available =
 			try package.name <> (Name.of_string "opam") && OpamFilter.eval_to_bool lookup_var available_filter
 			with e -> (
@@ -115,8 +119,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 			)
 		in
 		if available then (
-			available_packages := OpamPackage.Set.add package !available_packages;
-			opam_sources := OpamPackage.Map.add package opam_source !opam_sources
+			available_packages := OpamPackage.Map.add package loaded !available_packages
 		) else (
 			let vars = OpamFilter.variables available_filter in
 			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
@@ -152,19 +155,20 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 				)
 			)
 		) in
-		add_package ~package:package.package
-			~opam ~url ~repository_expr
+		add_package ~package:package.package { opam; url; repository_expr }
 	);
 	direct_packages |> List.iter (fun package ->
 		let name = package.direct_name in
 		let version = package.direct_version |> Option.default (Version.of_string "development") in
 		add_package ~package:(OpamPackage.create name version)
-			~opam:package.direct_opam
-			~url:(Lazy.from_val None) (* source is expected to be overridden *)
-			~repository_expr:(Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative)))
+			{
+				opam = package.direct_opam;
+				url = Lazy.from_val None; (* source is expected to be overridden *)
+				repository_expr = Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative));
+			}
 	);
 
-	let opam_sources = !opam_sources in
+	let available_packages = !available_packages in
 	let base_packages = ("ocaml" :: base_packages)
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
 		|> OpamPackage.Set.of_list
@@ -172,20 +176,20 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_packages () =
 	let get_depends deptype_access =
 		OpamPackage.Map.mapi (fun pkg { opam; _ } ->
 			OpamFilter.partial_filter_formula (lookup_var pkg) (deptype_access opam)
-		) opam_sources
+		) available_packages
 	in
 	let conflicts =
 		OpamPackage.Map.mapi (fun pkg { opam; _ } ->
 			let conflicts = OPAM.conflicts opam in
 			OpamFilter.filter_formula (lookup_var pkg) conflicts
-		) opam_sources
+		) available_packages
 	in
-	(opam_sources, { OpamSolver.empty_universe with
+	(available_packages, { OpamSolver.empty_universe with
 		u_packages  = OpamPackage.Set.empty;
 		u_action    = Install;
 		u_installed = base_packages;
 		u_base      = base_packages;
-		u_available = !available_packages;
+		u_available = available_packages |> OpamPackage.Map.bindings |> List.map fst |> OpamPackage.Set.of_list;
 		u_depends   = get_depends OPAM.depends;
 		u_depopts   = get_depends OPAM.depopts;
 		u_conflicts = conflicts;
@@ -317,7 +321,7 @@ let setup_external_constraints
 	}
 ;;
 
-let write_solution ~external_constraints ~opam_sources ~cache ~base_packages ~universe solution dest =
+let write_solution ~external_constraints ~available_packages ~cache ~base_packages ~universe solution dest =
 	let new_packages = OpamSolver.new_packages solution in
 	let () = match OpamPackage.Set.fold (fun pkg lst ->
 		if OpamPackage.name pkg |> Name.to_string = "ocaml"
@@ -337,8 +341,7 @@ let write_solution ~external_constraints ~opam_sources ~cache ~base_packages ~un
 
 	let selection = OpamPackage.Set.fold (fun pkg map ->
 		let open Opam_metadata in
-		(* TODO *)
-		let { opam; url; repository_expr; _ } = OpamPackage.Map.find pkg opam_sources in
+		let { opam; url; repository_expr } = OpamPackage.Map.find pkg available_packages in
 
 		let expr : Nix_expr.t option = (
 			(* TODO, obvs *)
@@ -415,15 +418,6 @@ let main ~update_opam idx args =
 		("--from", Arg.Set_string detect_from, "Use instead of DEST as existing nix file (for commit / version detection)");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version, default extract from DEST, falling back to current nixpkgs.ocaml version");
 		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated, not typically necessary)");
-
-		(* TODO how to deal with non-repo deps? --assume?
-		 * --provided vdoml=1.0.0
-		 * then, in nix:
-		 * {
-			 * overrides = { ... };
-			 * provided = { vdoml = { version, ... }
-			 * }
-		 *)
 		("--verbose", Arg.Set Util._verbose, "Verbose");
 		("-v", Arg.Set Util._verbose, "Verbose");
 	]; in
@@ -491,7 +485,7 @@ let main ~update_opam idx args =
 	let base_packages = !base_packages |> Str.split (Str.regexp ",") in
 
 	Printf.eprintf "Loading repository...\n"; flush stderr;
-	let (opam_sources, universe) = build_universe
+	let (available_packages, universe) = build_universe
 		~repos:[opam_repo] (* TODO custom repos *)
 		~base_packages
 		~ocaml_version:external_constraints.ocaml_version
@@ -530,7 +524,7 @@ let main ~update_opam idx args =
 					~reinstall:OpamPackage.Set.empty
 					solution;
 				write_solution
-					~external_constraints ~opam_sources ~cache ~base_packages ~universe
+					~external_constraints ~available_packages ~cache ~base_packages ~universe
 					solution dest
 		| Conflicts conflict ->
 			prerr_endline (
