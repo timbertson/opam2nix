@@ -15,10 +15,22 @@ let
 	noopOverride = {}: {};
 in
 rec {
-	build = { deps, ocaml, override ? noopOverride }: let
+	build = { deps, ocaml, override ? noopOverride, src ? null }: let
+		# src can either be a plain attribute set, in which case we lookup each
+		# direct source by name. If it's a plain object (path or derivation),
+		# we use it for all (presumably just one) direct sources.
+		directSrc = name:
+			let
+				nonNull = src: if src == null
+					then abort "Source for direct package `${name}` not provided in `src` argument"
+					else src;
+				getAttrOrNull = name: attrs: if hasAttr name attrs then getAttr name attrs else null;
+			in
+			nonNull (if isAttrs src && !(isDerivation attrs) then getAttrOrNull name src);
+
 		depFn = if isFunction deps then deps else import deps;
 		imported = let raw = depFn {
-				inherit lib pkgs repoPath selection;
+				inherit lib pkgs repoPath selection directSrc;
 			}; in
 			if raw.ocaml-version != ocaml.version then
 				abort ("Dependencies were selected for ocaml version ${raw.ocaml-version}" +
@@ -41,7 +53,7 @@ rec {
 			{
 				inherit (args) pname version src;
 				propagatedBuildInputs = [ocaml opam2nix] ++ (
-					nonPseudoList (args.buildInputs ++ (attrValues args.opamInputs))
+					nonPseudoList ((args.buildInputs or []) ++ (attrValues args.opamInputs))
 				);
 				prePatch = "${invoke} patch";
 				# TODO handle zip / tgz unpack?

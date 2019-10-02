@@ -6,6 +6,8 @@ open OpamTypes
 module StringSet = OpamStd.String.Set
 module StringSetMap = OpamStd.String.SetMap
 
+type ('a, 'b) result = ('a, 'b) Pervasives.result
+
 type url = [
 	| `http of string * (Digest_cache.opam_digest list)
 	| `local of string
@@ -19,6 +21,7 @@ type url_type =
 	| `hg
 	]
 
+type unsupported_archive = Unsupported_archive_ of string
 exception Unsupported_archive of string
 exception Invalid_package of string
 exception Checksum_mismatch of string
@@ -117,6 +120,7 @@ let add_base_variables base_vars =
 		|> add_global_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
 		|> add_global_var "pinned" (B false) (* probably ? *)
 		|> add_global_var "jobs" (S "1") (* XXX NIX_JOBS? *)
+		|> add_global_var "enable-ocaml-beta-repository" (B false)
 		(* With preinstalled packages suppose they can't write
 		   in the ocaml directory *)
 		|> add_global_var "preinstalled" (B true)
@@ -223,7 +227,8 @@ class dependency_map =
 			PackageMap.to_string reqs_to_string !map
 	end
 
-let url urlfile: url =
+let url urlfile: (url, unsupported_archive) result = Ok (
+	(* TODO *)
 	let (url, checksums) = URL.url urlfile, URL.checksum urlfile in
 	let OpamUrl.({ hash; transport; backend; _ }) = url in
 	let url_without_backend = OpamUrl.base_url url in
@@ -242,6 +247,7 @@ let url urlfile: url =
 	| `http, _, Some _ -> raise (Unsupported_archive "http with fragment")
 	| `rsync, transport, None -> raise (Unsupported_archive ("rsync transport: " ^ transport))
 	| `rsync, _, Some _ -> raise (Unsupported_archive "rsync with fragment")
+)
 
 let load_url path =
 	if Sys.file_exists path then begin
@@ -269,6 +275,7 @@ let string_of_url url =
 		| `http addr -> addr
 		| `git addr -> "git:" ^ (concat_address addr)
 
+(* TODO remove offline option *)
 let nix_of_url ~cache ~offline (url:url) : Nix_expr.t =
 	let open Nix_expr in
 	match url with
@@ -334,7 +341,7 @@ end
 
 type opam_src = [ `Dir of Nix_expr.t | `File of Nix_expr.t ]
 
-let nix_of_opam ~pkg ~cache ~offline ~deps ~(opam_src:opam_src) ~opam ~url () : Nix_expr.t =
+let nix_of_opam ~pkg ~deps ~(opam_src:opam_src) ~opam ~src ~url () : Nix_expr.t =
 	let name = OpamPackage.name pkg |> OpamPackage.Name.to_string in
 	let version = OpamPackage.version pkg |> OpamPackage.Version.to_string in
 	let open Nix_expr in
@@ -353,10 +360,6 @@ let nix_of_opam ~pkg ~cache ~offline ~deps ~(opam_src:opam_src) ~opam ~url () : 
 			~add_opam:add_opam_input
 			importance dep
 	in
-
-	let src = Option.map (
-		nix_of_url ~cache ~offline
-	) url in
 
 	let () = add_opam_deps ~add_dep opam in
 
@@ -386,15 +389,14 @@ let nix_of_opam ~pkg ~cache ~offline ~deps ~(opam_src:opam_src) ~opam ~url () : 
 		|> List.map (property_of_input (`Id "pkgs"))
 	in
 
-	`Attrs (AttrSet.build [
+	(* TODO: separate build-only deps from propagated *)
+	`Attrs (AttrSet.build ([
 		"pname", Nix_expr.str name;
 		"version", Nix_expr.str version;
 		"src", (src |> Option.default `Null);
-		(* TODO: separate build-only deps from propagated *)
-		"buildInputs", `List nix_deps;
 		"opamInputs", `Attrs opam_inputs;
-		(match opam_src with
-			| `Dir expr -> "opamDir", expr
-			| `File expr -> "opamFile", expr
+		"opamSrc", (match opam_src with
+			| `Dir expr -> expr
+			| `File expr -> expr
 		);
-	])
+	] @ (if nix_deps = [] then [] else ["buildInputs", `List nix_deps])))
