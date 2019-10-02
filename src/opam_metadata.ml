@@ -6,26 +6,23 @@ open OpamTypes
 module StringSet = OpamStd.String.Set
 module StringSetMap = OpamStd.String.SetMap
 
-type ('a, 'b) result = ('a, 'b) Pervasives.result
-
 type url = [
 	| `http of string * (Digest_cache.opam_digest list)
-	| `local of string
 ]
 
 type url_type =
 	[ `http
 	| `git
-	| `local
 	| `darcs
 	| `hg
 	]
 
-type unsupported_archive = Unsupported_archive_ of string
-exception Unsupported_archive of string
+type unsupported_archive = Unsupported_archive of string
+type checksum_mismatch = Checksum_mismatch of string
 exception Invalid_package of string
-exception Checksum_mismatch of string
-exception Not_cached of string
+
+let string_of_checksum_mismatch (Checksum_mismatch desc) =
+	"Checksum mismatch: " ^ desc
 
 let var_prefix = "opam_var_"
 
@@ -227,27 +224,26 @@ class dependency_map =
 			PackageMap.to_string reqs_to_string !map
 	end
 
-let url urlfile: (url, unsupported_archive) result = Ok (
-	(* TODO *)
+let url urlfile: (url, unsupported_archive) Result.t =
 	let (url, checksums) = URL.url urlfile, URL.checksum urlfile in
 	let OpamUrl.({ hash; transport; backend; _ }) = url in
 	let url_without_backend = OpamUrl.base_url url in
-	let require_checksums checksums =
+	let checksums =
 		if checksums = [] then
-			raise (Unsupported_archive "Checksum required")
-		else checksums
+			Error (Unsupported_archive "Checksum required")
+		else Ok checksums
 	in
 	match (backend, transport, hash) with
-	| `git, _, _ -> raise (Unsupported_archive "git")
-	| `darcs, _, _ -> raise (Unsupported_archive "darcs")
-	| `hg, _, _ -> raise (Unsupported_archive "hg")
+	| `git, _, _ -> Error (Unsupported_archive "git")
+	| `darcs, _, _ -> Error (Unsupported_archive "darcs")
+	| `hg, _, _ -> Error (Unsupported_archive "hg")
 
-	| `http, "file", None | `rsync, "file", None -> `local OpamUrl.(url.path)
-	| `http, _, None -> `http (url_without_backend, require_checksums checksums) (* drop the VCS portion *)
-	| `http, _, Some _ -> raise (Unsupported_archive "http with fragment")
-	| `rsync, transport, None -> raise (Unsupported_archive ("rsync transport: " ^ transport))
-	| `rsync, _, Some _ -> raise (Unsupported_archive "rsync with fragment")
-)
+	| `http, "file", None | `rsync, "file", None -> Error (Unsupported_archive "local path")
+	| `http, _, None -> checksums |> Result.map
+		(fun checksums -> `http (url_without_backend, checksums)) (* drop the VCS portion *)
+	| `http, _, Some _ -> Error (Unsupported_archive "http with fragment")
+	| `rsync, transport, None -> Error (Unsupported_archive ("rsync transport: " ^ transport))
+	| `rsync, _, Some _ -> Error (Unsupported_archive "rsync with fragment")
 
 let load_url path =
 	if Sys.file_exists path then begin
@@ -276,23 +272,21 @@ let string_of_url url =
 		| `git addr -> "git:" ^ (concat_address addr)
 
 (* TODO remove offline option *)
-let nix_of_url ~cache ~offline (url:url) : Nix_expr.t =
+let nix_of_url ~cache (url:url) : (Nix_expr.t, checksum_mismatch) Result.t =
 	let open Nix_expr in
 	match url with
-		| `local src -> `Lit src
 		| `http (src, checksums) ->
-			if (offline && not (Digest_cache.exists checksums cache)) then raise (Not_cached src);
 			let digest = Digest_cache.add src checksums cache in
-			`Call [
-				`Lit "pkgs.fetchurl";
-				`Attrs (AttrSet.build [
-					"url", str src;
-					(match digest with
-						| `sha256 sha256 -> ("sha256", str sha256)
-						| `checksum_mismatch desc -> raise (Checksum_mismatch desc)
-					);
-				])
-			]
+			(match digest with
+				| `sha256 sha256 -> Ok ("sha256", str sha256)
+				| `checksum_mismatch desc -> Error (Checksum_mismatch desc)
+			) |> Result.map (fun digest ->
+				`Call [
+					`Lit "pkgs.fetchurl";
+					`Attrs (AttrSet.build [ "url", str src; digest ])
+				]
+			)
+
 
 let unsafe_envvar_chars = Str.regexp "[^0-9a-zA-Z_]"
 let envvar_of_ident name =
@@ -364,8 +358,8 @@ let nix_of_opam ~pkg ~deps ~(opam_src:opam_src) ~opam ~src ~url () : Nix_expr.t 
 	let () = add_opam_deps ~add_dep opam in
 
 	let url_ends_with ext = (match url with
-		| Some (`http (url,_)) | Some (`local url) -> ends_with ext url
-		| _ -> false
+		| Some (`http (url,_)) -> ends_with ext url
+		| None -> false
 	) in
 
 	if url_ends_with ".zip" then add_native Required "unzip";

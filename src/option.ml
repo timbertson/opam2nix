@@ -12,3 +12,7 @@ let to_list = function None -> [] | Some v -> [v]
 let is_some = function None -> false | Some _ -> true
 let is_none = function None -> true | Some _ -> false
 let to_string fn = function None -> "None" | Some x -> "Some(" ^ (fn x) ^ ")"
+let sequence_result = function
+	| None -> Ok None
+	| Some (Error e) -> Error e
+	| Some (Ok x) -> Ok (Some x)

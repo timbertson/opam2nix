@@ -18,7 +18,7 @@ type direct_package = {
 type loaded_package = {
 	opam: OPAM.t;
 	repository_expr: Opam_metadata.opam_src Lazy.t;
-	src_expr: Nix_expr.t option Lazy.t;
+	src_expr: (Nix_expr.t, Opam_metadata.checksum_mismatch) Result.t Lazy.t option;
 	url: Opam_metadata.url option;
 }
 
@@ -146,15 +146,14 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 				| None -> load_url (Filename.concat full_path "url")
 			in
 			(* TODO skip these packages instead of failing *)
-			urlfile |> Option.map (fun urlfile ->
-				try url urlfile
-				with Unsupported_archive reason -> raise (
-					Unsupported_archive (OpamPackage.to_string package.package ^ ": " ^ reason)
-				)
-			)
+			urlfile |> Option.map url
 		) in
-		let src_expr = lazy (url |> Option.map (Opam_metadata.nix_of_url ~cache ~offline:false)) in
-		add_package ~package:package.package { opam; url; src_expr; repository_expr }
+		match url |> Option.sequence_result with
+			| Error (Unsupported_archive reason) ->
+				Util.debug "Skipping %s (Unsupported archive: %s)\n" (Repo.package_desc package) reason
+			| Ok url ->
+				let src_expr = url |> Option.map (fun url -> lazy (Opam_metadata.nix_of_url ~cache url)) in
+				add_package ~package:package.package { opam; url; src_expr; repository_expr }
 	);
 	direct_packages |> List.iter (fun package ->
 		let name = package.direct_name in
@@ -163,7 +162,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 			{
 				opam = package.direct_opam;
 				url = None;
-				src_expr = Lazy.from_val (Some (`Call [`Lit "self.directPackage"; name |> Name.to_string |> Nix_expr.str]));
+				src_expr = Some (Lazy.from_val (Ok (`Call [`Lit "self.directPackage"; name |> Name.to_string |> Nix_expr.str])));
 				repository_expr = Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative));
 			}
 	);
@@ -350,18 +349,18 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 					prerr_endline ("Warn: " ^ desc); None
 				) else raise e
 			in
-			try
-				(* TODO simplify args *)
-				Some (nix_of_opam ~deps ~pkg ~opam ~url
-					~src:(Lazy.force src_expr)
-					~opam_src:(Lazy.force repository_expr)
-					())
-			with
-			| Unsupported_archive desc as e -> handle_error ("Unsupported archive: " ^ desc) e
-			| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
-			| Checksum_mismatch desc as e -> handle_error ("Checksum mismatch: " ^ desc) e
-			| Not_cached desc as e -> handle_error ("Resource not cached: " ^ desc) e
-			| Download.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
+			src_expr |> Option.map Lazy.force |> Option.sequence_result |> Result.map (fun src_expr ->
+				(* TODO remove try/catch *)
+				try
+					(* TODO simplify args *)
+					Some (nix_of_opam ~deps ~pkg ~opam ~url
+						~src:src_expr
+						~opam_src:(Lazy.force repository_expr)
+						())
+				with
+				| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
+				| Download.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
+			) |> Result.get_exn (Opam_metadata.string_of_checksum_mismatch)
 		) in
 		match expr with None -> map | Some expr ->
 			AttrSet.add (OpamPackage.name pkg |> Name.to_string) expr map
