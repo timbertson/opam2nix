@@ -45,13 +45,13 @@ let print_universe chan u =
 	end
 
 let nix_digest_of_path p =
-	let hash_cmd = [| "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" |] in
-	let hash = Cmd.run ~print:false ~stdin:Pipe ~stdout:Pipe ~collect:Cmd.collect_exn hash_cmd (fun hash_proc ->
+	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
+	let hash = Cmd.run_exn ~print:false ~stdin:Pipe ~stdout:Pipe ~block:(fun hash_proc ->
 		let collector = Cmd.file_contents_in_bg (hash_proc.stdout |> Cmd.assert_fd) in
 		let stdout = Fd (hash_proc.stdin |> Cmd.assert_fd) in
-		Cmd.run ~print:false ~stdout ~collect:Cmd.collect_exn [| "nix-store"; "--dump"; p |] ignore;
+		Cmd.run_unit_exn ~print:false ~stdout [ "nix-store"; "--dump"; p ];
 		Cmd.join_bg collector
-	) in
+	) hash_cmd in
 	"sha256:" ^ hash
 
 let unique_file_counter =
@@ -69,11 +69,11 @@ let nix_digest_of_git_repo p =
 	Unix.mkdir tempdir 0o700;
 	let cleanup () = rm_r tempdir in
 	try
-		Cmd.run ~print ~stdin:Pipe ~collect:Cmd.collect_exn [| "tar"; "x"; "-C"; tempdir |] (fun proc ->
+		Cmd.run_exn ~print ~stdin:Pipe ~block:(fun proc ->
 			let stdout = Fd (proc.stdin |> Cmd.assert_fd) in
-			Cmd.run ~print ~stdout ~collect:Cmd.collect_exn
-				[| "git"; "-C"; p; "archive"; "HEAD" |] ignore
-		);
+			Cmd.run_unit_exn ~print ~stdout
+				[ "git"; "-C"; p; "archive"; "HEAD" ]
+		) [ "tar"; "x"; "-C"; tempdir ];
 		let ret = nix_digest_of_path tempdir in
 		cleanup ();
 		ret
@@ -208,20 +208,20 @@ let newer_versions available pkg =
 let setup_repo ~update ~path ~commit : string =
 	let open Util in
 	let print = false in
-	let git args = Array.of_list (["git"; "-C"; path ] @ args) in
+	let git args = ["git"; "-C"; path ] @ args in
 	FileUtil.mkdir ~parent:true (Filename.dirname path);
 	let clone_repo () =
 		Printf.eprintf "Cloning %s...\n" repo_url; flush stderr;
 		rm_r path;
-		Cmd.run_cmd_exn [| "git"; "clone"; repo_url; path |]
+		Cmd.run_unit_exn [ "git"; "clone"; repo_url; path ]
 	in
 	let origin_head = "origin/HEAD" in
 	let get_head_commit () =
-		Cmd.run_cmd_output_exn ~print (git ["rev-parse"; "HEAD"]) |> String.trim in
+		Cmd.run_output_exn ~print (git ["rev-parse"; "HEAD"]) |> String.trim in
 	let fetch_into_head commit =
 		(* TODO quiet: *)
-		Cmd.run_cmd_exn ~print (git ["fetch"; "--force"; repo_url]);
-		Cmd.run_cmd_exn ~print (git ["reset"; "--hard"; commit]);
+		Cmd.run_unit_exn ~print (git ["fetch"; "--force"; repo_url]);
+		Cmd.run_unit_exn ~print (git ["reset"; "--hard"; commit]);
 		get_head_commit ()
 	in
 	(* TODO need to lock? ... *)
@@ -229,8 +229,8 @@ let setup_repo ~update ~path ~commit : string =
 		match commit with
 			| Some commit ->
 					(* only update if git lacks the given ref *)
-					if Cmd.run_cmd_bool ~print (git ["cat-file"; "-e"; commit]) then (
-						Cmd.run_cmd_exn ~print (git ["reset"; "--hard"; commit]);
+					if Cmd.run_unit ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) then (
+						Cmd.run_unit_exn ~print (git ["reset"; "--hard"; commit]);
 						commit
 					) else fetch_into_head commit
 			| None ->
@@ -250,8 +250,8 @@ let setup_external_constraints
 	in
 	let detect_nixpkgs_ocaml_version () =
 		Util.debug "detecting current <nixpkgs> ocaml version\n";
-		Cmd.run_cmd_output_opt ~print:false
-			[| "nix-instantiate"; "--eval"; "--attr"; "ocaml.version"; "<nixpkgs>" |]
+		Cmd.run_output_opt ~print:false
+			[ "nix-instantiate"; "--eval"; "--attr"; "ocaml.version"; "<nixpkgs>" ]
 		|> Option.map remove_quotes
 	in
 
@@ -262,8 +262,8 @@ let setup_external_constraints
 				then Filename.concat (Unix.getcwd ()) detect_from
 				else detect_from
 			in
-			Cmd.run_cmd_output_opt ~print:false
-				[| "nix-instantiate"; "--eval"; "--expr" ; "with (import \"" ^ fullpath ^ "\" {}); \"${opam-commit} ${ocaml-version}\"" |]
+			Cmd.run_output_opt ~print:false
+				[ "nix-instantiate"; "--eval"; "--expr" ; "with (import \"" ^ fullpath ^ "\" {}); \"${opam-commit} ${ocaml-version}\"" ]
 				|> Option.map (fun str -> str
 					|> remove_quotes
 					|> String.split_on_char ' '

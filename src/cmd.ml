@@ -40,7 +40,7 @@ module Internal = struct
 			| (_pid, _) -> Error (Command_failed (None, desc))
 
 	let print_desc ~print cmd: string =
-		let desc = String.concat " " (Array.to_list cmd) in
+		let desc = String.concat " " cmd in
 		if print || Util.verbose () then prerr_endline (" + " ^ desc);
 		desc
 
@@ -49,9 +49,21 @@ module Internal = struct
 		| Error e -> failwith (string_of_command_failed e)
 end
 
-let collect_exn out = function
+let join_result out = function
+	| Ok () -> Ok out
+	| Error e -> Error e
+
+let join_exn out = function
 	| Ok () -> out
 	| Error e -> failwith (string_of_command_failed e)
+
+let join_opt result = function
+	| Ok () -> Some result
+	| Error _ -> None
+
+let join_success_bool () = function
+	| Ok () -> true
+	| Error _ -> false
 
 let assert_fd : (Unix.file_descr, string) result -> Unix.file_descr = function
 	| Ok fd -> fd
@@ -61,6 +73,9 @@ let file_contents fd =
 	let buf = ref Bytes.empty in
 	Internal.chunk_stream fd |> Stream.iter (fun chunk -> buf := Bytes.cat !buf chunk);
 	Bytes.to_string !buf |> String.trim
+
+let stdout_contents proc =
+	file_contents (proc.stdout |> assert_fd)
 
 let file_contents_in_bg fd =
 	let result = ref "" in
@@ -74,51 +89,15 @@ let join_bg bg =
 	Thread.join bg._th;
 	!(bg._result)
 
-let run_cmd ?(print=true) cmd =
-	let desc = Internal.print_desc ~print cmd in
-	let pid = Unix.create_process (Array.get cmd 0) cmd Unix.stdin Unix.stdout Unix.stderr in
-	Internal.pid_result ~desc pid
-
-let run_cmd_output ?(print=true) ~stderr cmd =
-	let desc = Internal.print_desc ~print cmd in
-	let (r,w) = Unix.pipe ~cloexec:true () in
-	let with_stderr fn =
-		if stderr then fn Unix.stderr else (
-			let f = Unix.openfile "/dev/null" [ O_WRONLY] 0600 in
-			let result = fn f in
-			Unix.close f;
-			result
-		)
-	in
-
-	let pid = with_stderr (fun stderr ->
-		Unix.create_process (Array.get cmd 0) cmd Unix.stdin w stderr
-	) in
-	let contents = file_contents r in
-	match Internal.pid_result ~desc pid with
-		| Ok () -> Ok contents
-		| Error e -> Error e
-
-let run_cmd_output_exn ?(print=true) cmd =
-	run_cmd_output ~print ~stderr:true cmd |> Internal.assert_success
-
-let run_cmd_exn ?(print=true) cmd =
-	run_cmd ~print cmd |> Internal.assert_success
-
-let run_cmd_output_opt ?(print=true) ?(stderr=false) cmd =
-	match run_cmd_output ~print ~stderr cmd with
-		| Ok output -> Some output
-		| Error _ -> None
-
-let run_cmd_bool ?(print=true) cmd =
-	match run_cmd ~print cmd with
-		| Ok () -> true
-		| Error _ -> false
-
 let run (type block_ret) (type ret)
 	?(print=true)
-	?(stdin=Inherit) ?(stdout=Inherit) ?(stderr=Inherit)
-	~(collect: block_ret -> (unit, command_failed) result -> ret) (cmd: string array) (block: process -> block_ret): ret =
+	?(stdin=Inherit)
+	?(stdout=Inherit)
+	?(stderr=Inherit)
+	~(join: block_ret -> (unit, command_failed) result -> ret)
+	~(block: process -> block_ret)
+	(cmd: string list)
+	: ret =
 	let desc = Internal.print_desc ~print cmd in
 	let no_fd name : (Unix.file_descr, string) result = Error
 		(Printf.sprintf "%s of process %s is not a pipe" name desc) in
@@ -164,11 +143,11 @@ let run (type block_ret) (type ret)
 		fds |> List.iter Unix.close
 	in
 	try
-		let pid = Unix.create_process (Array.get cmd 0) cmd stdin_fd stdout_fd stderr_fd in
+		let pid = Unix.create_process (List.hd cmd) (Array.of_list cmd) stdin_fd stdout_fd stderr_fd in
 		cleanup close_after_fork;
 		let block_result = block process in
 		let pid_result = Internal.pid_result ~desc pid in
-		let result = collect block_result pid_result in
+		let result = join block_result pid_result in
 		cleanup close_finally;
 		result
 	with e -> (
@@ -176,3 +155,15 @@ let run (type block_ret) (type ret)
 		cleanup close_finally;
 		raise e
 	)
+
+(* Handy shortcuts *)
+let run_exn = run ~join:join_exn
+
+let run_unit = run ~block:ignore
+let run_unit_exn = run_unit ~join:join_exn
+let run_unit_result = run_unit ~join:join_result
+
+let run_output = run ~stdout:Pipe ~block:stdout_contents
+let run_output_exn = run_output ~join:join_exn
+let run_output_result = run_output ~join:join_result
+let run_output_opt = run_output ~join:join_opt

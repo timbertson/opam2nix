@@ -141,7 +141,7 @@ let run env get_commands =
 			| [] -> ()
 			| _ :: _ -> (
 				let quit code = prerr_endline "Command failed."; exit code in
-				match Cmd.run_cmd (Array.of_list args) with
+				match Cmd.run_unit_result args with
 					| Ok () -> ()
 					| Error (Command_failed (Some code, _)) -> quit code
 					| Error (Command_failed (None, _)) -> quit 1
@@ -165,8 +165,8 @@ let execute_install_file state =
 	let install_file_path = (name ^ ".install") in
 	if (Sys.file_exists install_file_path) then (
 		prerr_endline ("Installing from " ^ install_file_path);
-		Cmd.run_cmd_exn ~print:true
-			[| "opam-installer"; "--prefix"; destDir (); install_file_path |]
+		Cmd.run_unit_exn ~print:true
+			[ "opam-installer"; "--prefix"; destDir (); install_file_path ]
 	) else (
 		prerr_endline "no .install file found!";
 	)
@@ -258,10 +258,10 @@ let patch env =
 		|> Option.may (fun files_path ->
 		let contents = Sys.readdir files_path
 			|> Array.map (Filename.concat files_path) in
-		Cmd.run_cmd_exn (Array.concat [
-			[| "cp"; "-r" |];
-			contents;
-			[| "./" |]
+		Cmd.run_unit_exn (List.concat [
+			[ "cp"; "-r" ];
+			Array.to_list contents;
+			[ "./" ]
 		])
 	);
 	apply_patches env
