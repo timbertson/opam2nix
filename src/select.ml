@@ -3,6 +3,7 @@ open OpamTypes
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 module OPAM = OpamFile.OPAM
+open Cmd.Types
 
 (* a direct package is passed on the commandline, and is
  * not from any repository *)
@@ -45,10 +46,10 @@ let print_universe chan u =
 
 let nix_digest_of_path p =
 	let hash_cmd = [| "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" |] in
-	let hash = run_cmd_full ~print:false ~stdin:Pipe ~stdout:Pipe ~collect:Cmd.collect_exn hash_cmd (fun hash_proc ->
+	let hash = Cmd.run ~print:false ~stdin:Pipe ~stdout:Pipe ~collect:Cmd.collect_exn hash_cmd (fun hash_proc ->
 		let collector = Cmd.file_contents_in_bg (hash_proc.stdout |> Cmd.assert_fd) in
 		let stdout = Fd (hash_proc.stdin |> Cmd.assert_fd) in
-		run_cmd_full ~print:false ~stdout ~collect:Cmd.collect_exn [| "nix-store"; "--dump"; p |] ignore;
+		Cmd.run ~print:false ~stdout ~collect:Cmd.collect_exn [| "nix-store"; "--dump"; p |] ignore;
 		Cmd.join_bg collector
 	) in
 	"sha256:" ^ hash
@@ -68,9 +69,9 @@ let nix_digest_of_git_repo p =
 	Unix.mkdir tempdir 0o700;
 	let cleanup () = rm_r tempdir in
 	try
-		run_cmd_full ~print ~stdin:Pipe ~collect:Cmd.collect_exn [| "tar"; "x"; "-C"; tempdir |] (fun proc ->
+		Cmd.run ~print ~stdin:Pipe ~collect:Cmd.collect_exn [| "tar"; "x"; "-C"; tempdir |] (fun proc ->
 			let stdout = Fd (proc.stdin |> Cmd.assert_fd) in
-			run_cmd_full ~print ~stdout ~collect:Cmd.collect_exn
+			Cmd.run ~print ~stdout ~collect:Cmd.collect_exn
 				[| "git"; "-C"; p; "archive"; "HEAD" |] ignore
 		);
 		let ret = nix_digest_of_path tempdir in
@@ -212,15 +213,15 @@ let setup_repo ~update ~path ~commit : string =
 	let clone_repo () =
 		Printf.eprintf "Cloning %s...\n" repo_url; flush stderr;
 		rm_r path;
-		run_cmd_exn [| "git"; "clone"; repo_url; path |]
+		Cmd.run_cmd_exn [| "git"; "clone"; repo_url; path |]
 	in
 	let origin_head = "origin/HEAD" in
 	let get_head_commit () =
-		run_cmd_output_exn ~print (git ["rev-parse"; "HEAD"]) |> String.trim in
+		Cmd.run_cmd_output_exn ~print (git ["rev-parse"; "HEAD"]) |> String.trim in
 	let fetch_into_head commit =
 		(* TODO quiet: *)
-		run_cmd_exn ~print (git ["fetch"; "--force"; repo_url]);
-		run_cmd_exn ~print (git ["reset"; "--hard"; commit]);
+		Cmd.run_cmd_exn ~print (git ["fetch"; "--force"; repo_url]);
+		Cmd.run_cmd_exn ~print (git ["reset"; "--hard"; commit]);
 		get_head_commit ()
 	in
 	(* TODO need to lock? ... *)
@@ -228,8 +229,8 @@ let setup_repo ~update ~path ~commit : string =
 		match commit with
 			| Some commit ->
 					(* only update if git lacks the given ref *)
-					if run_cmd_bool ~print (git ["cat-file"; "-e"; commit]) then (
-						run_cmd_exn ~print (git ["reset"; "--hard"; commit]);
+					if Cmd.run_cmd_bool ~print (git ["cat-file"; "-e"; commit]) then (
+						Cmd.run_cmd_exn ~print (git ["reset"; "--hard"; commit]);
 						commit
 					) else fetch_into_head commit
 			| None ->
@@ -249,7 +250,7 @@ let setup_external_constraints
 	in
 	let detect_nixpkgs_ocaml_version () =
 		Util.debug "detecting current <nixpkgs> ocaml version\n";
-		Util.run_cmd_output_opt ~print:false
+		Cmd.run_cmd_output_opt ~print:false
 			[| "nix-instantiate"; "--eval"; "--attr"; "ocaml.version"; "<nixpkgs>" |]
 		|> Option.map remove_quotes
 	in
@@ -261,7 +262,7 @@ let setup_external_constraints
 				then Filename.concat (Unix.getcwd ()) detect_from
 				else detect_from
 			in
-			Util.run_cmd_output_opt ~print:false
+			Cmd.run_cmd_output_opt ~print:false
 				[| "nix-instantiate"; "--eval"; "--expr" ; "with (import \"" ^ fullpath ^ "\" {}); \"${opam-commit} ${ocaml-version}\"" |]
 				|> Option.map (fun str -> str
 					|> remove_quotes
