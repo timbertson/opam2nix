@@ -47,10 +47,8 @@ let nix_digest_of_path p =
 	let hash_cmd = [| "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" |] in
 	let hash = run_cmd_full ~print:false ~stdin:Pipe ~stdout:Pipe ~collect:Cmd.collect_exn hash_cmd (fun hash_proc ->
 		let collector = Cmd.file_contents_in_bg (hash_proc.stdout |> Cmd.assert_fd) in
-		let stdin = hash_proc.stdin |> Cmd.assert_fd in
-		let pipe = Fd stdin in
-		run_cmd_full ~print:false ~stdout:pipe ~collect:Cmd.collect_exn [| "nix-store"; "--dump"; p |] ignore;
-		Unix.close stdin;
+		let stdout = Fd (hash_proc.stdin |> Cmd.assert_fd) in
+		run_cmd_full ~print:false ~stdout ~collect:Cmd.collect_exn [| "nix-store"; "--dump"; p |] ignore;
 		Cmd.join_bg collector
 	) in
 	"sha256:" ^ hash
@@ -71,11 +69,9 @@ let nix_digest_of_git_repo p =
 	let cleanup () = rm_r tempdir in
 	try
 		run_cmd_full ~print ~stdin:Pipe ~collect:Cmd.collect_exn [| "tar"; "x"; "-C"; tempdir |] (fun proc ->
-			let pipe = (proc.stdin |> Cmd.assert_fd) in
-			run_cmd_full ~print ~stdout:(Fd pipe) ~collect:Cmd.collect_exn
-				[| "git"; "-C"; p; "archive"; "HEAD" |] ignore;
-			(* TODO shouldn't this auto-close? *)
-			Unix.close pipe;
+			let stdout = Fd (proc.stdin |> Cmd.assert_fd) in
+			run_cmd_full ~print ~stdout ~collect:Cmd.collect_exn
+				[| "git"; "-C"; p; "archive"; "HEAD" |] ignore
 		);
 		let ret = nix_digest_of_path tempdir in
 		cleanup ();
@@ -486,7 +482,7 @@ let main ~update_opam idx args =
 
 	Printf.eprintf "Loading repository...\n"; flush stderr;
 	let (available_packages, universe) = build_universe
-		~repos:[opam_repo] (* TODO custom repos *)
+		~repos:[opam_repo] (* TODO custom repos? *)
 		~base_packages
 		~ocaml_version:external_constraints.ocaml_version
 		~direct_packages

@@ -300,33 +300,39 @@ let run_cmd_full (type block_ret) (type ret)
 	?(stdin=Inherit) ?(stdout=Inherit) ?(stderr=Inherit)
 	~(collect: block_ret -> (unit, command_failed) result -> ret) (cmd: string array) (block: process -> block_ret): ret =
 	let desc = Cmd.print_desc ~print cmd in
-	let to_close = ref [] in
-	let defer_close fd = to_close := fd :: !to_close in
 	let no_fd name : (Unix.file_descr, string) result = Error
 		(Printf.sprintf "%s of process %s is not a pipe" name desc) in
+
+	(* closing FDs:
+	 * After we fork, we close all file descriptors that we gave to the child
+	 * (except for inherited ones).
+	 * After a process has finished, we close the ???
+	 *)
+	let close_after_fork = ref [] in
+	let close_finally = ref [] in
+	let prefix ref fd = ref := fd :: !ref in
 
 	let mkfd name (inherited:Unix.file_descr) (spec:fd_spec) = match spec with
 		| Inherit -> (inherited, no_fd name)
 		| DevNull when verbose () -> (inherited, no_fd name)
 		| Pipe ->
 			let (r,w) = Unix.pipe ~cloexec:true () in
-			(* defer_close r; *)
-			(* defer_close w; *)
 			if inherited == Unix.stdin
 				then (
-					(* defer_close w; *)
-					defer_close r;
+					prefix close_after_fork r;
 					(r, Ok w)
 				)
 				else (
-					(* defer_close r; *)
-					defer_close w;
+					prefix close_after_fork w;
 					(w, Ok r)
 				)
-		| Fd fd -> (fd, no_fd name)
+		| Fd fd ->
+				(* assume passed FDs assume ownership, and should not outlive the process *)
+				prefix close_finally fd;
+				(fd, no_fd name)
 		| DevNull ->
 			let fd = Unix.openfile "/dev/null" [ O_RDWR] 0600 in
-			defer_close fd;
+			prefix close_after_fork fd;
 			(fd, no_fd name)
 	in
 	let (stdin_fd, proc_stdin) = mkfd "stdin" Unix.stdin stdin in
@@ -337,12 +343,21 @@ let run_cmd_full (type block_ret) (type ret)
 		stdout = proc_stdout;
 		stderr = proc_stderr;
 	} in
-	let cleanup () = !to_close |> List.iter Unix.close in
+	let cleanup ref =
+		let fds = !ref in
+		ref := [];
+		fds |> List.iter Unix.close
+	in
 	try
 		let pid = Unix.create_process (Array.get cmd 0) cmd stdin_fd stdout_fd stderr_fd in
-		cleanup ();
+		cleanup close_after_fork;
 		let block_result = block process in
 		let pid_result = Cmd.pid_result ~desc pid in
 		let result = collect block_result pid_result in
+		cleanup close_finally;
 		result
-	with e -> (cleanup (); raise e)
+	with e -> (
+		cleanup close_after_fork;
+		cleanup close_finally;
+		raise e
+	)
