@@ -18,7 +18,7 @@ type direct_package = {
 type loaded_package = {
 	opam: OPAM.t;
 	repository_expr: Opam_metadata.opam_src Lazy.t;
-	src_expr: (Nix_expr.t, Opam_metadata.checksum_mismatch) Result.t Lazy.t option;
+	src_expr: (Nix_expr.t, Digest_cache.error) Result.t Lazy.t option;
 	url: Opam_metadata.url option;
 }
 
@@ -145,11 +145,10 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 				| Some _ as url -> url
 				| None -> load_url (Filename.concat full_path "url")
 			in
-			(* TODO skip these packages instead of failing *)
 			urlfile |> Option.map url
 		) in
 		match url |> Option.sequence_result with
-			| Error (Unsupported_archive reason) ->
+			| Error (`unsupported_archive reason) ->
 				Util.debug "Skipping %s (Unsupported archive: %s)\n" (Repo.package_desc package) reason
 			| Ok url ->
 				let src_expr = url |> Option.map (fun url -> lazy (Opam_metadata.nix_of_url ~cache url)) in
@@ -341,29 +340,21 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 		let open Opam_metadata in
 		let { opam; url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
 
-		let expr : Nix_expr.t option = (
-			(* TODO, does this error handling make sense? *)
-			let ignore_broken_packages = ref false in
-			let handle_error desc e =
-				if !ignore_broken_packages then (
-					prerr_endline ("Warn: " ^ desc); None
-				) else raise e
-			in
-			src_expr |> Option.map Lazy.force |> Option.sequence_result |> Result.map (fun src_expr ->
-				(* TODO remove try/catch *)
-				try
-					(* TODO simplify args *)
-					Some (nix_of_opam ~deps ~pkg ~opam ~url
-						~src:src_expr
-						~opam_src:(Lazy.force repository_expr)
-						())
-				with
-				| Invalid_package desc as e -> handle_error ("Invalid package: " ^ desc) e
-				| Download.Download_failed url as e -> handle_error ("Download failed: " ^ url) e
-			) |> Result.get_exn (Opam_metadata.string_of_checksum_mismatch)
-		) in
-		match expr with None -> map | Some expr ->
-			AttrSet.add (OpamPackage.name pkg |> Name.to_string) expr map
+		let expr : Nix_expr.t = src_expr
+			|> Option.map Lazy.force
+			|> Option.sequence_result
+			|> Result.map (fun src_expr ->
+				(* TODO simplify args *)
+				nix_of_opam ~deps ~pkg ~opam ~url
+					~src:src_expr
+					~opam_src:(Lazy.force repository_expr)
+					()
+			) |> Result.get_exn (fun e ->
+				let url = Option.to_string Opam_metadata.string_of_url url in
+				Printf.sprintf "%s (%s)" (Digest_cache.string_of_error e) url
+			)
+		in
+		AttrSet.add (OpamPackage.name pkg |> Name.to_string) expr map
 	) new_packages AttrSet.empty in
 	(* mark base packages as present *)
 	let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in

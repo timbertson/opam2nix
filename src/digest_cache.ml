@@ -10,12 +10,16 @@ module StringSet = Set.Make(String)
 type key = string
 type nix_digest = [
 	| `sha256 of string
-	| `checksum_mismatch of string
 ]
-type checksum_result = [
-	| `ok
-	| `checksum_mismatch of string
+type checksum_mismatch = [ `checksum_mismatch of string ]
+type error = [
+	| checksum_mismatch
+	| Download.error
 ]
+let string_of_checksum_mismatch (`checksum_mismatch e) = "Checksum mismatch: " ^ e
+let string_of_error : error -> string = function
+	| `checksum_mismatch _ as e -> string_of_checksum_mismatch e
+	| `download_failed _ as e -> Download.string_of_error e
 type opam_digest = OpamHash.t
 
 type state = {
@@ -48,7 +52,6 @@ let value_of_json : JSON.t -> nix_digest option = function
 			| (Some "sha256", Some digest, None) | (None, Some digest, None) ->
 				(* assume sha256 *)
 				Some (`sha256 digest)
-			| (Some "checksum_mismatch", _, Some error) -> Some (`checksum_mismatch error)
 			| _other -> (
 				Printf.eprintf "Unknown digest value; ignoring: %s\n" (JSON.to_string (`Assoc properties));
 				None
@@ -56,12 +59,7 @@ let value_of_json : JSON.t -> nix_digest option = function
 	)
 	| other -> failwith ("Expected digest value to be an object, got " ^ (JSON.to_string other))
 
-let json_of_nix_digest = function
-	| `sha256 digest -> `Assoc [ "digest", `String digest ]
-	| `checksum_mismatch desc -> `Assoc [
-		"type", `String "checksum_mismatch";
-		"error", `String desc;
-	]
+let json_of_nix_digest (`sha256 digest) = `Assoc [ "digest", `String digest ]
 
 let key_of_opam_digest digest =
 	(digest |> OpamHash.kind |> OpamHash.string_of_kind |> String.lowercase_ascii)
@@ -147,17 +145,17 @@ let sha256_of_path p =
 		| lines -> failwith ("Unexpected nix-hash output:\n" ^ (String.concat "\n" lines))
 	) |> Lwt_main.run
 
-let check_digests (opam_digest:opam_digest list) path: checksum_result =
+let check_digests (opam_digest:opam_digest list) path: (unit, [> checksum_mismatch]) Result.t =
 	assert (opam_digest <> []);
 	let rec check = function
-		| [] -> `ok
+		| [] -> Ok ()
 		| digest :: digests -> (
 			match OpamHash.mismatch path digest with
-				| Some actual -> `checksum_mismatch (
+				| Some actual -> Error (`checksum_mismatch (
 					(OpamHash.to_string actual)
 					^ " did not match expected: "
 					^ (OpamHash.to_string digest)
-				)
+				))
 				| None -> check digests
 		)
 	in
@@ -167,7 +165,7 @@ let exists opam_digests cache : bool =
 	let keys = List.map key_of_opam_digest opam_digests in
 	List.exists (fun key -> Cache.mem key !cache.digests) keys
 
-let add url opam_digests cache : nix_digest =
+let add url opam_digests cache : (nix_digest, error) Result.t =
 	let digests = !cache.digests in
 	let keys = List.map key_of_opam_digest opam_digests in
 	let active = List.fold_left (fun set key -> StringSet.add key set) !cache.active keys in
@@ -187,18 +185,18 @@ let add url opam_digests cache : nix_digest =
 	match find_first keys with
 		| Some value -> (
 			update_cache value;
-			value
+			Ok value
 		)
 		| None -> (
 			let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
-			Download.fetch ~dest:dest_channel url;
-			let nix_digest = match check_digests opam_digests dest with
-				| `ok -> `sha256 (sha256_of_path dest)
-				| `checksum_mismatch desc -> `checksum_mismatch desc
-			in
-			update_cache nix_digest;
-			save cache;
-			nix_digest
+			Download.fetch ~dest:dest_channel url |> Result.bind (fun () ->
+				check_digests opam_digests dest
+			) |> Result.map (fun () ->
+				`sha256 (sha256_of_path dest)
+			) |> Result.tap (fun digest ->
+				update_cache digest;
+				save cache
+			)
 		)
 
 let gc cache =

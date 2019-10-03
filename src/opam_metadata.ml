@@ -9,6 +9,8 @@ module StringSetMap = OpamStd.String.SetMap
 type url = [
 	| `http of string * (Digest_cache.opam_digest list)
 ]
+let string_of_url : url -> string = function
+	| `http (url, _digest) -> url
 
 type url_type =
 	[ `http
@@ -17,12 +19,8 @@ type url_type =
 	| `hg
 	]
 
-type unsupported_archive = Unsupported_archive of string
-type checksum_mismatch = Checksum_mismatch of string
+type unsupported_archive = [ `unsupported_archive of string ]
 exception Invalid_package of string
-
-let string_of_checksum_mismatch (Checksum_mismatch desc) =
-	"Checksum mismatch: " ^ desc
 
 let var_prefix = "opam_var_"
 
@@ -230,20 +228,20 @@ let url urlfile: (url, unsupported_archive) Result.t =
 	let url_without_backend = OpamUrl.base_url url in
 	let checksums =
 		if checksums = [] then
-			Error (Unsupported_archive "Checksum required")
+			Error (`unsupported_archive "Checksum required")
 		else Ok checksums
 	in
 	match (backend, transport, hash) with
-	| `git, _, _ -> Error (Unsupported_archive "git")
-	| `darcs, _, _ -> Error (Unsupported_archive "darcs")
-	| `hg, _, _ -> Error (Unsupported_archive "hg")
+	| `git, _, _ -> Error (`unsupported_archive "git")
+	| `darcs, _, _ -> Error (`unsupported_archive "darcs")
+	| `hg, _, _ -> Error (`unsupported_archive "hg")
 
-	| `http, "file", None | `rsync, "file", None -> Error (Unsupported_archive "local path")
+	| `http, "file", None | `rsync, "file", None -> Error (`unsupported_archive "local path")
 	| `http, _, None -> checksums |> Result.map
 		(fun checksums -> `http (url_without_backend, checksums)) (* drop the VCS portion *)
-	| `http, _, Some _ -> Error (Unsupported_archive "http with fragment")
-	| `rsync, transport, None -> Error (Unsupported_archive ("rsync transport: " ^ transport))
-	| `rsync, _, Some _ -> Error (Unsupported_archive "rsync with fragment")
+	| `http, _, Some _ -> Error (`unsupported_archive "http with fragment")
+	| `rsync, transport, None -> Error (`unsupported_archive ("rsync transport: " ^ transport))
+	| `rsync, _, Some _ -> Error (`unsupported_archive "rsync with fragment")
 
 let load_url path =
 	if Sys.file_exists path then begin
@@ -261,25 +259,12 @@ let load_opam path =
 	close_in file;
 	OpamFormatUpgrade.opam_file rv
 
-let concat_address (addr, frag) =
-	match frag with
-		| Some frag -> addr ^ "#" ^ frag
-		| None -> addr
-
-let string_of_url url =
-	match url with
-		| `http addr -> addr
-		| `git addr -> "git:" ^ (concat_address addr)
-
-(* TODO remove offline option *)
-let nix_of_url ~cache (url:url) : (Nix_expr.t, checksum_mismatch) Result.t =
+let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t =
 	let open Nix_expr in
 	match url with
 		| `http (src, checksums) ->
-			let digest = Digest_cache.add src checksums cache in
-			(match digest with
-				| `sha256 sha256 -> Ok ("sha256", str sha256)
-				| `checksum_mismatch desc -> Error (Checksum_mismatch desc)
+			Digest_cache.add src checksums cache |> Result.map (function
+				| `sha256 sha256 -> "sha256", str sha256
 			) |> Result.map (fun digest ->
 				`Call [
 					`Lit "pkgs.fetchurl";

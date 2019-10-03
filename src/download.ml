@@ -1,11 +1,13 @@
-exception Download_failed of string
+type error = [ `download_failed of string ]
+let string_of_error (`download_failed desc) =
+	"Download failed: " ^ desc
 
-let fetch ~dest url =
+let fetch ~dest url : (unit, [> error] ) Result.t =
 	Curl.global_init Curl.CURLINIT_GLOBALALL;
 	let errbuf = ref "" in
 	Printf.eprintf " [ downloading %s ]\n" url;
 	flush stderr;
-	begin
+	let result = (
 		try
 			let connection = Curl.init () in
 			Curl.set_errorbuffer connection errbuf;
@@ -15,10 +17,12 @@ let fetch ~dest url =
 			Curl.set_followlocation connection true;
 			Curl.set_url connection url;
 			Curl.perform connection;
-			Curl.cleanup connection
+			Curl.cleanup connection;
+			Ok ()
 		with Curl.CurlException (_reason, _code, _str) ->
 			Printf.eprintf "Curl error: %s\n" !errbuf;
-			raise (Download_failed url)
-	end;
+			Error (`download_failed url)
+	) in
 	Curl.global_cleanup ();
-	close_out dest
+	close_out dest;
+	result
