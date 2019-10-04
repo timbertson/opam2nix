@@ -27,7 +27,7 @@ type loaded_package = {
 type external_constraints = {
 	repo_commit: string;
 	ocaml_version: Version.t;
-	repo_sha256: string;
+	repo_sha256: string MVar.t;
 }
 
 let repo_owner = "ocaml"
@@ -51,7 +51,7 @@ let nix_digest_of_path p =
 		let collector = Cmd.file_contents_in_bg (hash_proc.stdout |> Cmd.assert_fd) in
 		let stdout = Fd (hash_proc.stdin |> Cmd.assert_fd) in
 		Cmd.run_unit_exn ~print:false ~stdout [ "nix-store"; "--dump"; p ];
-		Cmd.join_bg collector
+		MVar.join collector
 	) hash_cmd in
 	"sha256:" ^ hash
 
@@ -221,7 +221,7 @@ let setup_repo ~update ~path ~commit : string =
 		Cmd.run_output_exn ~print (git ["rev-parse"; "HEAD"]) |> String.trim in
 	let fetch_into_head commit =
 		Cmd.run_unit_exn ~print ~stdout:DevNull ~stderr:DevNull (git ["fetch"; "--force"; repo_url]);
-		Cmd.run_unit_exn ~print ~stdout:DevNull (git ["reset"; "--hard"; commit]);
+		Cmd.run_unit_exn ~print ~stdout:DevNull ~stderr:DevNull (git ["reset"; "--hard"; commit]);
 		get_head_commit ()
 	in
 	(* TODO need to lock? ... *)
@@ -310,7 +310,7 @@ let setup_external_constraints
 	in
 	let repo_commit = setup_repo ~update ~path:opam_repo ~commit:repo_commit in
 	(* TODO this could return a temp dir which we use to avoid needing a lock on the repo *)
-	let repo_sha256 = nix_digest_of_git_repo opam_repo in
+	let repo_sha256 = MVar.spawn nix_digest_of_git_repo opam_repo in
 	{
 		repo_commit;
 		ocaml_version;
@@ -380,7 +380,7 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 					"owner", str repo_owner;
 					"repo", str repo_name;
 					"rev", `Id "opam-commit";
-					"sha256", str external_constraints.repo_sha256;
+					"sha256", str (MVar.join external_constraints.repo_sha256);
 				])
 			];
 		],

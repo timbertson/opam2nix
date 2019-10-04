@@ -18,3 +18,6 @@ let tap fn = function
 
 let get_exn to_s = function
 	| Ok x -> x | Error e -> failwith (to_s e)
+
+let or_raise = function
+	| Ok x -> x | Error e -> raise e

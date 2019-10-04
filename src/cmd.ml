@@ -1,3 +1,5 @@
+open Util
+
 module Types = struct
 	type command_failed = Command_failed of (int option * string)
 	type fd_spec = Inherit | Pipe | Fd of Unix.file_descr | DevNull
@@ -78,16 +80,7 @@ let stdout_contents proc =
 	file_contents (proc.stdout |> assert_fd)
 
 let file_contents_in_bg fd =
-	let result = ref "" in
-	let thread = Thread.create (fun () ->
-		result := file_contents fd
-	) () in
-	Internal.({ _th = thread; _result = result })
-
-let join_bg bg =
-	let open Internal in
-	Thread.join bg._th;
-	!(bg._result)
+	MVar.spawn file_contents fd
 
 let run (type block_ret) (type ret)
 	?(print=true)
