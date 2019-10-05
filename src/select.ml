@@ -27,7 +27,7 @@ type loaded_package = {
 type external_constraints = {
 	repo_commit: string;
 	ocaml_version: Version.t;
-	repo_sha256: string MVar.t;
+	repo_digest: Digest_cache.nix_digest MVar.t;
 }
 
 let repo_owner = "ocaml"
@@ -53,7 +53,7 @@ let nix_digest_of_path p =
 		Cmd.run_unit_exn ~print:false ~stdout [ "nix-store"; "--dump"; p ];
 		MVar.join collector
 	) hash_cmd in
-	"sha256:" ^ hash
+	`sha256 hash
 
 let unique_file_counter =
 	let state = ref 0 in
@@ -128,7 +128,8 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 	Repo.traverse ~repos (fun package ->
 		let full_path = Repo.package_path package in
 		let repository_expr = lazy (
-			let digest = nix_digest_of_path (Repo.package_path package) in
+			let digest = nix_digest_of_path (Repo.package_path package)
+				|> fun (`sha256 d) -> "sha256:" ^ d in
 			`Dir (Nix_expr.(`Call [
 				`Id "repoPath";
 				`Id "repo";
@@ -161,7 +162,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 			{
 				opam = package.direct_opam;
 				url = None;
-				src_expr = Some (Lazy.from_val (Ok (`Call [`Lit "self.directPackage"; name |> Name.to_string |> Nix_expr.str])));
+				src_expr = Some (Lazy.from_val (Ok (`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str])));
 				repository_expr = Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative));
 			}
 	);
@@ -243,7 +244,7 @@ let setup_repo ~update ~path ~commit : string =
 ;;
 
 let setup_external_constraints
-	~repo_commit ~detect_from ~ocaml_version ~opam_repo ~update : external_constraints =
+	~repo_commit ~detect_from ~ocaml_version ~opam_repo ~cache ~update : external_constraints =
 	let remove_quotes s = s
 		|> Str.global_replace (Str.regexp "\"") ""
 		|> String.trim
@@ -310,11 +311,20 @@ let setup_external_constraints
 	in
 	let repo_commit = setup_repo ~update ~path:opam_repo ~commit:repo_commit in
 	(* TODO this could return a temp dir which we use to avoid needing a lock on the repo *)
-	let repo_sha256 = MVar.spawn nix_digest_of_git_repo opam_repo in
+	let repo_digest =
+		let key = "git:" ^ repo_commit in
+		MVar.spawn (fun () ->
+			Digest_cache.add_custom cache ~keys:[key] (fun () ->
+				Printf.eprintf "Importing opam-repository %s into nix store...\n" repo_commit;
+				(* TODO should pobably put errors into Result.t *)
+				Ok (nix_digest_of_git_repo opam_repo)
+			) |> Result.get_exn Digest_cache.string_of_error
+		) ()
+	in
 	{
 		repo_commit;
 		ocaml_version;
-		repo_sha256;
+		repo_digest;
 	}
 ;;
 
@@ -366,6 +376,8 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 		"selection", `Attrs selection
 	] in
 
+	let sha256 = MVar.join external_constraints.repo_digest
+		|> fun (`sha256 x) -> x in
 	let expr : Nix_expr.t = `Function (
 		`Id "self",
 		`Let_bindings (AttrSet.build [
@@ -380,7 +392,7 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 					"owner", str repo_owner;
 					"repo", str repo_name;
 					"rev", `Id "opam-commit";
-					"sha256", str (MVar.join external_constraints.repo_sha256);
+					"sha256", str sha256;
 				])
 			];
 		],
@@ -467,12 +479,6 @@ let main ~update_opam idx args =
 	let opam_repo = Filename.concat config_base "opam-repository" in
 
 	let repo_commit = if !repo_commit = "" then None else Some !repo_commit in
-	let external_constraints = setup_external_constraints
-		~repo_commit
-		~detect_from
-		~opam_repo
-		~update:update_opam
-		~ocaml_version:!ocaml_version in
 
 	(* Note: seems to be unnecessary as of opam 2 *)
 	let base_packages = !base_packages |> Str.split (Str.regexp ",") in
@@ -487,6 +493,14 @@ let main ~update_opam idx args =
 			raise e
 		)
 	) in
+
+	let external_constraints = setup_external_constraints
+		~repo_commit
+		~detect_from
+		~opam_repo
+		~cache
+		~update:update_opam
+		~ocaml_version:!ocaml_version in
 
 	Printf.eprintf "Loading repository...\n"; flush stderr;
 	let (available_packages, universe) = build_universe

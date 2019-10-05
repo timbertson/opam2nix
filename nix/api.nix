@@ -25,8 +25,11 @@ rec {
 					then abort "Source for direct package `${name}` not provided in `src` argument"
 					else src;
 				getAttrOrNull = name: attrs: if hasAttr name attrs then getAttr name attrs else null;
+				isDrv = hasAttr "outPath"; # builtins.fetchgit isn't a true derivation but has outPath
 			in
-			nonNull (if isAttrs src && !(isDerivation attrs) then getAttrOrNull name src);
+			nonNull (if isAttrs src && !isDrv src
+				then getAttrOrNull name src
+				else src);
 
 		depFn = if isFunction deps then deps else import deps;
 		imported = let raw = depFn {

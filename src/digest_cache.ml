@@ -32,24 +32,22 @@ type t = state ref
 type value_partial = {
 	val_type: string option;
 	val_digest: string option;
-	val_error: string option;
 }
-let empty_partial = { val_type = None; val_digest = None; val_error = None }
+let empty_partial = { val_type = None; val_digest = None }
 
 let value_of_json : JSON.t -> nix_digest option = function
 	| `Assoc properties -> (
-		let {val_type; val_digest; val_error} = properties |> List.fold_left (fun partial item ->
+		let {val_type; val_digest} = properties |> List.fold_left (fun partial item ->
 			match item with
 				| ("type", `String t) -> { partial with val_type = Some t }
 				| ("digest", `String t) -> { partial with val_digest = Some t }
-				| ("error", `String t) -> { partial with val_error = Some t }
 				| (other, _) -> (
 					Printf.eprintf "warn: skipping unknown key: %s\n" other;
 					partial
 				)
 		) empty_partial in
-		match (val_type, val_digest, val_error) with
-			| (Some "sha256", Some digest, None) | (None, Some digest, None) ->
+		match (val_type, val_digest) with
+			| (Some "sha256", Some digest) | (None, Some digest) ->
 				(* assume sha256 *)
 				Some (`sha256 digest)
 			| _other -> (
@@ -165,9 +163,8 @@ let exists opam_digests cache : bool =
 	let keys = List.map key_of_opam_digest opam_digests in
 	List.exists (fun key -> Cache.mem key !cache.digests) keys
 
-let add url opam_digests cache : (nix_digest, error) Result.t =
+let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Result.t) : (nix_digest, error) Result.t =
 	let digests = !cache.digests in
-	let keys = List.map key_of_opam_digest opam_digests in
 	let active = List.fold_left (fun set key -> StringSet.add key set) !cache.active keys in
 	let rec find_first = function
 		| [] -> None
@@ -188,16 +185,22 @@ let add url opam_digests cache : (nix_digest, error) Result.t =
 			Ok value
 		)
 		| None -> (
-			let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
-			Download.fetch ~dest:dest_channel url |> Result.bind (fun () ->
-				check_digests opam_digests dest
-			) |> Result.map (fun () ->
-				`sha256 (sha256_of_path dest)
-			) |> Result.tap (fun digest ->
+			block () |> Result.tap (fun digest ->
 				update_cache digest;
 				save cache
 			)
 		)
+
+let add url opam_digests cache : (nix_digest, error) Result.t =
+	let keys = List.map key_of_opam_digest opam_digests in
+	add_custom cache ~keys (fun () ->
+		let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
+		Download.fetch ~dest:dest_channel url |> Result.bind (fun () ->
+			check_digests opam_digests dest
+		) |> Result.map (fun () ->
+			`sha256 (sha256_of_path dest)
+		)
+	)
 
 let gc cache =
 	let { digests; active; _ } = !cache in

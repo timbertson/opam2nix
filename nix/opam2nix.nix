@@ -5,7 +5,7 @@ let
 version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
 self = stdenv.mkDerivation {
 	name = "opam2nix-${version}";
-	src = null;
+	src = ../.;
 	buildPhase = "gup release";
 	installPhase = ''
 		mkdir $out
@@ -18,13 +18,15 @@ self = stdenv.mkDerivation {
 	passthru = {
 		format_version = import ./format_version.nix;
 		devInputs = [ utop ];
-		api = callPackage ./api.nix { opam2nix = self; };
+		api = args: callPackage ./api.nix ({ opam2nix = self; } // args);
 	};
 	buildInputs = [
 		ocaml
 		findlib
 		opam-solver
 		opam-state
+		opam-installer
+		nix
 		ocaml_lwt
 		ocurl
 		yojson

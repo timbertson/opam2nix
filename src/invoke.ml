@@ -181,8 +181,17 @@ let apply_patches env =
 	let opam = env.opam in
 	let filter_env = Vars.lookup env.vars in
 
-	(* Substitute the patched files.*)
 	let patches = OpamFile.OPAM.patches opam in
+
+	let subst_patches, subst_others =
+	List.partition (fun f -> List.mem_assq f patches)
+		(OpamFile.OPAM.substs opam)
+  in
+
+	let apply_substs path =
+		Printf.eprintf "Applying substitutions to: %s\n" (OpamFilename.Base.to_string path);
+		OpamFilter.expand_interpolations_in_file (filter_env) path
+	in
 
 	let iter_patches f =
 		List.fold_left (fun acc (base, filter) ->
@@ -194,6 +203,8 @@ let apply_patches env =
 			if OpamFilter.opt_eval_to_bool (filter_env) filter
 			then (
 				Printf.eprintf "applying patch: %s\n" filename_str;
+				if List.mem base subst_patches
+					then apply_substs base;
 				let result = try f filename_str with e -> Some e in
 				match result with
 					| Some (e: exn) -> fail e
@@ -205,15 +216,6 @@ let apply_patches env =
 			)
 		) [] patches in
 
-	let all = OpamFile.OPAM.substs opam in
-	let patches =
-		OpamStd.List.filter_map (fun (f,_) ->
-			if List.mem f all then Some f else None
-		) patches in
-	List.iter
-		(OpamFilter.expand_interpolations_in_file (filter_env))
-		patches;
-
 	(* Apply the patches *)
 	let patching_errors =
 		iter_patches (fun filename ->
@@ -221,21 +223,16 @@ let apply_patches env =
 		)
 	in
 
-	(* Substitute the configuration files. We should be in the right
-		 directory to get the correct absolute path for the
-		 substitution files (see [substitute_file] and
-		 [OpamFilename.of_basename]. *)
-	List.iter
-		(OpamFilter.expand_interpolations_in_file (filter_env))
-		(OpamFile.OPAM.substs opam);
-
 	if patching_errors <> [] then (
 		let msg =
 			Printf.sprintf "These patches didn't apply:\n%s"
 				(OpamStd.Format.itemize (fun x -> x) patching_errors)
 		in
 		failwith msg
-	)
+	);
+
+	(* Apply remaining substitutions *)
+	List.iter apply_substs subst_others
 
 let binDir dest =
 	let open OpamFilename.Op in
