@@ -6,11 +6,6 @@ let
 	isPseudo = impl: elem (typeOf impl) ["null" "bool"];
 	nonPseudoList = filter (impl: !isPseudo impl);
 	nonPseudoAttrs = filterAttrs (name: impl: !isPseudo impl);
-	# TODO this is a weird API
-	overrides = {
-		"0install" = super:
-			if super.version == "123" then super.overrideAttrs (o: { }) else super;
-	};
 	# TODO: add a pseudo package that adds deps to ocamlpath etc
 	noopOverride = {}: {};
 in
@@ -31,13 +26,15 @@ rec {
 				then getAttrOrNull name src
 				else src);
 
+		self = {
+			inherit lib pkgs repoPath selection directSrc;
+		};
+
 		depFn = if isFunction deps then deps else import deps;
-		imported = let raw = depFn {
-				inherit lib pkgs repoPath selection directSrc;
-			}; in
+		imported = let raw = depFn self; in
 			if raw.ocaml-version != ocaml.version then
 				abort ("Dependencies were selected for ocaml version ${raw.ocaml-version}" +
-					"but we are building with ${ocaml.version}")
+					" but we are building with ${ocaml.version}")
 			else raw;
 
 		repoPath = repo: { package, hash }:
@@ -51,7 +48,7 @@ rec {
 			};
 
 		invoke = "${opam2nix}/bin/opam2nix invoke";
-		builtSelection = mapAttrs (name: args:
+		builtSelection = ({ inherit ocaml; }) // (mapAttrs (name: args:
 		if isPseudo args then args else stdenv.mkDerivation (
 			{
 				inherit (args) pname version src;
@@ -76,7 +73,7 @@ rec {
 			}
 			// (if args.src == null then { unpackPhase = "true"; } else {})
 			// (args.drvAttrs or {})
-		)) imported.selection;
+		)) imported.selection);
 
 		initOverride = pkgs.newScope { inherit opam2nix selection; };
 
@@ -92,7 +89,7 @@ rec {
 			applyOverride ./overrides builtSelection
 		);
 		in
-		nonPseudoAttrs builtSelection;
+		nonPseudoAttrs selection;
 
 	buildInputs = args: attrValues (build args);
 }
