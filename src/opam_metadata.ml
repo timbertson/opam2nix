@@ -254,10 +254,11 @@ let load_url path =
 let load_opam path =
 	(* Printf.eprintf "  Loading opam info from %s\n" path; *)
 	if not (Sys.file_exists path) then raise (Invalid_package ("No opam file at " ^ path));
-	let file = open_in path in
-	let rv = OPAM.read_from_channel file in
-	close_in file;
-	OpamFormatUpgrade.opam_file rv
+	let open OpamFilename in
+	(* TODO could pass this in if we want to embrace OpamFilename more fully *)
+	let path = OpamFilename.create (Dir.of_string (Filename.dirname path)) (Base.of_string (Filename.basename path)) in
+	let path = OpamFile.make path in
+	OPAM.read path |> OpamFormatUpgrade.opam_file
 
 let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t =
 	let open Nix_expr in

@@ -346,6 +346,8 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 	let deps = new Opam_metadata.dependency_map in
 	let open Nix_expr in
 
+	(* prime base packages *)
+	let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages AttrSet.empty in
 	let selection = OpamPackage.Set.fold (fun pkg map ->
 		let open Opam_metadata in
 		let { opam; url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
@@ -365,9 +367,7 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 			)
 		in
 		AttrSet.add (OpamPackage.name pkg |> Name.to_string) expr map
-	) new_packages AttrSet.empty in
-	(* mark base packages as present *)
-	let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages selection in
+	) new_packages selection in
 
 	let attrs = [
 		"format-version", `Int 4;
