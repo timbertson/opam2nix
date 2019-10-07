@@ -252,7 +252,7 @@ let load_url path =
 	end else None
 
 let load_opam path =
-	(* Printf.eprintf "  Loading opam info from %s\n" path; *)
+	Util.debug "Loading opam file: %s\n" path;
 	if not (Sys.file_exists path) then raise (Invalid_package ("No opam file at " ^ path));
 	let open OpamFilename in
 	(* TODO could pass this in if we want to embrace OpamFilename more fully *)

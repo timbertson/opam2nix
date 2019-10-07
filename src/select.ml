@@ -436,8 +436,13 @@ let main ~update_opam idx args =
 	in
 
 	if !packages = [] then failwith "At least one package required";
-	let (repo_packages, direct_packages) = List.partition (fun pkg ->
-		not (is_likely_path pkg && Sys.file_exists pkg)
+	let (direct_packages, repo_packages) = List.partition (fun pkg ->
+		is_likely_path pkg && (
+			let file_exists = Sys.file_exists pkg in
+			if not file_exists then
+				Printf.eprintf "Warn: %s looks like a path but does not exist on disk\n" pkg;
+			file_exists
+		)
 	) !packages in
 	let dest = !dest in
 	let detect_from = match !detect_from with "" -> dest | other -> other in
@@ -461,6 +466,7 @@ let main ~update_opam idx args =
 
 	let requested_packages : OpamFormula.atom list = repo_packages |> List.map (fun spec ->
 		let relop_re = Str.regexp "[!<=>]+" in
+		Util.debug "Parsing spec %s\n" spec;
 		match Str.full_split relop_re spec with
 			| [Str.Text name; Str.Delim relop; Str.Text ver] ->
 				let relop = OpamLexer.relop relop in
