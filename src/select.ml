@@ -168,6 +168,8 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 	);
 
 	let available_packages = !available_packages in
+	Printf.eprintf "Loaded %d packages\n" (OpamPackage.Map.cardinal available_packages);
+
 	let base_packages = ("ocaml" :: base_packages)
 		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
 		|> OpamPackage.Set.of_list
@@ -517,7 +519,6 @@ let main ~update_opam idx args =
 		~direct_packages
 		() in
 	if Util.verbose () then print_universe stderr universe;
-	(* let request = OpamSolver.request ~install:requested_packages in *)
 	let request = {
 		wish_install = requested_packages;
 		wish_remove = [];
