@@ -80,7 +80,7 @@ let nix_digest_of_git_repo p =
 		ret
 	with e -> (cleanup (); raise e)
 
-let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages ~requested_packages () =
+let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages () =
 	let available_packages = ref OpamPackage.Map.empty in
 
 	let global_vars = Opam_metadata.init_variables () in
@@ -125,22 +125,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 		)
 	in
 
-	direct_packages |> List.iter (fun package ->
-		let name = package.direct_name in
-		let version = package.direct_version |> Option.default (Version.of_string "development") in
-		add_package ~package:(OpamPackage.create name version)
-			{
-				opam = package.direct_opam;
-				url = None;
-				src_expr = Some (Lazy.from_val (Ok (`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str])));
-				repository_expr = Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative));
-			}
-	);
-
-	Repo.traverse_directed ~repos
-		~opams:(direct_packages |> List.map (fun pkg -> pkg.direct_opam))
-		~names:requested_packages
-	(fun package ->
+	Repo.traverse ~repos (fun package ->
 		let full_path = Repo.package_path package in
 		let repository_expr = lazy (
 			let digest = nix_digest_of_path (Repo.package_path package)
@@ -154,7 +139,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 				])
 			]))
 		) in
-		let opam = package.opam in
+		let opam = Opam_metadata.load_opam (Filename.concat full_path "opam") in
 		let url = (
 			let open Opam_metadata in
 			let urlfile = match OPAM.url opam with
@@ -170,6 +155,18 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 				let src_expr = url |> Option.map (fun url -> lazy (Opam_metadata.nix_of_url ~cache url)) in
 				add_package ~package:package.package { opam; url; src_expr; repository_expr }
 	);
+	direct_packages |> List.iter (fun package ->
+		let name = package.direct_name in
+		let version = package.direct_version |> Option.default (Version.of_string "development") in
+		add_package ~package:(OpamPackage.create name version)
+			{
+				opam = package.direct_opam;
+				url = None;
+				src_expr = Some (Lazy.from_val (Ok (`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str])));
+				repository_expr = Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative));
+			}
+	);
+
 	let available_packages = !available_packages in
 	Printf.eprintf "Loaded %d packages\n" (OpamPackage.Map.cardinal available_packages);
 
@@ -520,7 +517,6 @@ let main ~update_opam idx args =
 		~ocaml_version:external_constraints.ocaml_version
 		~cache
 		~direct_packages
-		~requested_packages:(requested_packages |> List.map (fun (name, _) -> name))
 		() in
 	if Util.verbose () then print_universe stderr universe;
 	let request = {
