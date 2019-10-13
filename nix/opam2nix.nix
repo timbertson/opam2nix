@@ -15,11 +15,15 @@ self = stdenv.mkDerivation {
 			--prefix PATH : "${nix.out}/bin" \
 		;
 	'';
-	passthru = {
+	passthru = let
+		makeApi = args: callPackage ./api.nix ({ opam2nix = self; } // args);
+		defaultApi = makeApi {};
+	in ({
 		format_version = import ./format_version.nix;
 		devInputs = [ utop ];
-		api = args: callPackage ./api.nix ({ opam2nix = self; } // args);
-	};
+		# expose ability to re-make API with nondefault params
+		api = makeApi;
+	}) // defaultApi;
 	buildInputs = [
 		ocaml
 		findlib
