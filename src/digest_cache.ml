@@ -1,4 +1,3 @@
-(* TODO: store in ~/.cache/opam2nix/digest *)
 module JSON = Yojson.Basic
 open Util
 

@@ -27,7 +27,6 @@ let package_path pkg = Filename.concat pkg.repo_base pkg.path
 
 let package_desc pkg = OpamPackage.to_string pkg.package
 
-(* TODO: pass in a list of package names, and use that to load only transitive dependencies *)
 let traverse ~repos (emit: package -> unit) =
 	let version_sep = "." in
 	let version_join package version =

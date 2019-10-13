@@ -318,7 +318,6 @@ let setup_external_constraints
 		MVar.spawn (fun () ->
 			Digest_cache.add_custom cache ~keys:[key] (fun () ->
 				Printf.eprintf "Importing opam-repository %s into nix store...\n" repo_commit;
-				(* TODO should pobably put errors into Result.t *)
 				Ok (nix_digest_of_git_repo opam_repo)
 			) |> Result.get_exn Digest_cache.string_of_error
 		) ()
@@ -358,7 +357,6 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 			|> Option.map Lazy.force
 			|> Option.sequence_result
 			|> Result.map (fun src_expr ->
-				(* TODO simplify args *)
 				nix_of_opam ~deps ~pkg ~opam ~url
 					~src:src_expr
 					~opam_src:(Lazy.force repository_expr)
@@ -517,7 +515,7 @@ let main ~update_opam idx args =
 
 	Printf.eprintf "Loading repository...\n"; flush stderr;
 	let (available_packages, universe) = build_universe
-		~repos:[opam_repo] (* TODO custom repos? *)
+		~repos:[opam_repo]
 		~base_packages
 		~ocaml_version:external_constraints.ocaml_version
 		~cache

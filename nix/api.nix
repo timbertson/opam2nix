@@ -6,11 +6,14 @@ let
 	isPseudo = impl: elem (typeOf impl) ["null" "bool"];
 	nonPseudoList = filter (impl: !isPseudo impl);
 	nonPseudoAttrs = filterAttrs (name: impl: !isPseudo impl);
-	# TODO: add a pseudo package that adds deps to ocamlpath etc
 	noopOverride = {}: {};
 in
 rec {
-	build = { deps, ocaml, override ? noopOverride, src ? false }: let
+	build = { deps, ocaml,
+		override ? noopOverride,
+		builtinOverride ? ./overrides,
+		src ? false
+	}: let
 		# src can either be a plain attribute set, in which case we lookup each
 		# direct source by name. If it's a plain object (path or derivation),
 		# we use it for all (presumably just one) direct sources.
@@ -57,7 +60,6 @@ rec {
 					nonPseudoList ((args.buildInputs or []) ++ (attrValues args.opamInputs))
 				);
 				prePatch = "${invoke} patch";
-				# TODO handle zip / tgz unpack?
 				buildPhase = "${invoke} build";
 				configurePhase = "true";
 				installPhase = "${invoke} install";
