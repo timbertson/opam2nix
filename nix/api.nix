@@ -1,4 +1,4 @@
-{ lib, stdenv, pkgs, opam2nix }:
+{ lib, stdenv, pkgs, makeSetupHook, opam2nix }:
 
 with builtins;
 with lib;
@@ -10,19 +10,19 @@ let
 	noopOverride = {}: {};
 in
 rec {
-	build = { deps, ocaml, override ? noopOverride, src ? null }: let
+	build = { deps, ocaml, override ? noopOverride, src ? false }: let
 		# src can either be a plain attribute set, in which case we lookup each
 		# direct source by name. If it's a plain object (path or derivation),
 		# we use it for all (presumably just one) direct sources.
 		directSrc = name:
 			let
-				nonNull = src: if src == null
+				validate = src: if src == false
 					then abort "Source for direct package `${name}` not provided in `src` argument"
 					else src;
 				getAttrOrNull = name: attrs: if hasAttr name attrs then getAttr name attrs else null;
 				isDrv = hasAttr "outPath"; # builtins.fetchgit isn't a true derivation but has outPath
 			in
-			nonNull (if isAttrs src && !isDrv src
+			validate (if isAttrs src && !isDrv src
 				then getAttrOrNull name src
 				else src);
 
@@ -47,12 +47,13 @@ rec {
 				'';
 			};
 
+		opam2nixHooks = makeSetupHook { name = "ocaml-path-hooks"; } ./overrides/path-hooks.sh;
 		invoke = "${opam2nix}/bin/opam2nix invoke";
 		builtSelection = ({ inherit ocaml; }) // (mapAttrs (name: args:
 		if isPseudo args then args else stdenv.mkDerivation (
 			{
 				inherit (args) pname version src;
-				propagatedBuildInputs = [ocaml opam2nix] ++ (
+				propagatedBuildInputs = [ocaml opam2nix opam2nixHooks] ++ (
 					nonPseudoList ((args.buildInputs or []) ++ (attrValues args.opamInputs))
 				);
 				prePatch = "${invoke} patch";

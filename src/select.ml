@@ -80,7 +80,7 @@ let nix_digest_of_git_repo p =
 		ret
 	with e -> (cleanup (); raise e)
 
-let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages () =
+let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitions () =
 	let available_packages = ref OpamPackage.Map.empty in
 
 	let global_vars = Opam_metadata.init_variables () in
@@ -155,7 +155,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_packages 
 				let src_expr = url |> Option.map (fun url -> lazy (Opam_metadata.nix_of_url ~cache url)) in
 				add_package ~package:package.package { opam; url; src_expr; repository_expr }
 	);
-	direct_packages |> List.iter (fun package ->
+	direct_definitions |> List.iter (fun package ->
 		let name = package.direct_name in
 		let version = package.direct_version |> Option.default (Version.of_string "development") in
 		add_package ~package:(OpamPackage.create name version)
@@ -418,6 +418,7 @@ let main ~update_opam idx args =
 	let ocaml_version = ref "" in
 	let base_packages = ref "" in
 	let repo_commit = ref "" in
+	let direct_definitions = ref [] in
 	let opts = Arg.align [
 		("--repo-commit", Arg.Set_string repo_commit, "Repository commit, default " ^
 			(if update_opam then "update and use origin/HEAD" else "extract from DEST, otherwise current HEAD"));
@@ -425,6 +426,7 @@ let main ~update_opam idx args =
 		("--from", Arg.Set_string detect_from, "Use instead of DEST as existing nix file (for commit / version detection)");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version, default extract from DEST, falling back to current nixpkgs.ocaml version");
 		("--base-packages", Arg.Set_string base_packages, "Available base packages (comma-separated, not typically necessary)");
+		("--define", Arg.String (fun x -> direct_definitions := x :: !direct_definitions), "Define an .opam package without necessarily installing it");
 		("--verbose", Arg.Set Util._verbose, "Verbose");
 		("-v", Arg.Set Util._verbose, "Verbose");
 	]; in
@@ -438,7 +440,7 @@ let main ~update_opam idx args =
 	in
 
 	if !packages = [] then failwith "At least one package required";
-	let (direct_packages, repo_packages) = List.partition (fun pkg ->
+	let (direct_requests, repo_packages) = List.partition (fun pkg ->
 		is_likely_path pkg && (
 			let file_exists = Sys.file_exists pkg in
 			if not file_exists then
@@ -449,14 +451,14 @@ let main ~update_opam idx args =
 	let dest = !dest in
 	let detect_from = match !detect_from with "" -> dest | other -> other in
 
-	let direct_packages = direct_packages |> List.map (fun p ->
+	let load_direct = fun path ->
 		let open OPAM in
-		let opam_filename = Filename.basename p in
-		let opam = Opam_metadata.load_opam p in
+		let opam_filename = Filename.basename path in
+		let opam = Opam_metadata.load_opam path in
 		let name = opam.name |> Option.default_fn (fun () ->
 			match String.split_on_char '.' opam_filename with
 				| [ name; "opam" ] -> Name.of_string name
-				| _ -> failwith ("Can't determine name of package in " ^ p)
+				| _ -> failwith ("Can't determine name of package in " ^ path)
 		) in
 		{
 			direct_name = name;
@@ -464,7 +466,10 @@ let main ~update_opam idx args =
 			direct_opam = opam;
 			direct_opam_relative = opam_filename;
 		}
-	) in
+	in
+
+	let direct_requests = direct_requests |> List.map load_direct in
+	let direct_definitions = direct_requests @ (!direct_definitions |> List.map load_direct) in
 
 	let requested_packages : OpamFormula.atom list = repo_packages |> List.map (fun spec ->
 		let relop_re = Str.regexp "[!<=>]+" in
@@ -477,7 +482,7 @@ let main ~update_opam idx args =
 			| [Str.Text name] -> (OpamPackage.Name.of_string name, None)
 			| _ -> failwith ("Invalid version spec: " ^ spec)
 	) in
-	let requested_packages = requested_packages @ (direct_packages |> List.map (fun package ->
+	let requested_packages = requested_packages @ (direct_requests |> List.map (fun package ->
 		(package.direct_name, package.direct_version |> Option.map (fun v -> `Eq, v))
 	)) in
 	let package_names : OpamPackage.Name.t list = requested_packages |> List.map (fun (name, _) -> name) in
@@ -516,7 +521,7 @@ let main ~update_opam idx args =
 		~base_packages
 		~ocaml_version:external_constraints.ocaml_version
 		~cache
-		~direct_packages
+		~direct_definitions
 		() in
 	if Util.verbose () then print_universe stderr universe;
 	let request = {
