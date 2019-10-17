@@ -9,7 +9,7 @@ let
 	noopOverride = {}: {};
 in
 rec {
-	build = { deps, ocaml,
+	build = { selection, ocaml,
 		override ? noopOverride,
 		builtinOverride ? ./overrides,
 		src ? false
@@ -33,7 +33,7 @@ rec {
 			inherit lib pkgs repoPath selection directSrc;
 		};
 
-		depFn = if isFunction deps then deps else import deps;
+		depFn = if isFunction selection then selection else import selection;
 		imported = let raw = depFn self; in
 			if raw.ocaml-version != ocaml.version then
 				abort ("Dependencies were selected for ocaml version ${raw.ocaml-version}" +

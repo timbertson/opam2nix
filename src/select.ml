@@ -209,7 +209,7 @@ let newer_versions available pkg =
 		OpamPackage.Version.compare (OpamPackage.version a) (OpamPackage.version b)
 	)
 
-let setup_repo ~update ~path ~commit : string =
+let setup_repo ~path ~commit : string =
 	let open Util in
 	let print = false in
 	let git args = ["git"; "-C"; path ] @ args in
@@ -236,17 +236,14 @@ let setup_repo ~update ~path ~commit : string =
 						Cmd.run_unit_exn ~print (git ["reset"; "--hard"; commit]);
 						commit
 					) else fetch_into_head commit
-			| None ->
-				if update
-					then fetch_into_head origin_head
-					else get_head_commit ()
+			| None -> fetch_into_head origin_head
 	in
 	if not (Sys.file_exists path) then clone_repo ();
 	update_repo ()
 ;;
 
 let setup_external_constraints
-	~repo_commit ~detect_from ~ocaml_version ~opam_repo ~cache ~update : external_constraints =
+	~repo_commit ~detect_from ~ocaml_version ~opam_repo ~cache : external_constraints =
 	let remove_quotes s = s
 		|> Str.global_replace (Str.regexp "\"") ""
 		|> String.trim
@@ -258,32 +255,25 @@ let setup_external_constraints
 		|> Option.map remove_quotes
 	in
 
-	let detected_commit_and_ocaml_version = lazy (
+	let detected_ocaml_version = lazy (
 		if Sys.file_exists detect_from then (
-			Util.debug "detecting commit and version from %s\n" detect_from;
+			Util.debug "detecting ocaml version from %s\n" detect_from;
 			let fullpath = if Filename.is_relative detect_from
 				then Filename.concat (Unix.getcwd ()) detect_from
 				else detect_from
 			in
 			Cmd.run_output_opt ~print:false
-				[ "nix-instantiate"; "--eval"; "--expr" ; "with (import \"" ^ fullpath ^ "\" {}); \"${opam-commit} ${ocaml-version}\"" ]
+				[ "nix-instantiate"; "--eval"; "--expr" ; "with (import \"" ^ fullpath ^ "\" {}); ocaml-version" ]
 				|> Option.map (fun str -> str
 					|> remove_quotes
-					|> String.split_on_char ' '
-				) |> Option.bind (function
-					| [ commit; version ] -> Some (commit, version)
-					| other -> (
-						Printf.eprintf "Can't parse commit and version: %s\n" (String.concat " " other);
-						None
-					)
 				)
 		) else None
 	) in
 
 	let ocaml_version = Version.of_string (match ocaml_version with
 		| "" -> (
-			match Lazy.force detected_commit_and_ocaml_version with
-				| Some (_commit, version) -> (
+			match Lazy.force detected_ocaml_version with
+				| Some version -> (
 					Printf.eprintf "Detected ocaml version %s\n" version;
 					version
 				)
@@ -295,23 +285,7 @@ let setup_external_constraints
 		| version -> version
 	) in
 
-	let repo_commit = match (repo_commit, update) with
-		| (None, false) -> (
-				(* If we're not updating and we haven't been given a commit, try to
-				 * detect it from the exising `detect_from` *)
-				match Lazy.force detected_commit_and_ocaml_version with
-					| Some (commit, _) -> (
-						Printf.eprintf "Detected opam-repository commit %s from %s\n" commit detect_from;
-						Some commit
-					)
-					| None -> (
-						Printf.eprintf "Unable to detect existing commit from %s\n" detect_from;
-						None
-					)
-			)
-		| (provided, _) -> provided
-	in
-	let repo_commit = setup_repo ~update ~path:opam_repo ~commit:repo_commit in
+	let repo_commit = setup_repo ~path:opam_repo ~commit:repo_commit in
 	(* TODO this could return a temp dir which we use to avoid needing a lock on the repo *)
 	let repo_digest =
 		let key = "git:" ^ repo_commit in
@@ -410,16 +384,15 @@ let is_likely_path p =
 	String.contains p '.' &&
 	Str.string_match (Str.regexp ".*opam$") p 0
 
-let main ~update_opam idx args =
-	let dest = ref "opam-packages.nix" in
+let main idx args =
+	let dest = ref "opam-selection.nix" in
 	let detect_from = ref "" in
 	let ocaml_version = ref "" in
 	let base_packages = ref "" in
-	let repo_commit = ref "" in
+	let repo_commit = ref (try Unix.getenv "OPAM_REPO_COMMIT" with Not_found -> "") in
 	let direct_definitions = ref [] in
 	let opts = Arg.align [
-		("--repo-commit", Arg.Set_string repo_commit, "Repository commit, default " ^
-			(if update_opam then "update and use origin/HEAD" else "extract from DEST, otherwise current HEAD"));
+		("--repo-commit", Arg.Set_string repo_commit, "Repository commit, default will fetch and use origin/HEAD");
 		("--dest", Arg.Set_string dest, "Destination .nix file (default " ^ !dest ^ ")");
 		("--from", Arg.Set_string detect_from, "Use instead of DEST as existing nix file (for commit / version detection)");
 		("--ocaml-version", Arg.Set_string ocaml_version, "Target ocaml version, default extract from DEST, falling back to current nixpkgs.ocaml version");
@@ -510,7 +483,6 @@ let main ~update_opam idx args =
 		~detect_from
 		~opam_repo
 		~cache
-		~update:update_opam
 		~ocaml_version:!ocaml_version in
 
 	Printf.eprintf "Loading repository...\n"; flush stderr;

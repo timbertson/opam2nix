@@ -4,8 +4,7 @@ open Util
 
 let commands : (string * (int -> string array -> unit)) list = [
 	"invoke", Invoke.main;
-	"resolve", Select.main ~update_opam:false;
-	"update", Select.main ~update_opam:true;
+	"resolve", Select.main;
 	"version", Version.main;
 ]
 
