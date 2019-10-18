@@ -1,12 +1,14 @@
 The examples show some concrete uses of `opam2nix`, and should be buildable as long as you have a recent `nixpkgs`.
 
-# Scenario 1. [opam-dependencies](./opam-dependencies)
+# Scenario 1. [simple](./simple)
 
-This is when your dependencies are in OPAM (and possibly nix), but you just want to build some software in nix. This is fairly straightforward, you can just use `opam2nix` to provide some dependencies in an otherwise standard nix derivation.
+The simple use case is where all dependencies are in OPAM, you just want to build them via nix.
 
 # Scenario 2. [opam-library](./opam-library)
 
-This is when you are developing an ocaml library / application (i.e. an `.opam` file is sufficient to describe your software), and you want to use `opam2nix` to build it.
+If you're developing more complex software, you may need to integrate ocaml dependencies from outside the official opam repository.
+
+This example uses the `vdoml` library, which is not in the opam repositories.
 
 ### Layout
 
