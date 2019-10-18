@@ -30,14 +30,15 @@ rec {
 				else src);
 
 		self = {
-			inherit lib pkgs repoPath selection directSrc;
+			inherit lib pkgs repoPath directSrc;
+			selection = finalSelection;
 		};
 
 		depFn = if isFunction selection then selection else import selection;
 		imported = let raw = depFn self; in
 			if raw.ocaml-version != ocaml.version then
-				abort ("Dependencies were selected for ocaml version ${raw.ocaml-version}" +
-					" but we are building with ${ocaml.version}")
+				warn ("Dependencies were selected for ocaml version ${raw.ocaml-version}" +
+					" but you are building with ${ocaml.version}") raw
 			else raw;
 
 		repoPath = repo: { package, hash }:
@@ -49,6 +50,19 @@ rec {
 					cp -r "${repo}/${package}" "$out";
 				'';
 			};
+
+		initOverride = pkgs.newScope {
+			inherit opam2nix;
+			selection = finalSelection;
+		};
+
+		applyOverride = override: selection:
+			let overrideAttrs = initOverride override {}; in
+			mapAttrs (name: base:
+			if hasAttr name overrideAttrs
+				then (getAttr name overrideAttrs) base
+				else base
+			) selection;
 
 		opam2nixHooks = makeSetupHook { name = "ocaml-path-hooks"; } ./overrides/path-hooks.sh;
 		invoke = "${opam2nix}/bin/opam2nix invoke";
@@ -78,21 +92,11 @@ rec {
 			// (args.drvAttrs or {})
 		)) imported.selection);
 
-		initOverride = pkgs.newScope { inherit opam2nix selection; };
-
-		applyOverride = override: selection:
-			let overrideAttrs = initOverride override {}; in
-			mapAttrs (name: base:
-			if hasAttr name overrideAttrs
-				then (getAttr name overrideAttrs) base
-				else base
-			) selection;
-
-		selection = applyOverride override (
+		finalSelection = applyOverride override (
 			applyOverride ./overrides builtSelection
 		);
 		in
-		nonPseudoAttrs selection;
+		nonPseudoAttrs finalSelection;
 
 	buildInputs = args: attrValues (build args);
 }
