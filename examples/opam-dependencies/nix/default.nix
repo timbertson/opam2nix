@@ -5,7 +5,7 @@ stdenv.mkDerivation {
 	src = ../.;
 	buildInputs = opam2nix.buildInputs {
 		ocaml = pkgs.ocaml-ng.ocamlPackages_4_08.ocaml;
-		deps = ../opam-packages.nix;
+		selection = ../opam-selection.nix;
 	};
 	buildPhase = ''
 		ocamlbuild -use-ocamlfind hello.native

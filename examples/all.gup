@@ -1,0 +1,8 @@
+#!/bin/bash
+set -eu
+here="$(dirname "$0")"
+cd "$here"
+find * -maxdepth 0 -type d | while read example; do
+	echo "*** Building example: $example ***"
+	make -C "$example"
+done

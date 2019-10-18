@@ -25,13 +25,13 @@ This will always build the latest version, cached based on your nix settings. If
 
 ### Using it
 
-`opam2nix` has two interfaces. The first one is the commandline interface, which you'll use to generate your package set from the requirements in your opam file (`my-package.opam` for example):
+`opam2nix` has two interfaces. The first one is the commandline interface, which you'll use to resolve your dependencies into a concrete package set from the requirements in your opam file (`my-package.opam` for example):
 
 ```
-$ "$(nix-build --no-out-link ./opam2nix.nix)/bin/opam2nix" generate --ocaml-version 4.08.1 ./my-package.opam
+$ "$(nix-build --no-out-link ./opam2nix.nix)/bin/opam2nix" resolve --ocaml-version 4.08.1 ./my-package.opam
 ```
 
-This resolves your chosen dependencies using the latest version of the opam repository by default, although you can specify a specific revision if you need to.
+This selects a specific version of all transitive dependencies using the latest version of the opam repository by default, although you can specify a specific revision (with `--repo-commit=COMMIT` / `$OPAM_REPO_COMMIT=COMMIT`), or skip updating by passing `--repo-commit=HEAD`.
 
 Secondly, you'll need to use the nix API to actually build the generated package set:
 
@@ -43,14 +43,14 @@ let
   opam2nix = import ./opam2nix.nix;
   selection = opam2nix.build {
     inherit ocaml;
-    deps = ./opam-packages.nix;
+    selection = ./opam-selection.nix;
     src = ./.;
   };
 in
 selection.my-package
 ```
 
-That's it! Whenever you change your dependencies you'll need to re-generate `opam-packages.nix`, otherwise you can just use `nix-build`, `nix-shell` etc.
+That's it! Whenever you change your dependencies you'll need to re-generate `opam-selection.nix`, otherwise you can just use `nix-build`, `nix-shell` etc.
 
 ## API
 

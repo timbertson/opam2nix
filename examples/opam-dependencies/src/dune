@@ -1,0 +1,6 @@
+-- TODO exclude this from main build?
+(executable
+ (name main)
+ (libraries lwt)
+ ; (package hello)
+)
