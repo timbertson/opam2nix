@@ -220,8 +220,9 @@ let setup_repo ~path ~commit : string =
 		Cmd.run_unit_exn [ "git"; "clone"; repo_url; path ]
 	in
 	let origin_head = "origin/HEAD" in
-	let get_head_commit () =
-		Cmd.run_output_exn ~print (git ["rev-parse"; "HEAD"]) |> String.trim in
+	let resolve_commit rev =
+		Cmd.run_output_exn ~print (git ["rev-parse"; rev]) |> String.trim in
+	let get_head_commit () = resolve_commit "HEAD" in
 	let fetch_into_head commit =
 		Cmd.run_unit_exn ~print ~stdout:DevNull ~stderr:DevNull (git ["fetch"; "--force"; repo_url]);
 		Cmd.run_unit_exn ~print ~stdout:DevNull ~stderr:DevNull (git ["reset"; "--hard"; commit]);
@@ -234,7 +235,7 @@ let setup_repo ~path ~commit : string =
 					(* only update if git lacks the given ref *)
 					if Cmd.run_unit ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) then (
 						Cmd.run_unit_exn ~print (git ["reset"; "--hard"; commit]);
-						commit
+						resolve_commit commit
 					) else fetch_into_head commit
 			| None -> fetch_into_head origin_head
 	in
