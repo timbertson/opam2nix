@@ -1,3 +1,5 @@
+open Vdoml
+
 let hello_async () =
 	let open Lwt in
 	print_endline "sleeping...";

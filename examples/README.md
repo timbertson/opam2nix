@@ -10,6 +10,10 @@ If you're developing more complex software, you may need to integrate ocaml depe
 
 This example uses the `vdoml` library, which is not in the opam repositories.
 
+The main change is that the source for `vdoml` is required when building the initial selections document, as well as at build time. This is achieved by making `nix/default.nix` return an attribute set instead of a single derivation.
+
+The `make` target which builds the `opam-selections.nix` document passes in the path to vdoml which it generated with `nix-build --attr vdoml`, and the final build runs on `nix-build --attr hello` (the demo program).
+
 ### Layout
 
 Each example has:
@@ -19,4 +23,4 @@ Each example has:
  - nix/default.nix: a parameterised derivation as you might find in `nixpkgs` - i.e. all dependencies injected. Uses the `opam2nix` API to build `opam-selection.nix`
  - Makefile: commands for building the actual derivation, and for (re)generating `opam-selection.nix`
 
-The examples reference `./examples/opam2nix.nix`, which imports opam2nix directly from the most recent github commit.
+The examples reference `./examples/opam2nix.nix`, which imports opam2nix directly from the parent directory. In your own repository, you would import it from github instead (see the toplevel README for instructions).

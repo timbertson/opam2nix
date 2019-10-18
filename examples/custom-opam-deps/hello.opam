@@ -5,6 +5,7 @@ maintainer: "tim@gfxmonk.net"
 depends: [
   "lwt" { >= "2.5.1" }
   "dune" {build}
+  "vdoml"
 ]
 build: [
   [ "dune" "build" "-p" "hello" ]
