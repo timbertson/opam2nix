@@ -4,7 +4,7 @@ let
 	ocaml = ocamlPackages.ocaml;
 	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; };
 	callOcamlPackage = ocamlPackages.newScope {
-		inherit ocaml;
+		inherit ocaml ocamlPackages;
 		ocamlgraph = callOcamlPackage ./ocamlgraph.nix {}; # override builtin drv without lablgtk support
 		opam-core = callOcamlPackage opam.core {};
 		opam-format = callOcamlPackage opam.format {};
