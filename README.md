@@ -54,7 +54,7 @@ That's it! Whenever you change your dependencies you'll need to re-generate `opa
 
 ## API
 
-The `opam2nix` nix derivation exposes two functions:
+The `opam2nix` nix derivation exposes these functions (as `passthru` attributes):
 
  - `build`: build a package set, and return the full selections (an attrset with all opam package names as keys, and derivations as values)
  - `buildInputs`: as above, but returns an array of derivations (i.e. the `attrValues`)
@@ -66,6 +66,21 @@ Both of these functions accept a single attrset argument, containing:
     - a single source value, in which case it's used by all (typically one) direct packages
     - an attrset with a key for each direct package, for when you're building multiple direct packages with distinct sources
  - `override`: optional, an attrset to supply overrides to selected packages. This can contain as many keys as you like, overrides will only apply to packages that are being built. Override values are described below.
+
+Additionally, there's a third `resolve` function. It takes two arguments:
+
+ - an attributeset which may contain the same arguments passed to `build` / `buildInputs`. Only the `ocaml` and `selection` attributes are required / used, the other attributes are ignored so that you can reuse the same attrset.
+ - an array of arguments to be passed to `opam2nix resolve`. The `--dest` and `--ocaml-version` arguments are provided for you, so you don't need to specify those.
+
+This does not produce a derivation, instead it produces a shell environment. If you expose this as e.g. an `update` attribute in your `default.nix`, you can use it like so:
+
+```
+nix-shell -A update default.nix
+```
+
+This will run `opam2nix resolve` and then exit, and since it's in a shell it is allowed to do impure things like fetching items from the internet, and writing to your local selections file.
+
+This is just a convenience, but in certain situations it becomes quite useful. In particular when you need to pass in the paths to many `opam` files which come from nix derivations (e.g. the result of `fetchFromGitHub`). You can do this by `nix-build`-ing each one individually and passing them in, but using the `resolve` function lets you pass these dependencies in as simple expressions and have nix build everything in a single execution.
 
 ### Overrides
 

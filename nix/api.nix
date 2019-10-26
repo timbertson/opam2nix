@@ -9,6 +9,25 @@ let
 	noopOverride = {}: {};
 in
 rec {
+	resolve = {
+		ocaml,
+		selection,
+		# NOTE: these aren't used, but are explicitly allowed for compatibility with `build` / `buildInputs`
+		override ? null,
+		builtinOverride ? null,
+		src ? null,
+	}: args: let
+	in pkgs.mkShell {
+		buildInputs = [ opam2nix ];
+		shellHook = ''
+			opam2nix resolve \
+				--dest ${builtins.toString selection} \
+				--ocaml-version ${ocaml.version} \
+				${lib.concatStringsSep " " (map (arg: "'${builtins.toString arg}'") args)}
+			{ exit $?; } 2>/dev/null
+		'';
+	};
+
 	build = { selection, ocaml,
 		override ? noopOverride,
 		builtinOverride ? ./overrides,
