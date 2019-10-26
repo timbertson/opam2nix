@@ -67,6 +67,7 @@ rec {
 				name = "opam";
 				buildCommand = ''
 					cp -r "${repo}/${package}" "$out";
+					chmod u+w "$out"
 				'';
 			};
 
