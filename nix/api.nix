@@ -84,7 +84,23 @@ rec {
 				else base
 			) selection;
 
-		opam2nixHooks = makeSetupHook { name = "ocaml-path-hooks"; } ./overrides/path-hooks.sh;
+		opam2nixHooks = makeSetupHook { name = "ocaml-path-hooks"; } (pkgs.writeText "setupHook.sh" ''
+			function ocamlPathSetup {
+				local libPath="lib/ocaml/${ocaml.version}/site-lib"
+				local libdir="$1/$libPath"
+				if test -d "$libdir"; then
+					export OCAMLPATH="''${OCAMLPATH}''${OCAMLPATH:+:}$libdir"
+
+					if test -d "$1/lib/stublibs"; then
+						export CAML_LD_LIBRARY_PATH="''${CAML_LD_LIBRARY_PATH}''${CAML_LD_LIBRARY_PATH:+:}$libdir/stublibs"
+					else
+						export CAML_LD_LIBRARY_PATH="''${CAML_LD_LIBRARY_PATH}''${CAML_LD_LIBRARY_PATH:+:}$libdir"
+					fi
+				fi
+				export OCAMLFIND_DESTDIR="$out/$libPath"
+			}
+			addEnvHooks "$targetOffset" ocamlPathSetup
+		'');
 		invoke = "${opam2nix}/bin/opam2nix invoke";
 		builtSelection = ({ inherit ocaml; }) // (mapAttrs (name: args:
 		if isPseudo args then args else stdenv.mkDerivation (
@@ -105,7 +121,7 @@ rec {
 							path = impl;
 							inherit (impl) version;
 						}
-					) args.opamInputs;
+					) ({ inherit ocaml; } // args.opamInputs);
 				};
 			}
 			// (if args.src == null then { unpackPhase = "true"; } else {})

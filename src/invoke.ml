@@ -1,6 +1,7 @@
 module JSON = Yojson.Basic
 module OPAM = OpamFile.OPAM
 module Version = OpamPackage.Version
+module Name = OpamPackage.Name
 open Util
 
 let getenv k =
@@ -13,11 +14,26 @@ type env = {
 	vars : Vars.env;
 	opam : OpamFile.OPAM.t;
 	opam_src: [`File of string | `Dir of string];
-	pkgname : string;
+	pkgname : Name.t;
 }
 
-let destDir () = (getenv "out")
-let libDestDir () = Filename.concat (destDir ()) "lib"
+let string_of_dir = OpamFilename.Dir.to_string
+
+let destDir () = OpamFilename.Dir.of_string (getenv "out")
+
+let binDir dest =
+	let open OpamFilename.Op in
+	dest / "bin"
+
+let assert_string_var = let open OpamVariable in function
+	| Some (S s) -> s
+	| other -> failwith ("Expected string, got " ^ (Option.to_string string_of_variable_contents other))
+
+let vardir ~vars ~dest name =
+	Vars.path_var ~env:vars ~prefix:dest ~scope:None name |> assert_string_var
+		|> OpamFilename.Dir.of_string
+
+let outputDirs ~vars dest = [ binDir dest; vardir ~vars ~dest "stublibs"; vardir ~vars ~dest "lib" ]
 
 let opam_path = function
 	| `File path -> path
@@ -37,7 +53,7 @@ let load_env () =
 	let self_name = ref None in
 	let self_version = ref None in
 	let self_opam_src = ref None in
-	let packages = ref StringMap.empty in
+	let packages = ref Name.Map.empty in
 
 	let add_package name impl =
 		debug " - package %s: %s\n" name (match impl with
@@ -45,10 +61,10 @@ let load_env () =
 			| Provided -> "provided"
 			| Installed { path; version } ->
 				Printf.sprintf "%s (%s)"
-					(Option.to_string id path)
+					(Option.to_string string_of_dir path)
 					(Option.to_string Version.to_string version)
 		);
-		packages := StringMap.add name impl !packages
+		packages := Name.Map.add (Name.of_string name) impl !packages
 	in
 
 	let json_str = getenv "opamEnv" in
@@ -79,7 +95,9 @@ let load_env () =
 									add_package pkgname (Installed {
 										(* path is optional in the type, but by `invoke` time all paths
 										 * should be defined *)
-										path = Some (!path |> Option.or_failwith "missing `path` in deps");
+										path = Some (!path
+											|> Option.or_failwith "missing `path` in deps"
+											|> OpamFilename.Dir.of_string);
 										version = !version;
 									})
 								)
@@ -108,12 +126,17 @@ let load_env () =
 	in
 
 	let self_opam_src = (match !self_opam_src with Some s -> s | None -> failwith "missing `opamSrc` in opamEnv") in
-	let self = !self_name |> Option.or_failwith "self name not specified" in
+	let self = !self_name |> Option.or_failwith "self name not specified" |> Name.of_string in
 	let self_impl = Vars.{
 		path = Some destDir;
 		version = Some (!self_version |> Option.or_failwith "self version not specified");
 	} in
-
+	let ocaml_version =
+		(match Name.Map.find (Name.of_string "ocaml") !packages with
+			| Installed impl -> impl.version
+			| _other -> None
+		) |> Option.or_failwith "ocaml version not provided"
+	in
 	let opam =
 		let path = opam_path self_opam_src in
 		Printf.eprintf "Loading %s\n" path;
@@ -121,8 +144,9 @@ let load_env () =
 	in
 	{
 		vars = Vars.({
+			ocaml_version;
 			prefix = Some destDir;
-			packages = !packages |> StringMap.add self (Installed self_impl);
+			packages = !packages |> Name.Map.add self (Installed self_impl);
 			self = self;
 			vars = Opam_metadata.init_variables ();
 		});
@@ -160,13 +184,16 @@ let remove_empty_dir d =
 		OpamFilename.rmdir d;
 	)
 
-let execute_install_file state =
-	let name = state.pkgname in
-	let install_file_path = (name ^ ".install") in
+let execute_install_file env =
+	let name = env.pkgname in
+	let install_file_path = (Name.to_string name ^ ".install") in
 	if (Sys.file_exists install_file_path) then (
 		prerr_endline ("Installing from " ^ install_file_path);
-		Cmd.run_unit_exn ~print:true
-			[ "opam-installer"; "--prefix"; destDir (); install_file_path ]
+		let dest = destDir () in
+		Cmd.run_unit_exn ~print:true [ "opam-installer";
+			"--prefix"; string_of_dir dest;
+			"--libdir"; vardir ~vars:env.vars ~dest "lib" |> string_of_dir;
+			install_file_path ]
 	) else (
 		prerr_endline "no .install file found!";
 	)
@@ -234,20 +261,6 @@ let apply_patches env =
 	(* Apply remaining substitutions *)
 	List.iter apply_substs subst_others
 
-let binDir dest =
-	let open OpamFilename.Op in
-	dest / "bin"
-
-let libDir dest =
-	let open OpamFilename.Op in
-	dest / "lib"
-
-let stublibsDir dest =
-	let open OpamFilename.Op in
-	(libDir dest) / "stublibs"
-
-let outputDirs dest = [ binDir dest; stublibsDir dest; libDir dest ]
-
 let patch env =
 	(* copy all files into ./ if present *)
 	opam_file_path env.opam_src "files"
@@ -264,16 +277,16 @@ let patch env =
 	apply_patches env
 
 let build env =
-	let dest = destDir () |> OpamFilename.Dir.of_string in
+	let dest = destDir () in
 	ensure_dir_exists dest;
-	outputDirs dest |> List.iter ensure_dir_exists;
+	outputDirs ~vars:env.vars dest |> List.iter ensure_dir_exists;
 	run env OPAM.build
 
 let install env =
 	run env OPAM.install;
 	execute_install_file env;
-	let dest = destDir () |> OpamFilename.Dir.of_string in
-	outputDirs dest |> List.iter remove_empty_dir
+	let dest = destDir () in
+	outputDirs ~vars:env.vars dest |> List.iter remove_empty_dir
 
 let dump env =
 	let dump desc get_commands =
@@ -296,6 +309,6 @@ let main idx args =
 		| Some other -> failwith ("Unknown action: " ^ other)
 		| None -> failwith "No action given"
 	in
-	Unix.putenv "PREFIX" (destDir ());
+	Unix.putenv "PREFIX" (destDir () |> OpamFilename.Dir.to_string);
 	action (load_env ())
 

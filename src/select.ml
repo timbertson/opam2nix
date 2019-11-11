@@ -87,15 +87,16 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 
 	let lookup_var package =
 		let version = OpamPackage.version package in
-		let name = OpamPackage.name package |> Name.to_string in
+		let name = OpamPackage.name package in
 		Vars.(lookup {
-			packages = (StringMap.from_list (
+			ocaml_version;
+			packages = (Name.Map.of_list (
 				[
 					name, (Installed {
 						path = None; (* not yet known *)
 						version = Some version;
 					});
-					"ocaml", (Installed {
+					Name.of_string "ocaml", (Installed {
 						path = None; (* not yet known *)
 						version = Some ocaml_version;
 					})
@@ -170,8 +171,8 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 	let available_packages = !available_packages in
 	Printf.eprintf "Loaded %d packages\n" (OpamPackage.Map.cardinal available_packages);
 
-	let base_packages = ("ocaml" :: base_packages)
-		|> List.map (fun name -> OpamPackage.create (Name.of_string name) ocaml_version)
+	let base_packages = (Name.of_string "ocaml" :: base_packages)
+		|> List.map (fun name -> OpamPackage.create name ocaml_version)
 		|> OpamPackage.Set.of_list
 	in
 	let get_depends deptype_access =
@@ -323,7 +324,9 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 	let open Nix_expr in
 
 	(* prime base packages *)
-	let selection = List.fold_right (fun base -> AttrSet.add base (`Lit "true")) base_packages AttrSet.empty in
+	let selection = List.fold_right (fun base ->
+		AttrSet.add (Name.to_string base) (`Lit "true")
+	) base_packages AttrSet.empty in
 	let selection = OpamPackage.Set.fold (fun pkg map ->
 		let open Opam_metadata in
 		let { opam; url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
@@ -466,7 +469,7 @@ let main idx args =
 	let repo_commit = if !repo_commit = "" then None else Some !repo_commit in
 
 	(* Note: seems to be unnecessary as of opam 2 *)
-	let base_packages = !base_packages |> Str.split (Str.regexp ",") in
+	let base_packages = !base_packages |> Str.split (Str.regexp ",") |> List.map Name.of_string in
 
 	let cache = (
 		FileUtil.mkdir ~parent:true (Filename.dirname digest_map);
