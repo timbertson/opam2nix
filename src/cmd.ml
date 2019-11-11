@@ -25,11 +25,6 @@ module Internal = struct
 			with Unix.Unix_error (Unix.EINTR, _, _) -> None (* TODO correct? *)
 		)
 	
-	type bg_collector = {
-		_th: Thread.t;
-		_result: string ref;
-	}
-
 	let rec waitpid_with_retry flags pid =
 		let open Unix in
 		try waitpid flags pid
