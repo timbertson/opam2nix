@@ -1,4 +1,4 @@
-{ pkgs, lib, selection, opam2nix }:
+{ pkgs, lib, selection, ocaml, opam2nix }:
 with pkgs;
 with lib;
 let
@@ -11,4 +11,5 @@ in
 	nocrypto = super: (disableStackProtection super).overrideAttrs (super: {
 		buildPhase = "export OCAMLRUNPARAM=b; " + super.buildPhase;
 	});
+	ocaml-base-compiler = super: ocaml;
 }

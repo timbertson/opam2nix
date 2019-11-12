@@ -80,6 +80,47 @@ let nix_digest_of_git_repo p =
 		ret
 	with e -> (cleanup (); raise e)
 
+(* from https://github.com/ocaml/opam/blob/9c4ea9749b38ff60b2d3a3581ecf29fd55e16e28/src/state/opamSwitchState.ml#L479-L524 *)
+let get_conflicts ~lookup_var packages =
+	let package_set = packages |> OpamPackage.Map.keys |> OpamPackage.Set.of_list in
+	let conflict_classes = OpamPackage.Map.fold (fun nv {opam; _} acc ->
+		List.fold_left (fun acc cc ->
+			Name.Map.update cc
+				(OpamPackage.Set.add nv) OpamPackage.Set.empty acc)
+			acc
+			(OpamFile.OPAM.conflict_class opam)
+	) packages Name.Map.empty in
+
+	let conflict_class_formulas = Name.Map.map (fun pkgs ->
+		OpamPackage.to_map pkgs |>
+		Name.Map.mapi (fun name versions ->
+			let all_versions = OpamPackage.versions_of_name package_set name in
+			if Version.Set.equal versions all_versions then Empty
+			else
+				(OpamFormula.ors
+					(List.map (fun v -> Atom (`Eq, v))
+						(Version.Set.elements versions))))
+	) conflict_classes in
+
+	OpamPackage.Map.fold (fun nv {opam; _} acc ->
+		let conflicts = OpamFilter.filter_formula ~default:false
+			(lookup_var nv)
+			(OpamFile.OPAM.conflicts opam)
+		in
+		let conflicts = List.fold_left (fun acc cl ->
+			let cmap =
+				Name.Map.find cl conflict_class_formulas |>
+				Name.Map.remove nv.name
+			in
+			Name.Map.fold
+				(fun name vformula acc -> OpamFormula.ors [acc; Atom (name, vformula)])
+				cmap acc)
+			conflicts
+			(OpamFile.OPAM.conflict_class opam)
+		in
+		OpamPackage.Map.add nv conflicts acc)
+	packages OpamPackage.Map.empty
+
 let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitions () =
 	let available_packages = ref OpamPackage.Map.empty in
 
@@ -180,12 +221,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 			OpamFilter.partial_filter_formula (lookup_var pkg) (deptype_access opam)
 		) available_packages
 	in
-	let conflicts =
-		OpamPackage.Map.mapi (fun pkg { opam; _ } ->
-			let conflicts = OPAM.conflicts opam in
-			OpamFilter.filter_formula (lookup_var pkg) conflicts
-		) available_packages
-	in
+	let conflicts = get_conflicts ~lookup_var available_packages in
 	(available_packages, { OpamSolver.empty_universe with
 		u_packages  = OpamPackage.Set.empty;
 		u_action    = Install;
@@ -446,14 +482,14 @@ let main idx args =
 	let direct_requests = direct_requests |> List.map load_direct in
 	let direct_definitions = direct_requests @ (!direct_definitions |> List.map load_direct) in
 
-	let requested_packages : OpamFormula.atom list = repo_packages |> List.map (fun spec ->
+	let requested_packages : OpamFormula.atom list = ("ocaml-base-compiler" :: repo_packages) |> List.map (fun spec ->
 		let relop_re = Str.regexp "[!<=>]+" in
 		Util.debug "Parsing spec %s\n" spec;
 		match Str.full_split relop_re spec with
 			| [Str.Text name; Str.Delim relop; Str.Text ver] ->
 				let relop = OpamLexer.relop relop in
 				let ver = OpamPackage.Version.of_string ver in
-				(OpamPackage.Name.of_string name, Some (relop, ver))
+				(Name.of_string name, Some (relop, ver))
 			| [Str.Text name] -> (OpamPackage.Name.of_string name, None)
 			| _ -> failwith ("Invalid version spec: " ^ spec)
 	) in
