@@ -105,7 +105,7 @@ rec {
 		builtSelection = ({ inherit ocaml; }) // (mapAttrs (name: args:
 		if isPseudo args then args else stdenv.mkDerivation (
 			{
-				inherit (args) pname version src;
+				inherit (args) pname version src opamSrc;
 				propagatedBuildInputs = [ocaml opam2nix opam2nixHooks] ++ (
 					nonPseudoList ((args.buildInputs or []) ++ (attrValues args.opamInputs))
 				);
@@ -114,7 +114,7 @@ rec {
 				configurePhase = "true";
 				installPhase = "${invoke} install";
 				opamEnv = builtins.toJSON {
-					inherit (args) version opamSrc;
+					inherit (args) version;
 					name = args.pname;
 					deps = mapAttrs (name: impl:
 						if isPseudo impl then impl else {

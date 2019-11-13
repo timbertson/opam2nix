@@ -52,7 +52,6 @@ let load_env () =
 	let destDir = destDir () in
 	let self_name = ref None in
 	let self_version = ref None in
-	let self_opam_src = ref None in
 	let packages = ref Name.Map.empty in
 
 	let add_package name impl =
@@ -113,19 +112,14 @@ let load_env () =
 					| "version", `String version -> self_version := Some (Version.of_string version);
 					| "version", other -> unexpected_json "version" other
 
-					| "opamSrc", `String path ->
-							self_opam_src := Some (
-								if Sys.is_directory path then (`Dir path) else (`File path)
-							)
-					| "opamSrc", other -> unexpected_json "opamDir" other
-
 					| other, _ -> failwith ("unexpected opamEnv key: " ^ other)
 			)
 		end
 		| other -> unexpected_json "toplevel" other
 	in
 
-	let self_opam_src = (match !self_opam_src with Some s -> s | None -> failwith "missing `opamSrc` in opamEnv") in
+	let self_opam_src = let path = Unix.getenv "opamSrc" in
+		if Sys.is_directory path then (`Dir path) else (`File path) in
 	let self = !self_name |> Option.or_failwith "self name not specified" |> Name.of_string in
 	let self_impl = Vars.{
 		path = Some destDir;
