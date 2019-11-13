@@ -27,4 +27,10 @@ in
 	nocrypto = super: (disableStackProtection super).overrideAttrs (super: {
 		buildPhase = "export OCAMLRUNPARAM=b; " + super.buildPhase;
 	});
+	zarith = super: super.overrideAttrs (impl: {
+		nativeBuildInputs = (impl.nativeBuildInputs or []) ++ [ pkgs.perl ];
+		configurePhase = ''
+			patchShebangs .;
+		''+impl.configurePhase;
+	});
 }
