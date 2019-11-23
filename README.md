@@ -106,9 +106,9 @@ An example `override` argument looks like this:
 
 # How do opam depexts work?
 
-For depexts specifically of type "nixpkgs", those will become mandatory (and they're resolved as attributes on whatever pkgs is in use).
+For depexts of `os-distribution = "nixos"`, those will become mandatory (and they're resolved as attributes on whatever pkgs is in use).
 
-If a package has depexts but none of them are for nixpkgs, they'll all become optional depexts - if there is a nixpkgs attribute matching that name it'll be used, otherwise no dep is added.
+If a package has depexts but none of them are for nixos, they'll all become optional depexts - if there is a nixpkgs attribute matching that name it'll be used, otherwise no dep is added.
 
 [nix-wrangle]: https://github.com/timbertson/nix-wrangle/
 [opam]: https://opam.ocaml.org

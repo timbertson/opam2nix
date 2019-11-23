@@ -100,11 +100,9 @@ let native_system_vars () =
 		)
 		state system_variables
 
-let nixpkgs_vars () =
+let nixos_vars () =
 	native_system_vars ()
-		|> add_global_var "os-distribution" (S "nixpkgs")
-		(* NixOS is more of a distribution, but for practical purposes
-		 * "nixpkgs" defines what packages are available, regardless of distro *)
+		|> add_global_var "os-distribution" (S "nixos")
 		|> add_global_var "os-version" (S "unknown")
 			(* I don't think we can easily get a number here, but it should
 			 * rarely matter *)
@@ -124,7 +122,7 @@ let add_base_variables base_vars =
 		|> add_package_var "ocaml" "native-tools" (B true)
 		|> add_package_var "ocaml" "native-dynlink" (B true)
 
-let init_variables () = add_base_variables (nixpkgs_vars ())
+let init_variables () = add_base_variables (nixos_vars ())
 
 let installed_pkg_var key = let open OpamVariable in match Full.scope key with
 	| Full.Package pkg when ((Full.variable key |> OpamVariable.to_string) = "installed") ->
@@ -139,7 +137,7 @@ let add_nix_inputs
 		| Required -> "dep"
 		| Optional -> "optional dep"
 	in
-	let nixpkgs_env = Vars.simple_lookup ~vars:(nixpkgs_vars ()) in
+	let nixos_env = Vars.simple_lookup ~vars:(nixos_vars ()) in
 	debug "Adding dependency: %s\n" (string_of_dependency dep);
 	match dep with
 		| NixDependency name ->
@@ -159,13 +157,13 @@ let add_nix_inputs
 				in
 
 				let (importance, deps) =
-					let nixpkgs_deps = filter_map (apply_filters nixpkgs_env) externals in
-					if (nixpkgs_deps = []) then (
-						debug "  Note: package has depexts, but none of them `nixpkgs`:\n    %s\n"
+					let nixos_deps = filter_map (apply_filters nixos_env) externals in
+					if (nixos_deps = []) then (
+						debug "  Note: package has depexts, but none of them `nixos`:\n    %s\n"
 							(string_of_dependency dep);
 						debug "  Adding them all as `optional` dependencies.\n";
 						(Optional, List.map fst externals)
-					) else (Required, nixpkgs_deps)
+					) else (Required, nixos_deps)
 				in
 				List.iter (fun deps ->
 					List.iter (fun dep ->
@@ -190,7 +188,7 @@ let add_nix_inputs
 				~test:false
 				~doc:false
 				~default:false
-				~env:nixpkgs_env
+				~env:nixos_env
 				formula |> add_formula importance;
 
 			OpamPackageVar.filter_depends_formula
@@ -199,7 +197,7 @@ let add_nix_inputs
 				~test:true
 				~doc:true
 				~default:true
-				~env:nixpkgs_env
+				~env:nixos_env
 				formula |> add_formula Optional
 		)
 
