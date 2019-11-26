@@ -272,9 +272,9 @@ let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t =
 			)
 
 
-let unsafe_envvar_chars = Str.regexp "[^0-9a-zA-Z_]"
-let envvar_of_ident name =
-	var_prefix ^ (Str.global_replace unsafe_envvar_chars "_" name)
+let unsafe_drvname_chars = Str.regexp "[^-_.0-9a-zA-Z]"
+let drvname_safe str =
+	(Str.global_replace unsafe_drvname_chars "-" str)
 
 let add_implicit_build_dependencies ~add_dep commands =
 	let implicit_optdeps = ref StringSet.empty in
@@ -369,8 +369,8 @@ let nix_of_opam ~pkg ~deps ~(opam_src:opam_src) ~opam ~src ~url () : Nix_expr.t 
 
 	(* TODO: separate build-only deps from propagated *)
 	`Attrs (AttrSet.build ([
-		"pname", Nix_expr.str name;
-		"version", Nix_expr.str version;
+		"pname", Nix_expr.str (drvname_safe name);
+		"version", Nix_expr.str (drvname_safe version);
 		"src", (src |> Option.default `Null);
 		"opamInputs", `Attrs opam_inputs;
 		"opamSrc", (match opam_src with
