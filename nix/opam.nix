@@ -1,4 +1,4 @@
-{ pkgs, fetchFromGitHub, ocamlPackages }:
+{ pkgs, fetchFromGitHub, ocamlPackages, src }:
 let
 	version = "2.0.4";
 	base = name: {
@@ -6,13 +6,7 @@ let
 		buildInputs ? [],
 		... } @ attrs: attrs // {
 		pname = "opam-${name}";
-		inherit version buildInputs propagatedBuildInputs;
-		src = fetchFromGitHub {
-			owner = "ocaml";
-			repo = "opam";
-			rev = version;
-			sha256 = "1yx5k8v5vnnc20fmz5zx8kqd242j48qcknlk6vmkr7rkq886ipq2";
-		};
+		inherit version buildInputs propagatedBuildInputs src;
 		configureFlags = "--disable-checks";
 	};
 in
@@ -20,6 +14,9 @@ in
 	core = { cppo, dune, ocamlgraph, re, cmdliner }: ocamlPackages.buildDunePackage (base "core" {
 		propagatedBuildInputs = [ ocamlgraph re ];
 		buildInputs = [cppo cmdliner];
+	});
+	client = { opam-state, opam-solver, re, cmdliner}: ocamlPackages.buildDunePackage (base "client" {
+		propagatedBuildInputs = [ opam-state opam-solver re cmdliner];
 	});
 	format = { opam-core, opam-file-format, re}: ocamlPackages.buildDunePackage (base "format" {
 		propagatedBuildInputs = [ opam-core opam-file-format re];

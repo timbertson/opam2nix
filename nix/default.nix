@@ -1,18 +1,19 @@
-{ ocaml-ng }:
+{ ocaml-ng, opam }:
 let
 	ocamlPackages = ocaml-ng.ocamlPackages_4_06;
 	ocaml = ocamlPackages.ocaml;
-	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; };
+	opamLib = callOcamlPackage ./opam.nix { inherit ocamlPackages; src = opam; };
 	callOcamlPackage = ocamlPackages.newScope {
 		inherit ocaml ocamlPackages;
 		ocamlgraph = callOcamlPackage ./ocamlgraph.nix {}; # override builtin drv without lablgtk support
-		opam-core = callOcamlPackage opam.core {};
-		opam-format = callOcamlPackage opam.format {};
+		opam-core = callOcamlPackage opamLib.core {};
+		opam-format = callOcamlPackage opamLib.format {};
 		opam-file-format = callOcamlPackage ./opam-file-format.nix {};
-		opam-installer = callOcamlPackage opam.installer {};
-		opam-repository = callOcamlPackage opam.repository {};
-		opam-solver = callOcamlPackage opam.solver {};
-		opam-state = callOcamlPackage opam.state {};
+		opam-installer = callOcamlPackage opamLib.installer {};
+		opam-repository = callOcamlPackage opamLib.repository {};
+		opam-solver = callOcamlPackage opamLib.solver {};
+		opam-state = callOcamlPackage opamLib.state {};
+		opam-client = callOcamlPackage opamLib.client {};
 		cudf = callOcamlPackage ./cudf.nix {};
 		dose3 = callOcamlPackage ./dose3.nix {};
 		mccs = callOcamlPackage ./mccs.nix {};

@@ -4,8 +4,8 @@
       "fetch": {
         "owner": "timbertson",
         "repo": "nix-wrangle",
-        "rev": "833e82d266900be7817f1a51b7e0717df7bf6585",
-        "sha256": "1brdva3dbn33i4l1qns1hnjf39igqab4qkyaf3qd9psfj9v76bc8"
+        "rev": "97e9048b7b2fa5ed80f3bb2c369364519aa35c7c",
+        "sha256": "0s2a65dh1xdyj6ygdgg2zisl109bqxzyjgywibbm9zwrygifj8yr"
       },
       "nix": "nix",
       "owner": "timbertson",
