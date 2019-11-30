@@ -37,28 +37,38 @@ let implicit_package_var key =
 		| Package pkg, "installed" | Package pkg, "enabled" -> Some pkg
 		| _ -> None
 
-let path_var ~env ~prefix ~scope key =
+module NixLayout = struct
+	type ctx = env
+	let root d _ = d
+	let lib_dir d env = ((d / "lib") / ("ocaml" ^ (env.ocaml_version |> Version.to_string))) / "site-lib"
+end
+
+module PathDefault = OpamPath.Switch.DefaultF(NixLayout: OpamPath.LAYOUT)
+
+let path_var ~env ~prefix ~scope key : variable_contents option =
 	(* global vars reference dirs inside the prefix (swtich) location, whereas scoped vars
 	 * refer to the package dir within the above location *)
-	let scope = ref scope in
-	let lib_rel () = "lib/ocaml/" ^ (env.ocaml_version |> Version.to_string) ^ "/site-lib" in
-	let rec relpath key = match key with
-		| "lib" -> Some (lib_rel ())
-		| "stublibs" | "toplevel" -> Some (Filename.concat (lib_rel ()) key)
-		| "bin" | "sbin" | "man" | "libexec" | "etc" | "doc" | "share" -> Some key
-		| "lib_root" | "share_root" -> (
-			scope := None;
-			without_trailing "_root" key |> Option.bind relpath
-		)
+	let open PathDefault in
+	let fallback pkgscope global = Some (
+		scope |> Option.map (pkgscope prefix env) |> Option.default (global prefix env)
+	) in
+	let global fn = Some (fn prefix env) in
+	let path = match key with
+		(* global or scoped *)
+		| "lib" | "libexec" -> fallback lib lib_dir
+		| "etc" -> fallback etc etc_dir
+		| "share" -> fallback share share_dir
+		| "doc" -> fallback doc doc_dir
+		(* global-only *)
+		| "bin" -> global bin
+		| "man" -> global man_dir
+		| "toplevel" -> global toplevel
+		| "stublibs" -> global stublibs
+		| "lib_root" -> global lib_dir
+		| "share_root" -> global share_dir
 		| _ -> None
 	in
-	relpath key |> Option.map (fun relpath ->
-		let base = prefix / relpath in
-		S (OpamFilename.Dir.to_string (match !scope with
-			| None -> base
-			| Some pkgname -> (prefix / relpath) / (Name.to_string pkgname)
-		))
-	)
+	path |> Option.map (fun p -> S (OpamFilename.Dir.to_string p))
 
 let package_var ~env =
 	let r_false = Some (B false) in
