@@ -197,63 +197,13 @@ let isdir path =
 	try (stat path).st_kind = S_DIR
 	with Unix_error(ENOENT, _, _) -> false
 
-let apply_patches env =
-	(* extracted from OpamAction.prepare_package_build *)
+let apply_patches env : unit =
 	let opam = env.opam in
 	let filter_env = Vars.lookup env.vars in
-
-	let patches = OpamFile.OPAM.patches opam in
-
-	let subst_patches, subst_others =
-	List.partition (fun f -> List.mem_assq f patches)
-		(OpamFile.OPAM.substs opam)
-  in
-
-	let apply_substs path =
-		Printf.eprintf "Applying substitutions to: %s\n" (OpamFilename.Base.to_string path);
-		OpamFilter.expand_interpolations_in_file (filter_env) path
-	in
-
-	let iter_patches f =
-		List.fold_left (fun acc (base, filter) ->
-			let fail e =
-				OpamStd.Exn.fatal e;
-				OpamFilename.Base.to_string base :: acc
-			in
-			let filename_str = (OpamFilename.Base.to_string base) in
-			if OpamFilter.opt_eval_to_bool (filter_env) filter
-			then (
-				Printf.eprintf "applying patch: %s\n" filename_str;
-				if List.mem base subst_patches
-					then apply_substs base;
-				let result = try f filename_str with e -> Some e in
-				match result with
-					| Some (e: exn) -> fail e
-					| None -> acc
-				)
-			else (
-				Printf.eprintf "skipping patch: %s\n" filename_str;
-				acc
-			)
-		) [] patches in
-
-	(* Apply the patches *)
-	let patching_errors =
-		iter_patches (fun filename ->
-			OpamSystem.patch ~dir:(Sys.getcwd ()) filename |> OpamProcess.Job.run
-		)
-	in
-
-	if patching_errors <> [] then (
-		let msg =
-			Printf.sprintf "These patches didn't apply:\n%s"
-				(OpamStd.Format.itemize (fun x -> x) patching_errors)
-		in
-		failwith msg
-	);
-
-	(* Apply remaining substitutions *)
-	List.iter apply_substs subst_others
+	let version = OPAM.version_opt opam |> Option.default (Version.of_string "dev") in
+	let pkg = OpamPackage.create env.pkgname version in
+	let dir = OpamFilename.cwd () in
+	OpamAction.prepare_package_build filter_env opam pkg dir |> OpamProcess.Job.run |> Option.may raise
 
 let patch env =
 	(* copy all files into ./ if present *)
