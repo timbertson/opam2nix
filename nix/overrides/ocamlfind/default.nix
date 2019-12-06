@@ -13,10 +13,10 @@ in super.overrideAttrs (impl: {
 
 		findlibSetup () {
 			local base="$(dirname "$(dirname ''${BASH_SOURCE[0]})")"
-			if [[ $OCAMLTOP_INCLUDE_PATH != *$base* ]]; then
+			if [[ "''${OCAMLTOP_INCLUDE_PATH:-}" != *$base* ]]; then
 				export OCAMLTOP_INCLUDE_PATH="''${OCAMLTOP_INCLUDE_PATH:+$OCAMLTOP_INCLUDE_PATH:}$base/lib/ocaml/${ocaml_version}/site-lib/toplevel"
 			fi
-			if [[ $preBuildPhases != *findlibPreBuildAction* ]]; then
+			if [[ ''${preBuildPhases:-} != *findlibPreBuildAction* ]]; then
 				export preBuildPhases="''${preBuildPhases:+$preBuildPhases }findlibPreBuildAction"
 			fi
 		}

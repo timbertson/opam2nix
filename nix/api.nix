@@ -89,12 +89,12 @@ rec {
 				local libPath="lib/ocaml/${ocaml.version}/site-lib"
 				local libdir="$1/$libPath"
 				if test -d "$libdir"; then
-					export OCAMLPATH="''${OCAMLPATH}''${OCAMLPATH:+:}$libdir"
+					export OCAMLPATH="''${OCAMLPATH:+$OCAMLPATH:}$libdir"
 
 					if test -d "$1/lib/stublibs"; then
-						export CAML_LD_LIBRARY_PATH="''${CAML_LD_LIBRARY_PATH}''${CAML_LD_LIBRARY_PATH:+:}$libdir/stublibs"
+						export CAML_LD_LIBRARY_PATH="''${CAML_LD_LIBRARY_PATH:+$CAML_LD_LIBRARY_PATH:}$libdir/stublibs"
 					else
-						export CAML_LD_LIBRARY_PATH="''${CAML_LD_LIBRARY_PATH}''${CAML_LD_LIBRARY_PATH:+:}$libdir"
+						export CAML_LD_LIBRARY_PATH="''${CAML_LD_LIBRARY_PATH:+$CAML_LD_LIBRARY_PATH:}$libdir"
 					fi
 				fi
 				export OCAMLFIND_DESTDIR="$out/$libPath"
