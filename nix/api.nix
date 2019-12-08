@@ -91,7 +91,7 @@ rec {
 				if test -d "$libdir"; then
 					export OCAMLPATH="''${OCAMLPATH:+$OCAMLPATH:}$libdir"
 
-					if test -d "$1/lib/stublibs"; then
+					if test -d "$libdir/stublibs"; then
 						export CAML_LD_LIBRARY_PATH="''${CAML_LD_LIBRARY_PATH:+$CAML_LD_LIBRARY_PATH:}$libdir/stublibs"
 					else
 						export CAML_LD_LIBRARY_PATH="''${CAML_LD_LIBRARY_PATH:+$CAML_LD_LIBRARY_PATH:}$libdir"
