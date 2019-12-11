@@ -35,11 +35,17 @@ module Internal = struct
 		try waitpid flags pid
 		with Unix_error (EINTR, _, _) -> waitpid_with_retry flags pid
 
+	(* TODO remove *)
 	let pid_result ~desc pid =
 		match waitpid_with_retry [ WUNTRACED ] pid with
 			| (_pid, WEXITED 0) -> Ok ()
 			| (_pid, WEXITED n) -> Error (Command_failed (Some n, desc))
 			| (_pid, _) -> Error (Command_failed (None, desc))
+
+	let result_of_status ~desc = let open Unix in function
+		| WEXITED 0 -> Ok ()
+		| WEXITED n -> Error (Command_failed (Some n, desc))
+		| _ -> Error (Command_failed (None, desc))
 
 	let print_desc ~print cmd: string =
 		let desc = String.concat " " cmd in
@@ -81,6 +87,80 @@ let stdout_contents proc =
 
 let file_contents_in_bg fd =
 	MVar.spawn file_contents fd
+
+let cmd_of_list x = ("", x |> Array.of_list)
+
+(* TODO this seems like a really weird way of applying a constraint *)
+type 'a proc_base = < status : Unix.process_status Lwt.t; .. > as 'a
+
+type _ procspec =
+	| Process:
+		(Lwt_process.command -> ('proc -> 'a Lwt.t) -> 'a Lwt.t) * ('proc -> 'b)
+		-> ('b) procspec
+
+let spec a b = Process (a, b)
+
+let with_command_result ~desc block = fun proc ->
+	Lwt.both
+		(block proc)
+		(proc#status |> Lwt.map (Internal.result_of_status ~desc))
+
+(* readable stdout *)
+let run_lwt_read (type block_ret) (type ret)
+	?(print=true)
+	?(stderr=`Keep)
+	?(stdin=`Dev_null)
+	~(join: block_ret -> (unit, command_failed) result -> ret)
+	~(block: Lwt_process.process_in -> block_ret Lwt.t)
+	(cmd: string list)
+	: ret Lwt.t =
+	let desc = Internal.print_desc ~print cmd in
+	Lwt_process.with_process_in ~stdin ~stderr
+		(cmd_of_list cmd) (with_command_result ~desc block)
+	|> Lwt.map (fun (a,b) -> join a b)
+
+(* writeable stdin *)
+let run_lwt_write (type block_ret) (type ret)
+	?(print=true)
+	?(stderr=`Keep)
+	?(stdout=`Keep)
+	~(join: block_ret -> (unit, command_failed) result -> ret)
+	~(block: Lwt_process.process_out -> block_ret Lwt.t)
+	(cmd: string list)
+	: ret Lwt.t =
+	let desc = Internal.print_desc ~print cmd in
+	Lwt_process.with_process_out ~stdout ~stderr
+		(cmd_of_list cmd) (with_command_result ~desc block)
+	|> Lwt.map (fun (a,b) -> join a b)
+
+(* writeable stdin, readable stdout *)
+let run_lwt_io (type block_ret) (type ret)
+	?(print=true)
+	?(stderr=`Keep)
+	~(join: block_ret -> (unit, command_failed) result -> ret)
+	~(block: Lwt_process.process -> block_ret Lwt.t)
+	(cmd: string list)
+	: ret Lwt.t =
+	let desc = Internal.print_desc ~print cmd in
+	Lwt_process.with_process ~stderr
+		(cmd_of_list cmd) (with_command_result ~desc block)
+	|> Lwt.map (fun (a,b) -> join a b)
+
+(* writeable stdin, readable stdout *)
+let run_lwt (type block_ret) (type ret) (type proc)
+	(* (spec: (retproc) procspec) *)
+	(runner: Lwt_process.command -> (proc -> 'a Lwt.t) -> 'a Lwt.t)
+	(_thing: (desc:string -> (proc -> block_ret Lwt.t) -> (block_ret, (unit, command_failed) result) Lwt.t))
+	?(print=true)
+	~(join: block_ret -> (unit, command_failed) result -> ret)
+	~(block: proc -> block_ret Lwt.t)
+	(cmd: string list)
+	: ret Lwt.t =
+	let desc = Internal.print_desc ~print cmd in
+	match spec with
+		| Process (runner, join) ->
+			runner (cmd_of_list cmd) (with_command_result ~desc block)
+			|> Lwt.map (fun (a,b) -> join a b)
 
 let run (type block_ret) (type ret)
 	?(print=true)
@@ -160,3 +240,15 @@ let run_output = run ~stdout:Pipe ~block:stdout_contents
 let run_output_exn = run_output ~join:join_exn
 let run_output_result = run_output ~join:join_result
 let run_output_opt = run_output ~join:join_opt
+
+(* --- *)
+let lwt_run_exn = run_lwt ~join:join_exn
+
+let lwt_run_unit = run ~block:ignore
+let lwt_run_unit_exn = run_unit ~join:join_exn
+let lwt_run_unit_result = run_unit ~join:join_result
+
+let lwt_run_output = run ~stdout:Pipe ~block:stdout_contents
+let lwt_run_output_exn = run_output ~join:join_exn
+let lwt_run_output_result = run_output ~join:join_result
+let lwt_run_output_opt = run_output ~join:join_opt

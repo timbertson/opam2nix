@@ -141,7 +141,7 @@ let run env get_commands =
 			| [] -> ()
 			| _ :: _ -> (
 				let quit code = prerr_endline "Command failed."; exit code in
-				match Cmd.run_unit_result args with
+				match Lwt_main.run_unit_result (Cmd.run_unit_result args) with
 					| Ok () -> ()
 					| Error (Command_failed (Some code, _)) -> quit code
 					| Error (Command_failed (None, _)) -> quit 1

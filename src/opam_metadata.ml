@@ -102,7 +102,9 @@ let native_system_vars () =
 
 let nixpkgs_vars () =
 	native_system_vars ()
+	(* TODO nixos? *)
 		|> add_global_var "os-distribution" (S "nixpkgs")
+		|> add_global_var "os-family" (S "nixpkgs")
 		(* NixOS is more of a distribution, but for practical purposes
 		 * "nixpkgs" defines what packages are available, regardless of distro *)
 		|> add_global_var "os-version" (S "unknown")
