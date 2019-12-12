@@ -141,7 +141,7 @@ let run env get_commands =
 			| [] -> ()
 			| _ :: _ -> (
 				let quit code = prerr_endline "Command failed."; exit code in
-				match Lwt_main.run (Cmd.lwt_run_unit_result Cmd.exec_none args) with
+				match Lwt_main.run (Cmd.run_unit_result Cmd.exec_none args) with
 					| Ok () -> ()
 					| Error (Command_failed (Some code, _)) -> quit code
 					| Error (Command_failed (None, _)) -> quit 1
@@ -165,7 +165,7 @@ let execute_install_file state =
 	let install_file_path = (name ^ ".install") in
 	if (Sys.file_exists install_file_path) then (
 		prerr_endline ("Installing from " ^ install_file_path);
-		Lwt_main.run (Cmd.lwt_run_unit_exn Cmd.exec_none ~print:true
+		Lwt_main.run (Cmd.run_unit_exn Cmd.exec_none ~print:true
 			[ "opam-installer"; "--prefix"; destDir (); install_file_path ]
 		)
 	) else (
@@ -256,7 +256,7 @@ let patch env =
 		|> Option.may (fun files_path ->
 		let contents = Sys.readdir files_path
 			|> Array.map (Filename.concat files_path) in
-		Lwt_main.run (Cmd.(lwt_run_unit_exn exec_none) (List.concat [
+		Lwt_main.run (Cmd.(run_unit_exn exec_none) (List.concat [
 			[ "cp"; "-r" ];
 			Array.to_list contents;
 			[ "./" ]

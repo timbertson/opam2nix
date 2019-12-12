@@ -42,11 +42,11 @@ let join_success_bool () = function
 
 let ignore_lwt _ = Lwt.return_unit
 
-let lwt_file_contents = let open Lwt_io in fun fd ->
+let file_contents = let open Lwt_io in fun fd ->
 	read ?count:None fd
 
-let lwt_stdout_contents proc =
-	lwt_file_contents proc#stdout
+let stdout_contents proc =
+	file_contents proc#stdout
 
 let cmd_of_list x = ("", x |> Array.of_list)
 
@@ -57,7 +57,7 @@ let with_command_result cmd block = fun proc ->
 
 type 'ret exec_ret = ('ret * (unit, command_failed) result) Lwt.t
 
-let run_lwt (type block_ret) (type ret) (type proc)
+let run (type block_ret) (type ret) (type proc)
 	(runner: (proc -> block_ret Lwt.t) -> string list -> block_ret exec_ret)
 	?(print=true)
 	~(join: block_ret -> (unit, command_failed) result -> ret)
@@ -79,14 +79,14 @@ let exec_rw ?stderr block cmd =
 let exec_none ?stdin ?stdout ?stderr block cmd =
 	Lwt_process.with_process_none ?stdin ?stdout ?stderr (cmd_of_list cmd) (with_command_result cmd block)
 
-let lwt_run_exn spawn = run_lwt spawn ~join:join_exn
+let run_exn spawn = run spawn ~join:join_exn
 
-let lwt_run_unit spawn = run_lwt spawn ~block:ignore_lwt
-let lwt_run_unit_exn spawn = lwt_run_unit spawn ~join:join_exn
-let lwt_run_unit_result = lwt_run_unit ~join:join_result
+let run_unit spawn = run spawn ~block:ignore_lwt
+let run_unit_exn spawn = run_unit spawn ~join:join_exn
+let run_unit_result = run_unit ~join:join_result
 
-let lwt_run_output ?print ~join cmd = run_lwt exec_r ?print ~join ~block:lwt_stdout_contents cmd
-let lwt_run_output_exn = lwt_run_output ~join:join_exn
-let lwt_run_output_result = lwt_run_output ~join:join_result
-let lwt_run_output_opt = lwt_run_output ~join:join_opt
+let run_output ?print ~join cmd = run exec_r ?print ~join ~block:stdout_contents cmd
+let run_output_exn = run_output ~join:join_exn
+let run_output_result = run_output ~join:join_result
+let run_output_opt = run_output ~join:join_opt
 

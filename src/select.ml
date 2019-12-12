@@ -49,10 +49,10 @@ let nix_digest_of_path p = Lwt_main.run (
 	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
 	let (readable, writeable) = Unix.pipe () in
 	let open Cmd in
-	lwt_run_exn (exec_r ~stdin:(`FD_move readable)) ~print:false ~block:(fun hash_proc ->
+	run_exn (exec_r ~stdin:(`FD_move readable)) ~print:false ~block:(fun hash_proc ->
 		Lwt.both
-			(lwt_file_contents (hash_proc#stdout))
-			(lwt_run_unit_exn (exec_none ~stdout:(`FD_move writeable)) ~print:false [ "nix-store"; "--dump"; p ])
+			(file_contents (hash_proc#stdout))
+			(run_unit_exn (exec_none ~stdout:(`FD_move writeable)) ~print:false [ "nix-store"; "--dump"; p ])
 			|> Lwt.map (fun (output, ()) -> output)
 	) hash_cmd
 	|> Lwt.map (fun hash -> `sha256 hash)
@@ -75,8 +75,8 @@ let nix_digest_of_git_repo p =
 	try
 		let (r,w) = Unix.pipe () in
 		let open Cmd in
-		Lwt_main.run (lwt_run_exn (exec_none ~stdin:(`FD_move r)) ~print ~block:(fun _proc ->
-			lwt_run_unit_exn (exec_none ~stdout:(`FD_move w)) ~print
+		Lwt_main.run (run_exn (exec_none ~stdin:(`FD_move r)) ~print ~block:(fun _proc ->
+			run_unit_exn (exec_none ~stdout:(`FD_move w)) ~print
 				[ "git"; "-C"; p; "archive"; "HEAD" ]
 		) [ "tar"; "x"; "-C"; tempdir ] |> Lwt.map (fun () ->
 			(* TODO lwt *)
@@ -222,13 +222,13 @@ let setup_repo ~path ~(commit:string option) : string Lwt.t =
 	let clone_repo () =
 		Printf.eprintf "Cloning %s...\n" repo_url; flush stderr;
 		rm_r path;
-		Cmd.lwt_run_unit_exn Cmd.exec_none [ "git"; "clone"; repo_url; path ]
+		Cmd.run_unit_exn Cmd.exec_none [ "git"; "clone"; repo_url; path ]
 	in
 	let print = false in
 	let git args = ["git"; "-C"; path ] @ args in
 	let origin_head = "origin/HEAD" in
-	let resolve_commit rev = Cmd.lwt_run_output_exn ~print (git ["rev-parse"; rev]) |> Lwt.map String.trim in
-	let run_devnull = Cmd.lwt_run_unit_exn (Cmd.exec_none ~stdout:`Dev_null ~stderr:`Dev_null) ~print in
+	let resolve_commit rev = Cmd.run_output_exn ~print (git ["rev-parse"; rev]) |> Lwt.map String.trim in
+	let run_devnull = Cmd.run_unit_exn (Cmd.exec_none ~stdout:`Dev_null ~stderr:`Dev_null) ~print in
 	let fetch () = run_devnull (git ["fetch"; "--force"; repo_url]) in
 	let reset_hard commit = run_devnull (git ["reset"; "--hard"; commit]) in
 	(* TODO need to lock? ... *)
@@ -236,7 +236,7 @@ let setup_repo ~path ~(commit:string option) : string Lwt.t =
 		(match commit with
 			| Some commit ->
 				(* only fetch if git lacks the given ref *)
-				Cmd.lwt_run_unit (Cmd.exec_none) ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) >>= (fun has_commit ->
+				Cmd.run_unit (Cmd.exec_none) ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) >>= (fun has_commit ->
 					if not has_commit then fetch () else Lwt.return_unit
 				) |> Lwt.map (fun () -> commit)
 			| None -> Lwt.return origin_head
@@ -259,7 +259,7 @@ let setup_external_constraints
 	in
 	let detect_nixpkgs_ocaml_version () =
 		Util.debug "detecting current <nixpkgs> ocaml version\n";
-		Cmd.lwt_run_output_opt ~print:false
+		Cmd.run_output_opt ~print:false
 			[ "nix-instantiate"; "--eval"; "--attr"; "ocaml.version"; "<nixpkgs>" ]
 		|> Lwt.map (Option.map remove_quotes)
 	in
@@ -271,7 +271,7 @@ let setup_external_constraints
 				then Filename.concat (Unix.getcwd ()) detect_from
 				else detect_from
 			in
-			Cmd.lwt_run_output_opt ~print:false
+			Cmd.run_output_opt ~print:false
 				[ "nix-instantiate"; "--eval"; "--expr" ; "with (import \"" ^ fullpath ^ "\" {}); ocaml-version" ]
 				|> Lwt.map (Option.map remove_quotes)
 		) else Lwt.return_none
