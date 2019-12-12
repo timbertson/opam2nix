@@ -77,6 +77,8 @@ let assert_fd : (Unix.file_descr, string) result -> Unix.file_descr = function
 	| Ok fd -> fd
 	| Error msg -> failwith msg
 
+let ignore_lwt _ = Lwt.return_unit
+
 let file_contents fd =
 	let buf = ref Bytes.empty in
 	Internal.chunk_stream fd |> Stream.iter (fun chunk -> buf := Bytes.cat !buf chunk);
@@ -88,79 +90,78 @@ let stdout_contents proc =
 let file_contents_in_bg fd =
 	MVar.spawn file_contents fd
 
+let lwt_file_contents = let open Lwt_io in fun fd ->
+	read ?count:None fd
+
 let cmd_of_list x = ("", x |> Array.of_list)
 
-(* TODO this seems like a really weird way of applying a constraint *)
-type 'a proc_base = < status : Unix.process_status Lwt.t; .. > as 'a
+(* type 'a proc_base = < status : Unix.process_status; .. > as 'a *)
+(* type 'a proc_base = Foo of 'a *)
 
-type _ procspec =
-	| Process:
-		(Lwt_process.command -> ('proc -> 'a Lwt.t) -> 'a Lwt.t) * ('proc -> 'b)
-		-> ('b) procspec
-
-let spec a b = Process (a, b)
-
-let with_command_result ~desc block = fun proc ->
+(* TODO print_desc is silly *)
+let with_command_result cmd block = fun proc ->
 	Lwt.both
 		(block proc)
-		(proc#status |> Lwt.map (Internal.result_of_status ~desc))
+		(proc#status |> Lwt.map (Internal.result_of_status ~desc:(Internal.print_desc ~print:false cmd)))
 
-(* readable stdout *)
-let run_lwt_read (type block_ret) (type ret)
-	?(print=true)
-	?(stderr=`Keep)
-	?(stdin=`Dev_null)
-	~(join: block_ret -> (unit, command_failed) result -> ret)
-	~(block: Lwt_process.process_in -> block_ret Lwt.t)
-	(cmd: string list)
-	: ret Lwt.t =
-	let desc = Internal.print_desc ~print cmd in
-	Lwt_process.with_process_in ~stdin ~stderr
-		(cmd_of_list cmd) (with_command_result ~desc block)
-	|> Lwt.map (fun (a,b) -> join a b)
+let with_command_result_ ~desc block = fun proc ->
+	ignore (desc, block);
+	Lwt.both
+		(block proc)
+		(Lwt.return (Ok ()))
 
-(* writeable stdin *)
-let run_lwt_write (type block_ret) (type ret)
-	?(print=true)
-	?(stderr=`Keep)
-	?(stdout=`Keep)
-	~(join: block_ret -> (unit, command_failed) result -> ret)
-	~(block: Lwt_process.process_out -> block_ret Lwt.t)
-	(cmd: string list)
-	: ret Lwt.t =
-	let desc = Internal.print_desc ~print cmd in
-	Lwt_process.with_process_out ~stdout ~stderr
-		(cmd_of_list cmd) (with_command_result ~desc block)
-	|> Lwt.map (fun (a,b) -> join a b)
+(* (* readable stdout *) *)
+(* let run_lwt_read (type block_ret) (type ret) *)
+(* 	?(print=true) *)
+(* 	?(stderr=`Keep) *)
+(* 	?(stdin=`Dev_null) *)
+(* 	~(join: block_ret -> (unit, command_failed) result -> ret) *)
+(* 	~(block: Lwt_process.process_in -> block_ret Lwt.t) *)
+(* 	(cmd: string list) *)
+(* 	: ret Lwt.t = *)
+(* 	let desc = Internal.print_desc ~print cmd in *)
+(* 	Lwt_process.with_process_in ~stdin ~stderr *)
+(* 		(cmd_of_list cmd) (with_command_result ~desc block) *)
+(* 	|> Lwt.map (fun (a,b) -> join a b) *)
+(*  *)
+(* (* writeable stdin *) *)
+(* let run_lwt_write (type block_ret) (type ret) *)
+(* 	?(print=true) *)
+(* 	?(stderr=`Keep) *)
+(* 	?(stdout=`Keep) *)
+(* 	~(join: block_ret -> (unit, command_failed) result -> ret) *)
+(* 	~(block: Lwt_process.process_out -> block_ret Lwt.t) *)
+(* 	(cmd: string list) *)
+(* 	: ret Lwt.t = *)
+(* 	let desc = Internal.print_desc ~print cmd in *)
+(* 	Lwt_process.with_process_out ~stdout ~stderr *)
+(* 		(cmd_of_list cmd) (with_command_result ~desc block) *)
+(* 	|> Lwt.map (fun (a,b) -> join a b) *)
+(*  *)
+(* (* writeable stdin, readable stdout *) *)
+(* let run_lwt_io (type block_ret) (type ret) *)
+(* 	?(print=true) *)
+(* 	?(stderr=`Keep) *)
+(* 	~(join: block_ret -> (unit, command_failed) result -> ret) *)
+(* 	~(block: Lwt_process.process -> block_ret Lwt.t) *)
+(* 	(cmd: string list) *)
+(* 	: ret Lwt.t = *)
+(* 	let desc = Internal.print_desc ~print cmd in *)
+(* 	Lwt_process.with_process ~stderr *)
+(* 		(cmd_of_list cmd) (with_command_result ~desc block) *)
+(* 	|> Lwt.map (fun (a,b) -> join a b) *)
 
-(* writeable stdin, readable stdout *)
-let run_lwt_io (type block_ret) (type ret)
-	?(print=true)
-	?(stderr=`Keep)
-	~(join: block_ret -> (unit, command_failed) result -> ret)
-	~(block: Lwt_process.process -> block_ret Lwt.t)
-	(cmd: string list)
-	: ret Lwt.t =
-	let desc = Internal.print_desc ~print cmd in
-	Lwt_process.with_process ~stderr
-		(cmd_of_list cmd) (with_command_result ~desc block)
-	|> Lwt.map (fun (a,b) -> join a b)
+type 'ret exec_ret = ('ret * (unit, command_failed) result) Lwt.t
 
-(* writeable stdin, readable stdout *)
 let run_lwt (type block_ret) (type ret) (type proc)
-	(* (spec: (retproc) procspec) *)
-	(runner: Lwt_process.command -> (proc -> 'a Lwt.t) -> 'a Lwt.t)
-	(_thing: (desc:string -> (proc -> block_ret Lwt.t) -> (block_ret, (unit, command_failed) result) Lwt.t))
+	(runner: (proc -> block_ret Lwt.t) -> string list -> block_ret exec_ret)
 	?(print=true)
 	~(join: block_ret -> (unit, command_failed) result -> ret)
 	~(block: proc -> block_ret Lwt.t)
 	(cmd: string list)
 	: ret Lwt.t =
-	let desc = Internal.print_desc ~print cmd in
-	match spec with
-		| Process (runner, join) ->
-			runner (cmd_of_list cmd) (with_command_result ~desc block)
-			|> Lwt.map (fun (a,b) -> join a b)
+	let _ = Internal.print_desc ~print cmd in
+	runner block cmd |> Lwt.map (fun (a,b) -> join a b)
 
 let run (type block_ret) (type ret)
 	?(print=true)
@@ -242,13 +243,25 @@ let run_output_result = run_output ~join:join_result
 let run_output_opt = run_output ~join:join_opt
 
 (* --- *)
-let lwt_run_exn = run_lwt ~join:join_exn
+let lwt_run_exn spawn = run_lwt spawn ~join:join_exn
 
-let lwt_run_unit = run ~block:ignore
-let lwt_run_unit_exn = run_unit ~join:join_exn
+let lwt_run_unit spawn = run_lwt spawn ~block:ignore_lwt
+let lwt_run_unit_exn spawn = lwt_run_unit spawn ~join:join_exn
 let lwt_run_unit_result = run_unit ~join:join_result
 
 let lwt_run_output = run ~stdout:Pipe ~block:stdout_contents
 let lwt_run_output_exn = run_output ~join:join_exn
 let lwt_run_output_result = run_output ~join:join_result
 let lwt_run_output_opt = run_output ~join:join_opt
+
+let exec_r ?stdin ?stderr block cmd =
+	Lwt_process.with_process_in ?stdin ?stderr (cmd_of_list cmd) (with_command_result cmd block)
+
+let exec_w ?stdout ?stderr block cmd =
+	Lwt_process.with_process_out ?stdout ?stderr (cmd_of_list cmd) (with_command_result cmd block)
+
+let exec_rw ?stderr block cmd =
+	Lwt_process.with_process ?stderr (cmd_of_list cmd) (with_command_result cmd block)
+
+let exec_none ?stdin ?stdout ?stderr block cmd =
+	Lwt_process.with_process_none ?stdin ?stdout ?stderr (cmd_of_list cmd) (with_command_result cmd block)

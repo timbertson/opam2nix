@@ -141,7 +141,7 @@ let run env get_commands =
 			| [] -> ()
 			| _ :: _ -> (
 				let quit code = prerr_endline "Command failed."; exit code in
-				match Lwt_main.run_unit_result (Cmd.run_unit_result args) with
+				match (Cmd.run_unit_result args) with
 					| Ok () -> ()
 					| Error (Command_failed (Some code, _)) -> quit code
 					| Error (Command_failed (None, _)) -> quit 1
@@ -255,11 +255,12 @@ let patch env =
 		|> Option.may (fun files_path ->
 		let contents = Sys.readdir files_path
 			|> Array.map (Filename.concat files_path) in
-		Cmd.run_unit_exn (List.concat [
+		Lwt_main.run (Cmd.(lwt_run_unit_exn exec_none) (List.concat [
 			[ "cp"; "-r" ];
 			Array.to_list contents;
 			[ "./" ]
 		])
+		)
 	);
 	apply_patches env
 

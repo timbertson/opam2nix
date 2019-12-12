@@ -45,15 +45,17 @@ let print_universe chan u =
 		()
 	end
 
-let nix_digest_of_path p =
+let nix_digest_of_path p = Lwt_main.run (
 	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
-	let hash = Cmd.run_exn ~print:false ~stdin:Pipe ~stdout:Pipe ~block:(fun hash_proc ->
-		let collector = Cmd.file_contents_in_bg (hash_proc.stdout |> Cmd.assert_fd) in
-		let stdout = Fd (hash_proc.stdin |> Cmd.assert_fd) in
-		Cmd.run_unit_exn ~print:false ~stdout [ "nix-store"; "--dump"; p ];
-		MVar.join collector
-	) hash_cmd in
-	`sha256 hash
+	let (readable, writeable) = Unix.pipe () in
+	Cmd.(lwt_run_exn (exec_r ~stdin:(`FD_move readable))) ~print:false ~block:(fun hash_proc ->
+		Lwt.both
+			(Cmd.lwt_file_contents (hash_proc#stdout))
+			(Cmd.(lwt_run_unit_exn (exec_none ~stdout:(`FD_move writeable))) ~print:false [ "nix-store"; "--dump"; p ])
+			|> Lwt.map (fun (output, ()) -> output)
+	) hash_cmd
+	|> Lwt.map (fun hash -> `sha256 hash)
+)
 
 let unique_file_counter =
 	let state = ref 0 in
