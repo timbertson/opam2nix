@@ -27,7 +27,7 @@ type loaded_package = {
 type external_constraints = {
 	repo_commit: string;
 	ocaml_version: Version.t;
-	repo_digest: Digest_cache.nix_digest MVar.t;
+	repo_digest: Digest_cache.nix_digest Lwt.t;
 }
 
 let repo_owner = "ocaml"
@@ -45,7 +45,7 @@ let print_universe chan u =
 		()
 	end
 
-let nix_digest_of_path p = Lwt_main.run (
+let nix_digest_of_path p =
 	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
 	let (readable, writeable) = Unix.pipe () in
 	let open Cmd in
@@ -56,7 +56,6 @@ let nix_digest_of_path p = Lwt_main.run (
 			|> Lwt.map (fun (output, ()) -> output)
 	) hash_cmd
 	|> Lwt.map (fun hash -> `sha256 hash)
-)
 
 let unique_file_counter =
 	let state = ref 0 in
@@ -71,21 +70,17 @@ let nix_digest_of_git_repo p =
 	let tempname = Printf.sprintf "opam2nix-%d-%d" (Unix.getpid ()) (unique_file_counter ()) in
 	let tempdir = Filename.concat (Filename.get_temp_dir_name ()) tempname in
 	Unix.mkdir tempdir 0o700;
-	let cleanup () = rm_r tempdir in
-	try
+	let cleanup () = rm_r tempdir; Lwt.return_unit in
+	Lwt.finalize (fun () ->
 		let (r,w) = Unix.pipe () in
 		let open Cmd in
-		Lwt_main.run (run_exn (exec_none ~stdin:(`FD_move r)) ~print ~block:(fun _proc ->
+		run_exn (exec_none ~stdin:(`FD_move r)) ~print ~block:(fun _proc ->
 			run_unit_exn (exec_none ~stdout:(`FD_move w)) ~print
 				[ "git"; "-C"; p; "archive"; "HEAD" ]
-		) [ "tar"; "x"; "-C"; tempdir ] |> Lwt.map (fun () ->
-			(* TODO lwt *)
-			let ret = nix_digest_of_path tempdir in
-			cleanup ();
-			ret
+		) [ "tar"; "x"; "-C"; tempdir ] >>= (fun () ->
+			nix_digest_of_path tempdir
 		)
-		)
-	with e -> (cleanup (); raise e)
+	) cleanup
 
 let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitions () =
 	let available_packages = ref OpamPackage.Map.empty in
@@ -135,7 +130,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 	Repo.traverse ~repos (fun package ->
 		let full_path = Repo.package_path package in
 		let repository_expr = lazy (
-			let digest = nix_digest_of_path (Repo.package_path package)
+			let digest = Lwt_main.run (nix_digest_of_path (Repo.package_path package))
 				|> fun (`sha256 d) -> "sha256:" ^ d in
 			`Dir (Nix_expr.(`Call [
 				`Id "repoPath";
@@ -298,12 +293,13 @@ let setup_external_constraints
 	(* TODO this could return a temp dir which we use to avoid needing a lock on the repo *)
 	let repo_digest =
 		let key = "git:" ^ repo_commit in
-		MVar.spawn (fun () ->
+
+		Printf.eprintf "Importing opam-repository %s into nix store...\n" repo_commit;
+		nix_digest_of_git_repo opam_repo |> Lwt.map (fun digest ->
 			Digest_cache.add_custom cache ~keys:[key] (fun () ->
-				Printf.eprintf "Importing opam-repository %s into nix store...\n" repo_commit;
-				Ok (nix_digest_of_git_repo opam_repo)
+				Ok digest
 			) |> Result.get_exn Digest_cache.string_of_error
-		) ()
+		)
 	in
 	Lwt.return {
 		repo_commit;
@@ -360,7 +356,7 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 		"selection", `Attrs selection
 	] in
 
-	let sha256 = MVar.join external_constraints.repo_digest
+	let sha256 = Lwt_main.run external_constraints.repo_digest
 		|> fun (`sha256 x) -> x in
 	let expr : Nix_expr.t = `Function (
 		`Id "self",
