@@ -1,3 +1,5 @@
+open Lwt.Infix
+
 module Types = struct
 	type command_failed = Command_failed of (int option * string list)
 end
@@ -23,6 +25,7 @@ module Internal = struct
 		| Ok x -> x
 		| Error e -> failwith (string_of_command_failed e)
 end
+open Internal
 
 let join_result out = function
 	| Ok () -> Ok out
@@ -50,34 +53,28 @@ let stdout_contents proc =
 
 let cmd_of_list x = ("", x |> Array.of_list)
 
-let with_command_result cmd block = fun proc ->
-	Lwt.both
-		(block proc)
-		(proc#status |> Lwt.map (Internal.result_of_status ~cmd))
-
-type 'ret exec_ret = ('ret * (unit, command_failed) result) Lwt.t
-
-let run (type block_ret) (type ret) (type proc)
-	(runner: (proc -> block_ret Lwt.t) -> string list -> block_ret exec_ret)
+let run
+	(spawn: Lwt_process.command -> 'proc)
 	?(print=true)
-	~(join: block_ret -> (unit, command_failed) result -> ret)
-	~(block: proc -> block_ret Lwt.t)
+	~(join: 'block_ret -> (unit, command_failed) result -> 'ret)
+	~(block: 'proc -> 'block_ret Lwt.t)
 	(cmd: string list)
-	: ret Lwt.t =
-	let _ = Internal.print_desc ~print cmd in
-	runner block cmd |> Lwt.map (fun (a,b) -> join a b)
+	: 'ret Lwt.t =
+	Internal.print_desc ~print cmd;
+	let proc = spawn (cmd_of_list cmd) in
+	Lwt.try_bind
+		(fun () -> block proc)
+		(fun result ->
+			proc#close |> Lwt.map (result_of_status ~cmd) |> Lwt.map (join result)
+		)
+		(fun err -> proc#close >>= fun _ -> Lwt.fail err)
 
-let exec_r ?stdin ?stderr block cmd =
-	Lwt_process.with_process_in ?stdin ?stderr (cmd_of_list cmd) (with_command_result cmd block)
+let exec_r ?stdin ?stderr = Lwt_process.open_process_in ?stdin ?stderr
+let exec_w ?stdout ?stderr = Lwt_process.open_process_out ?stdout ?stderr
+let exec_rw ?stderr = Lwt_process.open_process ?stderr
+let exec_none ?stdin ?stdout ?stderr = Lwt_process.open_process_none ?stdin ?stdout ?stderr
 
-let exec_w ?stdout ?stderr block cmd =
-	Lwt_process.with_process_out ?stdout ?stderr (cmd_of_list cmd) (with_command_result cmd block)
-
-let exec_rw ?stderr block cmd =
-	Lwt_process.with_process ?stderr (cmd_of_list cmd) (with_command_result cmd block)
-
-let exec_none ?stdin ?stdout ?stderr block cmd =
-	Lwt_process.with_process_none ?stdin ?stdout ?stderr (cmd_of_list cmd) (with_command_result cmd block)
+(* handy shortcuts *)
 
 let run_exn spawn = run spawn ~join:join_exn
 
