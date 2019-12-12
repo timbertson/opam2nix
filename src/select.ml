@@ -3,7 +3,7 @@ open OpamTypes
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 module OPAM = OpamFile.OPAM
-open Cmd.Types
+open Lwt.Infix
 
 (* a direct package is passed on the commandline, and is
  * not from any repository *)
@@ -48,10 +48,11 @@ let print_universe chan u =
 let nix_digest_of_path p = Lwt_main.run (
 	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
 	let (readable, writeable) = Unix.pipe () in
-	Cmd.(lwt_run_exn (exec_r ~stdin:(`FD_move readable))) ~print:false ~block:(fun hash_proc ->
+	let open Cmd in
+	lwt_run_exn (exec_r ~stdin:(`FD_move readable)) ~print:false ~block:(fun hash_proc ->
 		Lwt.both
-			(Cmd.lwt_file_contents (hash_proc#stdout))
-			(Cmd.(lwt_run_unit_exn (exec_none ~stdout:(`FD_move writeable))) ~print:false [ "nix-store"; "--dump"; p ])
+			(lwt_file_contents (hash_proc#stdout))
+			(lwt_run_unit_exn (exec_none ~stdout:(`FD_move writeable)) ~print:false [ "nix-store"; "--dump"; p ])
 			|> Lwt.map (fun (output, ()) -> output)
 	) hash_cmd
 	|> Lwt.map (fun hash -> `sha256 hash)
@@ -72,14 +73,18 @@ let nix_digest_of_git_repo p =
 	Unix.mkdir tempdir 0o700;
 	let cleanup () = rm_r tempdir in
 	try
-		Cmd.run_exn ~print ~stdin:Pipe ~block:(fun proc ->
-			let stdout = Fd (proc.stdin |> Cmd.assert_fd) in
-			Cmd.run_unit_exn ~print ~stdout
+		let (r,w) = Unix.pipe () in
+		let open Cmd in
+		Lwt_main.run (lwt_run_exn (exec_none ~stdin:(`FD_move r)) ~print ~block:(fun _proc ->
+			lwt_run_unit_exn (exec_none ~stdout:(`FD_move w)) ~print
 				[ "git"; "-C"; p; "archive"; "HEAD" ]
-		) [ "tar"; "x"; "-C"; tempdir ];
-		let ret = nix_digest_of_path tempdir in
-		cleanup ();
-		ret
+		) [ "tar"; "x"; "-C"; tempdir ] |> Lwt.map (fun () ->
+			(* TODO lwt *)
+			let ret = nix_digest_of_path tempdir in
+			cleanup ();
+			ret
+		)
+		)
 	with e -> (cleanup (); raise e)
 
 let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitions () =
@@ -211,38 +216,39 @@ let newer_versions available pkg =
 		OpamPackage.Version.compare (OpamPackage.version a) (OpamPackage.version b)
 	)
 
-let setup_repo ~path ~commit : string =
+let setup_repo ~path ~(commit:string option) : string Lwt.t =
 	let open Util in
-	let print = false in
-	let git args = ["git"; "-C"; path ] @ args in
 	FileUtil.mkdir ~parent:true (Filename.dirname path);
 	let clone_repo () =
 		Printf.eprintf "Cloning %s...\n" repo_url; flush stderr;
 		rm_r path;
-		Cmd.run_unit_exn [ "git"; "clone"; repo_url; path ]
+		Cmd.lwt_run_unit_exn Cmd.exec_none [ "git"; "clone"; repo_url; path ]
 	in
+	let print = false in
+	let git args = ["git"; "-C"; path ] @ args in
 	let origin_head = "origin/HEAD" in
-	let resolve_commit rev =
-		Cmd.run_output_exn ~print (git ["rev-parse"; rev]) |> String.trim in
-	let get_head_commit () = resolve_commit "HEAD" in
-	let fetch_into_head commit =
-		Cmd.run_unit_exn ~print ~stdout:DevNull ~stderr:DevNull (git ["fetch"; "--force"; repo_url]);
-		Cmd.run_unit_exn ~print ~stdout:DevNull ~stderr:DevNull (git ["reset"; "--hard"; commit]);
-		get_head_commit ()
-	in
+	let resolve_commit rev = Cmd.lwt_run_output_exn ~print (git ["rev-parse"; rev]) |> Lwt.map String.trim in
+	let run_devnull = Cmd.lwt_run_unit_exn (Cmd.exec_none ~stdout:`Dev_null ~stderr:`Dev_null) ~print in
+	let fetch () = run_devnull (git ["fetch"; "--force"; repo_url]) in
+	let reset_hard commit = run_devnull (git ["reset"; "--hard"; commit]) in
 	(* TODO need to lock? ... *)
 	let update_repo () =
-		match commit with
+		(match commit with
 			| Some commit ->
-					(* only update if git lacks the given ref *)
-					if Cmd.run_unit ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) then (
-						Cmd.run_unit_exn ~print (git ["reset"; "--hard"; commit]);
-						resolve_commit commit
-					) else fetch_into_head commit
-			| None -> fetch_into_head origin_head
+				(* only fetch if git lacks the given ref *)
+				Cmd.lwt_run_unit (Cmd.exec_none) ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) >>= (fun has_commit ->
+					if not has_commit then fetch () else Lwt.return_unit
+				) |> Lwt.map (fun () -> commit)
+			| None -> Lwt.return origin_head
+		) >>= fun commit ->
+		reset_hard commit >>= fun () ->
+		resolve_commit commit
 	in
-	if not (Sys.file_exists path) then clone_repo ();
-	update_repo ()
+	(if not (Sys.file_exists path) then (
+		clone_repo ()
+	) else (
+		Lwt.return_unit
+	)) >>= update_repo
 ;;
 
 let setup_external_constraints
@@ -253,42 +259,42 @@ let setup_external_constraints
 	in
 	let detect_nixpkgs_ocaml_version () =
 		Util.debug "detecting current <nixpkgs> ocaml version\n";
-		Cmd.run_output_opt ~print:false
+		Cmd.lwt_run_output_opt ~print:false
 			[ "nix-instantiate"; "--eval"; "--attr"; "ocaml.version"; "<nixpkgs>" ]
-		|> Option.map remove_quotes
+		|> Lwt.map (Option.map remove_quotes)
 	in
 
-	let detected_ocaml_version = lazy (
+	let detect_ocaml_version () =
 		if Sys.file_exists detect_from then (
 			Util.debug "detecting ocaml version from %s\n" detect_from;
 			let fullpath = if Filename.is_relative detect_from
 				then Filename.concat (Unix.getcwd ()) detect_from
 				else detect_from
 			in
-			Cmd.run_output_opt ~print:false
+			Cmd.lwt_run_output_opt ~print:false
 				[ "nix-instantiate"; "--eval"; "--expr" ; "with (import \"" ^ fullpath ^ "\" {}); ocaml-version" ]
-				|> Option.map (fun str -> str
-					|> remove_quotes
-				)
-		) else None
-	) in
+				|> Lwt.map (Option.map remove_quotes)
+		) else Lwt.return_none
+	in
 
-	let ocaml_version = Version.of_string (match ocaml_version with
+	Lwt_main.run (
+	(match ocaml_version with
 		| "" -> (
-			match Lazy.force detected_ocaml_version with
+			detect_ocaml_version () >>= function
 				| Some version -> (
 					Printf.eprintf "Detected ocaml version %s\n" version;
-					version
+					Lwt.return version
 				)
 				| None -> (
 					Printf.eprintf "Using current <nixpkgs> ocaml version, pass --ocaml-version to override\n";
-					detect_nixpkgs_ocaml_version () |> Option.or_failwith "Couldn't extract ocaml version from nixpkgs, pass --ocaml-version"
+					detect_nixpkgs_ocaml_version () |> Lwt.map (Option.or_failwith "Couldn't extract ocaml version from nixpkgs, pass --ocaml-version")
 				)
 		)
-		| version -> version
-	) in
+		| version -> Lwt.return version
+	) |> Lwt.map Version.of_string >>= fun ocaml_version ->
 
-	let repo_commit = setup_repo ~path:opam_repo ~commit:repo_commit in
+	setup_repo ~path:opam_repo ~commit:repo_commit >>= fun repo_commit ->
+	(* TODO move this out of this method? *)
 	(* TODO this could return a temp dir which we use to avoid needing a lock on the repo *)
 	let repo_digest =
 		let key = "git:" ^ repo_commit in
@@ -299,11 +305,12 @@ let setup_external_constraints
 			) |> Result.get_exn Digest_cache.string_of_error
 		) ()
 	in
-	{
+	Lwt.return {
 		repo_commit;
 		ocaml_version;
 		repo_digest;
 	}
+	)
 ;;
 
 let write_solution ~external_constraints ~available_packages ~base_packages ~universe solution dest =

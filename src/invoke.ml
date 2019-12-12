@@ -141,7 +141,7 @@ let run env get_commands =
 			| [] -> ()
 			| _ :: _ -> (
 				let quit code = prerr_endline "Command failed."; exit code in
-				match (Cmd.run_unit_result args) with
+				match Lwt_main.run (Cmd.lwt_run_unit_result Cmd.exec_none args) with
 					| Ok () -> ()
 					| Error (Command_failed (Some code, _)) -> quit code
 					| Error (Command_failed (None, _)) -> quit 1
@@ -165,8 +165,9 @@ let execute_install_file state =
 	let install_file_path = (name ^ ".install") in
 	if (Sys.file_exists install_file_path) then (
 		prerr_endline ("Installing from " ^ install_file_path);
-		Cmd.run_unit_exn ~print:true
+		Lwt_main.run (Cmd.lwt_run_unit_exn Cmd.exec_none ~print:true
 			[ "opam-installer"; "--prefix"; destDir (); install_file_path ]
+		)
 	) else (
 		prerr_endline "no .install file found!";
 	)
