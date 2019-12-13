@@ -17,8 +17,8 @@ type direct_package = {
 (* an opam_source is a package from the opam repo *)
 type loaded_package = {
 	opam: OPAM.t;
-	repository_expr: Opam_metadata.opam_src Lazy.t;
-	src_expr: (Nix_expr.t, Digest_cache.error) Result.t Lazy.t option;
+	repository_expr: Opam_metadata.opam_src Lwt.t;
+	src_expr: (Digest_cache.t -> (Nix_expr.t, Digest_cache.error) Result.t Lwt.t) option;
 	url: Opam_metadata.url option;
 }
 
@@ -82,7 +82,7 @@ let nix_digest_of_git_repo p =
 		)
 	) cleanup
 
-let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitions () =
+let build_universe ~repos ~ocaml_version ~base_packages ~direct_definitions () =
 	let available_packages = ref OpamPackage.Map.empty in
 
 	let global_vars = Opam_metadata.init_variables () in
@@ -129,17 +129,19 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 
 	Repo.traverse ~repos (fun package ->
 		let full_path = Repo.package_path package in
-		let repository_expr = lazy (
-			let digest = Lwt_main.run (nix_digest_of_path (Repo.package_path package))
-				|> fun (`sha256 d) -> "sha256:" ^ d in
-			`Dir (Nix_expr.(`Call [
-				`Id "repoPath";
-				`Id "repo";
-				`Attrs (AttrSet.build [
-					"package", str package.path;
-					"hash", str digest;
-				])
-			]))
+		let repository_expr = (
+			nix_digest_of_path (Repo.package_path package)
+			|> Lwt.map (fun (`sha256 digest) ->
+				let digest = "sha256:" ^ digest in
+				`Dir (Nix_expr.(`Call [
+					`Id "repoPath";
+					`Id "repo";
+					`Attrs (AttrSet.build [
+						"package", str package.path;
+						"hash", str digest;
+					])
+				]))
+			)
 		) in
 		let opam = Opam_metadata.load_opam (Filename.concat full_path "opam") in
 		let url = (
@@ -154,7 +156,9 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 			| Error (`unsupported_archive reason) ->
 				Util.debug "Skipping %s (Unsupported archive: %s)\n" (Repo.package_desc package) reason
 			| Ok url ->
-				let src_expr = url |> Option.map (fun url -> lazy (Opam_metadata.nix_of_url ~cache url)) in
+				let src_expr = url |> Option.map (fun url cache ->
+					Opam_metadata.nix_of_url ~cache url
+				) in
 				add_package ~package:package.package { opam; url; src_expr; repository_expr }
 	);
 	direct_definitions |> List.iter (fun package ->
@@ -164,8 +168,8 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 			{
 				opam = package.direct_opam;
 				url = None;
-				src_expr = Some (Lazy.from_val (Ok (`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str])));
-				repository_expr = Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative));
+				src_expr = Some (fun _ -> Lwt.return (Ok (`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str])));
+				repository_expr = Lwt.return (`File (Nix_expr.str package.direct_opam_relative));
 			}
 	);
 
@@ -291,25 +295,22 @@ let setup_external_constraints
 	setup_repo ~path:opam_repo ~commit:repo_commit >>= fun repo_commit ->
 	(* TODO move this out of this method? *)
 	(* TODO this could return a temp dir which we use to avoid needing a lock on the repo *)
-	let repo_digest =
-		let key = "git:" ^ repo_commit in
+	let key = "git:" ^ repo_commit in
 
-		Printf.eprintf "Importing opam-repository %s into nix store...\n" repo_commit;
-		nix_digest_of_git_repo opam_repo |> Lwt.map (fun digest ->
-			Digest_cache.add_custom cache ~keys:[key] (fun () ->
-				Ok digest
-			) |> Result.get_exn Digest_cache.string_of_error
-		)
-	in
-	Lwt.return {
-		repo_commit;
-		ocaml_version;
-		repo_digest;
-	}
+	Printf.eprintf "Importing opam-repository %s into nix store...\n" repo_commit;
+	Digest_cache.add_custom cache ~keys:[key] (fun () ->
+		nix_digest_of_git_repo opam_repo
+	) |> Lwt.map (fun repo_digest ->
+		let repo_digest = Result.get_exn Digest_cache.string_of_error repo_digest in
+		{
+			repo_commit;
+			ocaml_version;
+			repo_digest;
+		}
 	)
 ;;
 
-let write_solution ~external_constraints ~available_packages ~base_packages ~universe solution dest =
+let write_solution ~external_constraints ~available_packages ~cache ~base_packages ~universe solution dest =
 	let new_packages = OpamSolver.new_packages solution in
 	let () = match OpamPackage.Set.fold (fun pkg lst ->
 		if OpamPackage.name pkg |> Name.to_string = "ocaml"
@@ -334,13 +335,13 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 		let { opam; url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
 
 		let expr : Nix_expr.t = src_expr
-			|> Option.map Lazy.force
-			|> Option.sequence_result
-			|> Result.map (fun src_expr ->
-				nix_of_opam ~deps ~pkg ~opam ~url
-					~src:src_expr
-					~opam_src:(Lazy.force repository_expr)
-					()
+			|> Option.map (fun src -> src cache)
+			|> Lwt.map Option.sequence_result
+			|> Result.map (fun src ->
+				Lwt.both src repository_expr |> Lwt.map (fun (src, repository_expr) ->
+					nix_of_opam ~deps ~pkg ~opam ~url
+						~src ~opam_src:repository_expr ()
+				) |> Lwt_main.run
 			) |> Result.get_exn (fun e ->
 				let url = Option.to_string Opam_metadata.string_of_url url in
 				Printf.sprintf "%s (%s)" (Digest_cache.string_of_error e) url
@@ -348,6 +349,7 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 		in
 		AttrSet.add (OpamPackage.name pkg |> Name.to_string) expr map
 	) new_packages selection in
+	Digest_cache.save cache;
 
 	let attrs = [
 		"format-version", `Int 4;

@@ -23,7 +23,9 @@ type opam_digest = OpamHash.t
 
 type state = {
 	digests: nix_digest Cache.t;
+	(* TODO drop active *)
 	active: StringSet.t;
+	(* TODO don't support a path-less cache *)
 	path: string option;
 }
 type t = state ref
@@ -70,7 +72,7 @@ let opam_digest_of_key key =
 		| _ -> failwith ("Can't parse opam digest: " ^ key)
 
 let json_of_cache (cache: nix_digest Cache.t) : JSON.t =
-	let sorted_bindings = Cache.bindings cache
+	let sorted_bindings : (string * nix_digest) list = Cache.bindings cache
 		|> List.sort (fun (a, _) (b, _) -> String.compare a b)
 		|> List.rev in
 	
@@ -98,6 +100,7 @@ let try_load path: t =
 
 let ephemeral = ref { digests = Cache.empty; active = StringSet.empty; path = None }
 
+(* TODO make this LWT *)
 let save cache =
 	!cache.path |> Option.may (fun path ->
 		let open Unix in
@@ -121,6 +124,7 @@ let save cache =
 		Unix.rename tmp path
 	)
 
+(* TODO replace with Cmd *)
 let process_lines ~desc cmd =
 	let open Lwt in
 	Lwt_process.with_process_in ("", cmd) (fun proc ->
@@ -162,7 +166,7 @@ let exists opam_digests cache : bool =
 	let keys = List.map key_of_opam_digest opam_digests in
 	List.exists (fun key -> Cache.mem key !cache.digests) keys
 
-let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Result.t) : (nix_digest, error) Result.t =
+let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Result.t Lwt.t) : (nix_digest, error) Result.t Lwt.t =
 	let digests = !cache.digests in
 	let active = List.fold_left (fun set key -> StringSet.add key set) !cache.active keys in
 	let rec find_first = function
@@ -180,25 +184,26 @@ let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Resu
 
 	match find_first keys with
 		| Some value -> (
+			(* TODO only needed to detect active *)
 			update_cache value;
-			Ok value
+			Lwt.return (Ok value)
 		)
 		| None -> (
-			block () |> Result.tap (fun digest ->
-				update_cache digest;
-				save cache
+			block () |> Lwt.map (fun result -> result
+				|> Result.tap update_cache
 			)
 		)
 
-let add url opam_digests cache : (nix_digest, error) Result.t =
+let add url opam_digests cache : (nix_digest, error) Result.t Lwt.t =
 	let keys = List.map key_of_opam_digest opam_digests in
 	add_custom cache ~keys (fun () ->
 		let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
-		Download.fetch ~dest:dest_channel url |> Result.bind (fun () ->
+		(* TODO async downloads *)
+		Lwt.return (Download.fetch ~dest:dest_channel url |> Result.bind (fun () ->
 			check_digests opam_digests dest
 		) |> Result.map (fun () ->
 			`sha256 (sha256_of_path dest)
-		)
+		))
 	)
 
 let gc cache =
