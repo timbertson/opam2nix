@@ -1,5 +1,7 @@
 type ('a, 'b) t = ('a, 'b) Pervasives.result
 
+let ok x = Ok x
+
 let map fn = function
 	| Ok x -> Ok (fn x)
 	| Error e -> Error e

@@ -1,3 +1,4 @@
+let some x = Some x
 let map fn = function None -> None | Some x -> Some (fn x)
 let filter fn = function None -> None | Some x -> (if fn x then Some x else None)
 let may fn = function None -> () | Some x -> fn x

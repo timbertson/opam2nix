@@ -3,7 +3,7 @@ open OpamTypes
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 module OPAM = OpamFile.OPAM
-open Cmd.Types
+open Lwt.Infix
 
 (* a direct package is passed on the commandline, and is
  * not from any repository *)
@@ -17,8 +17,8 @@ type direct_package = {
 (* an opam_source is a package from the opam repo *)
 type loaded_package = {
 	opam: OPAM.t;
-	repository_expr: Opam_metadata.opam_src Lazy.t;
-	src_expr: (Nix_expr.t, Digest_cache.error) Result.t Lazy.t option;
+	repository_expr: unit -> Opam_metadata.opam_src Lwt.t;
+	src_expr: Digest_cache.t -> (Nix_expr.t option, Digest_cache.error) Result.t Lwt.t;
 	url: Opam_metadata.url option;
 }
 
@@ -27,7 +27,7 @@ type loaded_package = {
 type external_constraints = {
 	repo_commit: string;
 	ocaml_version: Version.t;
-	repo_digest: Digest_cache.nix_digest MVar.t;
+	repo_digest: Digest_cache.nix_digest Lwt.t;
 }
 
 let repo_owner = "ocaml"
@@ -47,13 +47,15 @@ let print_universe chan u =
 
 let nix_digest_of_path p =
 	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
-	let hash = Cmd.run_exn ~print:false ~stdin:Pipe ~stdout:Pipe ~block:(fun hash_proc ->
-		let collector = Cmd.file_contents_in_bg (hash_proc.stdout |> Cmd.assert_fd) in
-		let stdout = Fd (hash_proc.stdin |> Cmd.assert_fd) in
-		Cmd.run_unit_exn ~print:false ~stdout [ "nix-store"; "--dump"; p ];
-		MVar.join collector
-	) hash_cmd in
-	`sha256 hash
+	let (readable, writeable) = Unix.pipe () in
+	let open Cmd in
+	run_exn (exec_r ~stdin:(`FD_move readable)) ~print:false ~block:(fun hash_proc ->
+		Lwt.both
+			(file_contents (hash_proc#stdout))
+			(run_unit_exn (exec_none ~stdout:(`FD_move writeable)) ~print:false [ "nix-store"; "--dump"; p ])
+			|> Lwt.map (fun (output, ()) -> output)
+	) hash_cmd
+	|> Lwt.map (fun hash -> `sha256 hash)
 
 let unique_file_counter =
 	let state = ref 0 in
@@ -63,22 +65,23 @@ let unique_file_counter =
 		ret
 	)
 
+(* TODO return result? *)
 let nix_digest_of_git_repo p =
 	let print = false in
 	let tempname = Printf.sprintf "opam2nix-%d-%d" (Unix.getpid ()) (unique_file_counter ()) in
 	let tempdir = Filename.concat (Filename.get_temp_dir_name ()) tempname in
 	Unix.mkdir tempdir 0o700;
-	let cleanup () = rm_r tempdir in
-	try
-		Cmd.run_exn ~print ~stdin:Pipe ~block:(fun proc ->
-			let stdout = Fd (proc.stdin |> Cmd.assert_fd) in
-			Cmd.run_unit_exn ~print ~stdout
+	let cleanup () = rm_r tempdir; Lwt.return_unit in
+	Lwt.finalize (fun () ->
+		let (r,w) = Unix.pipe () in
+		let open Cmd in
+		run_exn (exec_none ~stdin:(`FD_move r)) ~print ~block:(fun _proc ->
+			run_unit_exn (exec_none ~stdout:(`FD_move w)) ~print
 				[ "git"; "-C"; p; "archive"; "HEAD" ]
-		) [ "tar"; "x"; "-C"; tempdir ];
-		let ret = nix_digest_of_path tempdir in
-		cleanup ();
-		ret
-	with e -> (cleanup (); raise e)
+		) [ "tar"; "x"; "-C"; tempdir ] >>= (fun () ->
+			nix_digest_of_path tempdir
+		)
+	) cleanup
 
 (* from https://github.com/ocaml/opam/blob/9c4ea9749b38ff60b2d3a3581ecf29fd55e16e28/src/state/opamSwitchState.ml#L479-L524 *)
 let get_conflicts ~lookup_var packages =
@@ -121,7 +124,7 @@ let get_conflicts ~lookup_var packages =
 		OpamPackage.Map.add nv conflicts acc)
 	packages OpamPackage.Map.empty
 
-let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitions () =
+let build_universe ~repos ~ocaml_version ~base_packages ~direct_definitions () =
 	let available_packages = ref OpamPackage.Map.empty in
 
 	let global_vars = Opam_metadata.init_variables () in
@@ -169,17 +172,19 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 
 	Repo.traverse ~repos (fun package ->
 		let full_path = Repo.package_path package in
-		let repository_expr = lazy (
-			let digest = nix_digest_of_path (Repo.package_path package)
-				|> fun (`sha256 d) -> "sha256:" ^ d in
-			`Dir (Nix_expr.(`Call [
-				`Id "repoPath";
-				`Id "repo";
-				`Attrs (AttrSet.build [
-					"package", str package.path;
-					"hash", str digest;
-				])
-			]))
+		let repository_expr () = (
+			nix_digest_of_path (Repo.package_path package)
+			|> Lwt.map (fun (`sha256 digest) ->
+				let digest = "sha256:" ^ digest in
+				`Dir (Nix_expr.(`Call [
+					`Id "repoPath";
+					`Id "repo";
+					`Attrs (AttrSet.build [
+						"package", str package.path;
+						"hash", str digest;
+					])
+				]))
+			)
 		) in
 		let opam = Opam_metadata.load_opam (Filename.concat full_path "opam") in
 		let url = (
@@ -194,7 +199,11 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 			| Error (`unsupported_archive reason) ->
 				Util.debug "Skipping %s (Unsupported archive: %s)\n" (Repo.package_desc package) reason
 			| Ok url ->
-				let src_expr = url |> Option.map (fun url -> lazy (Opam_metadata.nix_of_url ~cache url)) in
+				let src_expr = fun cache ->
+					url |> Option.map (fun url ->
+						Opam_metadata.nix_of_url ~cache url |> Lwt.map (Result.map Option.some)
+					) |> Option.default (Lwt.return (Ok None))
+				in
 				add_package ~package:package.package { opam; url; src_expr; repository_expr }
 	);
 	direct_definitions |> List.iter (fun package ->
@@ -204,8 +213,10 @@ let build_universe ~repos ~ocaml_version ~base_packages ~cache ~direct_definitio
 			{
 				opam = package.direct_opam;
 				url = None;
-				src_expr = Some (Lazy.from_val (Ok (`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str])));
-				repository_expr = Lazy.from_val (`File (Nix_expr.str package.direct_opam_relative));
+				src_expr = (fun _ -> Lwt.return (Ok (Some (
+					`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str]
+				))));
+				repository_expr = fun () -> Lwt.return (`File (Nix_expr.str package.direct_opam_relative));
 			}
 	);
 
@@ -246,42 +257,43 @@ let newer_versions available pkg =
 		OpamPackage.Version.compare (OpamPackage.version a) (OpamPackage.version b)
 	)
 
-let setup_repo ~path ~commit : string =
+let setup_repo ~path ~(commit:string option) : string Lwt.t =
 	let open Util in
-	let print = false in
-	let git args = ["git"; "-C"; path ] @ args in
 	FileUtil.mkdir ~parent:true (Filename.dirname path);
 	let clone_repo () =
 		Printf.eprintf "Cloning %s...\n" repo_url; flush stderr;
 		rm_r path;
-		Cmd.run_unit_exn [ "git"; "clone"; repo_url; path ]
+		Cmd.run_unit_exn Cmd.exec_none [ "git"; "clone"; repo_url; path ]
 	in
+	let print = false in
+	let git args = ["git"; "-C"; path ] @ args in
 	let origin_head = "origin/HEAD" in
-	let resolve_commit rev =
-		Cmd.run_output_exn ~print (git ["rev-parse"; rev]) |> String.trim in
-	let get_head_commit () = resolve_commit "HEAD" in
-	let fetch_into_head commit =
-		Cmd.run_unit_exn ~print ~stdout:DevNull ~stderr:DevNull (git ["fetch"; "--force"; repo_url]);
-		Cmd.run_unit_exn ~print ~stdout:DevNull ~stderr:DevNull (git ["reset"; "--hard"; commit]);
-		get_head_commit ()
-	in
+	let resolve_commit rev = Cmd.run_output_exn ~print (git ["rev-parse"; rev]) |> Lwt.map String.trim in
+	let run_devnull = Cmd.run_unit_exn (Cmd.exec_none ~stdout:`Dev_null ~stderr:`Dev_null) ~print in
+	let fetch () = run_devnull (git ["fetch"; "--force"; repo_url]) in
+	let reset_hard commit = run_devnull (git ["reset"; "--hard"; commit]) in
 	(* TODO need to lock? ... *)
 	let update_repo () =
-		match commit with
+		(match commit with
 			| Some commit ->
-					(* only update if git lacks the given ref *)
-					if Cmd.run_unit ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) then (
-						Cmd.run_unit_exn ~print (git ["reset"; "--hard"; commit]);
-						resolve_commit commit
-					) else fetch_into_head commit
-			| None -> fetch_into_head origin_head
+				(* only fetch if git lacks the given ref *)
+				Cmd.run_unit (Cmd.exec_none) ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) >>= (fun has_commit ->
+					if not has_commit then fetch () else Lwt.return_unit
+				) |> Lwt.map (fun () -> commit)
+			| None -> Lwt.return origin_head
+		) >>= fun commit ->
+		reset_hard commit >>= fun () ->
+		resolve_commit commit
 	in
-	if not (Sys.file_exists path) then clone_repo ();
-	update_repo ()
+	(if not (Sys.file_exists path) then (
+		clone_repo ()
+	) else (
+		Lwt.return_unit
+	)) >>= update_repo
 ;;
 
 let setup_external_constraints
-	~repo_commit ~detect_from ~ocaml_version ~opam_repo ~cache : external_constraints =
+	~repo_commit ~detect_from ~ocaml_version ~opam_repo ~cache : external_constraints Lwt.t =
 	let remove_quotes s = s
 		|> Str.global_replace (Str.regexp "\"") ""
 		|> String.trim
@@ -290,10 +302,10 @@ let setup_external_constraints
 		Util.debug "detecting current <nixpkgs> ocaml version\n";
 		Cmd.run_output_opt ~print:false
 			[ "nix-instantiate"; "--eval"; "--attr"; "ocaml.version"; "<nixpkgs>" ]
-		|> Option.map remove_quotes
+		|> Lwt.map (Option.map remove_quotes)
 	in
 
-	let detected_ocaml_version = lazy (
+	let detect_ocaml_version () =
 		if Sys.file_exists detect_from then (
 			Util.debug "detecting ocaml version from %s\n" detect_from;
 			let fullpath = if Filename.is_relative detect_from
@@ -302,46 +314,45 @@ let setup_external_constraints
 			in
 			Cmd.run_output_opt ~print:false
 				[ "nix-instantiate"; "--eval"; "--expr" ; "with (import \"" ^ fullpath ^ "\" {}); ocaml-version" ]
-				|> Option.map (fun str -> str
-					|> remove_quotes
-				)
-		) else None
-	) in
+				|> Lwt.map (Option.map remove_quotes)
+		) else Lwt.return_none
+	in
 
-	let ocaml_version = Version.of_string (match ocaml_version with
-		| "" -> (
-			match Lazy.force detected_ocaml_version with
-				| Some version -> (
-					Printf.eprintf "Detected ocaml version %s\n" version;
-					version
-				)
-				| None -> (
-					Printf.eprintf "Using current <nixpkgs> ocaml version, pass --ocaml-version to override\n";
-					detect_nixpkgs_ocaml_version () |> Option.or_failwith "Couldn't extract ocaml version from nixpkgs, pass --ocaml-version"
-				)
-		)
-		| version -> version
-	) in
+	let ocaml_version =
+		(match ocaml_version with
+			| "" -> (
+				detect_ocaml_version () >>= function
+					| Some version -> (
+						Printf.eprintf "Detected ocaml version %s\n" version;
+						Lwt.return version
+					)
+					| None -> (
+						Printf.eprintf "Using current <nixpkgs> ocaml version, pass --ocaml-version to override\n";
+						detect_nixpkgs_ocaml_version () |> Lwt.map (Option.or_failwith "Couldn't extract ocaml version from nixpkgs, pass --ocaml-version")
+					)
+			)
+			| version -> Lwt.return version
+		) |> Lwt.map Version.of_string
+	in
 
 	let repo_commit = setup_repo ~path:opam_repo ~commit:repo_commit in
-	(* TODO this could return a temp dir which we use to avoid needing a lock on the repo *)
-	let repo_digest =
+	Lwt.both ocaml_version repo_commit |> Lwt.map (fun (ocaml_version, repo_commit) ->
 		let key = "git:" ^ repo_commit in
-		MVar.spawn (fun () ->
-			Digest_cache.add_custom cache ~keys:[key] (fun () ->
-				Printf.eprintf "Importing opam-repository %s into nix store...\n" repo_commit;
-				Ok (nix_digest_of_git_repo opam_repo)
-			) |> Result.get_exn Digest_cache.string_of_error
-		) ()
-	in
-	{
-		repo_commit;
-		ocaml_version;
-		repo_digest;
-	}
+		(* TODO this could return a temp dir which we use to avoid needing a lock on the repo *)
+		Printf.eprintf "Importing opam-repository %s into nix store...\n" repo_commit;
+		let repo_digest = Digest_cache.add_custom cache ~keys:[key] (fun () ->
+			nix_digest_of_git_repo opam_repo |> Lwt.map Result.ok
+		) |> Lwt.map (Result.get_exn Digest_cache.string_of_error) in
+		{
+			repo_commit;
+			ocaml_version;
+			(* returned as Lwt.t because it's needed lazily much later than commit and version *)
+			repo_digest;
+		}
+	)
 ;;
 
-let write_solution ~external_constraints ~available_packages ~base_packages ~universe solution dest =
+let write_solution ~external_constraints ~(available_packages:loaded_package OpamPackage.Map.t) ~cache ~base_packages ~universe solution dest =
 	let new_packages = OpamSolver.new_packages solution in
 	let () = match OpamPackage.Set.fold (fun pkg lst ->
 		if OpamPackage.name pkg |> Name.to_string = "ocaml"
@@ -367,21 +378,18 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 		let open Opam_metadata in
 		let { opam; url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
 
-		let expr : Nix_expr.t = src_expr
-			|> Option.map Lazy.force
-			|> Option.sequence_result
-			|> Result.map (fun src_expr ->
-				nix_of_opam ~deps ~pkg ~opam ~url
-					~src:src_expr
-					~opam_src:(Lazy.force repository_expr)
-					()
-			) |> Result.get_exn (fun e ->
+		let expr : Nix_expr.t Lwt.t = Lwt.both (src_expr cache) (repository_expr ()) |> Lwt.map (fun (src, repository_expr) ->
+			let src = src |> Result.get_exn (fun e ->
 				let url = Option.to_string Opam_metadata.string_of_url url in
 				Printf.sprintf "%s (%s)" (Digest_cache.string_of_error e) url
-			)
+			) in
+			nix_of_opam ~deps ~pkg ~opam ~url
+				~src ~opam_src:repository_expr ()
+		)
 		in
-		AttrSet.add (OpamPackage.name pkg |> Name.to_string) expr map
+		AttrSet.add (OpamPackage.name pkg |> Name.to_string) (Lwt_main.run expr) map
 	) new_packages selection in
+	Digest_cache.save cache;
 
 	let attrs = [
 		"format-version", `Int 4;
@@ -390,7 +398,7 @@ let write_solution ~external_constraints ~available_packages ~base_packages ~uni
 		"selection", `Attrs selection
 	] in
 
-	let sha256 = MVar.join external_constraints.repo_digest
+	let sha256 = Lwt_main.run external_constraints.repo_digest
 		|> fun (`sha256 x) -> x in
 	let expr : Nix_expr.t = `Function (
 		`Id "self",
@@ -518,19 +526,18 @@ let main idx args =
 		)
 	) in
 
-	let external_constraints = setup_external_constraints
+	let external_constraints = Lwt_main.run (setup_external_constraints
 		~repo_commit
 		~detect_from
 		~opam_repo
 		~cache
-		~ocaml_version:!ocaml_version in
+		~ocaml_version:!ocaml_version) in
 
 	Printf.eprintf "Loading repository...\n"; flush stderr;
 	let (available_packages, universe) = build_universe
 		~repos:[opam_repo]
 		~base_packages
 		~ocaml_version:external_constraints.ocaml_version
-		~cache
 		~direct_definitions
 		() in
 	if Util.verbose () then print_universe stderr universe;
@@ -554,7 +561,11 @@ let main idx args =
 					~reinstall:OpamPackage.Set.empty
 					solution;
 				write_solution
-					~external_constraints ~available_packages ~base_packages ~universe
+					~external_constraints
+					~available_packages
+					~base_packages
+					~universe
+					~cache
 					solution dest
 		| Conflicts conflict ->
 			prerr_endline (
