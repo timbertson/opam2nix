@@ -258,19 +258,20 @@ let load_opam path =
 	let path = OpamFile.make path in
 	OPAM.read path |> OpamFormatUpgrade.opam_file
 
-let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t =
+let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t Lwt.t =
 	let open Nix_expr in
 	match url with
 		| `http (src, checksums) ->
-			Digest_cache.add src checksums cache |> Result.map (function
-				| `sha256 sha256 -> "sha256", str sha256
-			) |> Result.map (fun digest ->
-				`Call [
-					`Lit "pkgs.fetchurl";
-					`Attrs (AttrSet.build [ "url", str src; digest ])
-				]
+			Digest_cache.add src checksums cache |> Lwt.map (fun digest ->
+				digest |> Result.map (function
+					| `sha256 sha256 -> "sha256", str sha256
+				) |> Result.map (fun digest ->
+					`Call [
+						`Lit "pkgs.fetchurl";
+						`Attrs (AttrSet.build [ "url", str src; digest ])
+					]
+				)
 			)
-
 
 let unsafe_drvname_chars = Str.regexp "[^-_.0-9a-zA-Z]"
 let drvname_safe str =

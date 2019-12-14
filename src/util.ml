@@ -159,34 +159,3 @@ module StringMap = struct
 	let find_opt key map = try Some (find key map) with Not_found -> None
 	let from_list items = List.fold_right (fun (k,v) map -> add k v map) items empty
 end
-
-module MVar : sig
-	type 'a t
-	val spawn: ('a -> 'b) -> 'a -> 'b t
-	val join: 'a t -> 'a
-end = struct
-	type 'a t = {
-		thread: Thread.t;
-		result: ('a, exn) Result.t option ref
-	}
-
-	let spawn fn arg =
-		let result = ref None in
-		let thread = Thread.create (fun arg ->
-			try
-				(* let the main thread deal with this business *)
-				let (_:int list) = Thread.sigmask Unix.SIG_BLOCK Sys.([
-					sigterm; sighup; sigkill; sigquit;
-				]) in
-				result := Some (Ok (fn arg))
-			with e -> result := Some (Error e)
-		) arg in
-		{ thread; result }
-
-	let join { thread; result } =
-		Thread.join thread;
-		!result
-			|> Option.default (Error (Failure "result not set by background thread"))
-			|> Result.or_raise
-end
-
