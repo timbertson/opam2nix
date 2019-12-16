@@ -17,7 +17,7 @@ type direct_package = {
 (* an opam_source is a package from the opam repo *)
 type loaded_package = {
 	opam: OPAM.t;
-	repository_expr: Opam_metadata.opam_src Lwt.t;
+	repository_expr: unit -> Opam_metadata.opam_src Lwt.t;
 	src_expr: Digest_cache.t -> (Nix_expr.t option, Digest_cache.error) Result.t Lwt.t;
 	url: Opam_metadata.url option;
 }
@@ -47,7 +47,7 @@ let print_universe chan u =
 
 let nix_digest_of_path p =
 	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
-	let (readable, writeable) = Unix.pipe () in
+	let (readable, writeable) = Unix.pipe ~cloexec:true () in
 	let open Cmd in
 	run_exn (exec_r ~stdin:(`FD_move readable)) ~print:false ~block:(fun hash_proc ->
 		Lwt.both
@@ -73,7 +73,7 @@ let nix_digest_of_git_repo p =
 	Unix.mkdir tempdir 0o700;
 	let cleanup () = rm_r tempdir; Lwt.return_unit in
 	Lwt.finalize (fun () ->
-		let (r,w) = Unix.pipe () in
+		let (r,w) = Unix.pipe ~cloexec:true () in
 		let open Cmd in
 		run_exn (exec_none ~stdin:(`FD_move r)) ~print ~block:(fun _proc ->
 			run_unit_exn (exec_none ~stdout:(`FD_move w)) ~print
@@ -172,7 +172,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_definitions () =
 
 	Repo.traverse ~repos (fun package ->
 		let full_path = Repo.package_path package in
-		let repository_expr = (
+		let repository_expr () = (
 			nix_digest_of_path (Repo.package_path package)
 			|> Lwt.map (fun (`sha256 digest) ->
 				let digest = "sha256:" ^ digest in
@@ -216,7 +216,7 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_definitions () =
 				src_expr = (fun _ -> Lwt.return (Ok (Some (
 					`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str]
 				))));
-				repository_expr = Lwt.return (`File (Nix_expr.str package.direct_opam_relative));
+				repository_expr = fun () -> Lwt.return (`File (Nix_expr.str package.direct_opam_relative));
 			}
 	);
 
@@ -378,7 +378,7 @@ let write_solution ~external_constraints ~(available_packages:loaded_package Opa
 		let open Opam_metadata in
 		let { opam; url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
 
-		let expr : Nix_expr.t Lwt.t = Lwt.both (src_expr cache) repository_expr |> Lwt.map (fun (src, repository_expr) ->
+		let expr : Nix_expr.t Lwt.t = Lwt.both (src_expr cache) (repository_expr ()) |> Lwt.map (fun (src, repository_expr) ->
 			let src = src |> Result.get_exn (fun e ->
 				let url = Option.to_string Opam_metadata.string_of_url url in
 				Printf.sprintf "%s (%s)" (Digest_cache.string_of_error e) url
