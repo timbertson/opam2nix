@@ -24,6 +24,7 @@ type opam_digest = OpamHash.t
 type state = {
 	digests: nix_digest Cache.t;
 	path: string;
+	download_ctx: Download.Ctx.t option; (* automatically populated on `fetch` and discarded on save *)
 }
 type t = state ref
 
@@ -86,17 +87,21 @@ let cache_of_json = function
 				Cache.add key value map
 			) |> Option.default map
 		) Cache.empty
-	| _ -> failwith "Invalid JSON mapping; expeced toplevel object"
+	| _ -> failwith "Invalid JSON mapping; expected toplevel object"
 
 let load path: nix_digest Cache.t =
 	JSON.from_file path |> cache_of_json
 
 let try_load path: t =
 	let digests = if Sys.file_exists path then load path else Cache.empty in
-	ref { digests; path = path }
+	ref { digests; path = path; download_ctx = None }
 
 (* TODO make this LWT *)
 let save cache =
+	!cache.download_ctx |> Option.may (fun ctx ->
+		Download.Ctx.destroy ctx;
+		cache := { !cache with download_ctx = None }
+	);
 	let path = !cache.path in
 	let tmp = path ^ ".tmp" in
 	let json = json_of_cache !cache.digests in
@@ -158,14 +163,25 @@ let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Resu
 			)
 		)
 
+let ensure_ctx cache =
+	!cache.download_ctx |> Option.default_fn (fun () ->
+		let ctx = Download.Ctx.init () in
+		cache := { !cache with download_ctx = Some ctx };
+		ctx
+	)
+
 let add url opam_digests cache : (nix_digest, error) Result.t Lwt.t =
 	let keys = List.map key_of_opam_digest opam_digests in
+	(* TODO limit concurrent downloads? with lwt_mutex? *)
 	add_custom cache ~keys (fun () ->
 		let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
 		(* TODO async downloads *)
-		Lwt.return (Download.fetch ~dest:dest_channel url |> Result.bind (fun () ->
-			check_digests opam_digests dest
-		) |> Result.map (fun () ->
-			`sha256 (sha256_of_path dest)
-		))
+		let ctx = ensure_ctx cache in
+		Download.fetch ctx ~dest:dest_channel url |> Lwt.map (fun result ->
+			result |> Result.bind (fun () ->
+				check_digests opam_digests dest
+			) |> Result.map (fun () ->
+				`sha256 (sha256_of_path dest)
+			)
+		)
 	)

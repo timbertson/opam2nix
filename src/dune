@@ -4,7 +4,9 @@
  (name opam2nix)
  ; (public_name opam2nix)
  (modules :standard \ main)
- (libraries str unix yojson opam-solver opam-state lwt lwt.unix curl
+ (libraries str unix yojson
+   opam-solver opam-state
+   lwt lwt.unix curl curl.lwt
    fileutils xdg-basedir))
 
 (executable
