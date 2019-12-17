@@ -23,10 +23,7 @@ type opam_digest = OpamHash.t
 
 type state = {
 	digests: nix_digest Cache.t;
-	(* TODO drop active *)
-	active: StringSet.t;
-	(* TODO don't support a path-less cache *)
-	path: string option;
+	path: string;
 }
 type t = state ref
 
@@ -96,33 +93,18 @@ let load path: nix_digest Cache.t =
 
 let try_load path: t =
 	let digests = if Sys.file_exists path then load path else Cache.empty in
-	ref { digests; active = StringSet.empty; path = Some path }
-
-let ephemeral = ref { digests = Cache.empty; active = StringSet.empty; path = None }
+	ref { digests; path = path }
 
 (* TODO make this LWT *)
 let save cache =
-	!cache.path |> Option.may (fun path ->
-		let open Unix in
-		try access path [W_OK]
-		with
-			(* If we have a readonly path, it's probably in the nix store.
-			 * Don't bother trying to write it now or in the future *)
-			| Unix_error (Unix.ENOENT, _, _) -> ()
-			| Unix_error (Unix.EACCES, _, _) -> (
-				Printf.eprintf "Note: Digest map file is not writeable; any updates will be lost\n";
-				cache := { !cache with path = None }
-			)
-	);
-	!cache.path |> Option.may (fun path ->
-		let tmp = path ^ ".tmp" in
-		let json = json_of_cache !cache.digests in
-		let chan = open_out tmp in
-		JSON.pretty_to_channel ~std:true chan json;
-		flush chan;
-		close_out chan;
-		Unix.rename tmp path
-	)
+	let path = !cache.path in
+	let tmp = path ^ ".tmp" in
+	let json = json_of_cache !cache.digests in
+	let chan = open_out tmp in
+	JSON.pretty_to_channel ~std:true chan json;
+	flush chan;
+	close_out chan;
+	Unix.rename tmp path
 
 let sha256_of_path p =
 	let open Lwt in
@@ -156,7 +138,6 @@ let exists opam_digests cache : bool =
 
 let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Result.t Lwt.t) : (nix_digest, error) Result.t Lwt.t =
 	let digests = !cache.digests in
-	let active = List.fold_left (fun set key -> StringSet.add key set) !cache.active keys in
 	let rec find_first = function
 		| [] -> None
 		| key::keys -> (
@@ -165,17 +146,12 @@ let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Resu
 	) in
 	let update_cache value =
 		cache := { !cache with
-			active = active;
 			digests = List.fold_left (fun map key -> Cache.add key value map) digests keys;
 		}
 	in
 
 	match find_first keys with
-		| Some value -> (
-			(* TODO only needed to detect active *)
-			update_cache value;
-			Lwt.return (Ok value)
-		)
+		| Some value -> Lwt.return (Ok value)
 		| None -> (
 			block () |> Lwt.map (fun result -> result
 				|> Result.tap update_cache
@@ -193,9 +169,3 @@ let add url opam_digests cache : (nix_digest, error) Result.t Lwt.t =
 			`sha256 (sha256_of_path dest)
 		))
 	)
-
-let gc cache =
-	let { digests; active; _ } = !cache in
-	let is_active key _ = StringSet.mem key active in
-	let active_digests = Cache.filter is_active digests in
-	cache := { !cache with digests = active_digests }
