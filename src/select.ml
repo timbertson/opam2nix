@@ -370,24 +370,29 @@ let write_solution ~external_constraints ~(available_packages:loaded_package Opa
 	let deps = new Opam_metadata.dependency_map in
 	let open Nix_expr in
 
-	(* prime base packages *)
-	let selection = List.fold_right (fun base ->
-		AttrSet.add (Name.to_string base) (`Lit "true")
-	) base_packages AttrSet.empty in
-	let selection = OpamPackage.Set.fold (fun pkg map ->
+	(* download all new packages (Digest_cache usage will automatically throttle *)
+	let new_packages = OpamPackage.Set.elements new_packages |> Lwt_list.map_p (fun pkg ->
 		let open Opam_metadata in
 		let { opam; url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
-
-		let expr : Nix_expr.t Lwt.t = Lwt.both (src_expr cache) (repository_expr ()) |> Lwt.map (fun (src, repository_expr) ->
+		Lwt.both (src_expr cache) (repository_expr ()) |> Lwt.map (fun (src, repository_expr) ->
 			let src = src |> Result.get_exn (fun e ->
 				let url = Option.to_string Opam_metadata.string_of_url url in
 				Printf.sprintf "%s (%s)" (Digest_cache.string_of_error e) url
 			) in
-			nix_of_opam ~deps ~pkg ~opam ~url
-				~src ~opam_src:repository_expr ()
+			(OpamPackage.name pkg |> Name.to_string,
+				nix_of_opam ~deps ~pkg ~opam ~url
+					~src ~opam_src:repository_expr ())
 		)
-		in
-		AttrSet.add (OpamPackage.name pkg |> Name.to_string) (Lwt_main.run expr) map
+	) |> Lwt_main.run in
+
+	(* prime base packages *)
+	let selection = List.fold_right (fun base ->
+		AttrSet.add (Name.to_string base) (`Lit "true")
+	) base_packages AttrSet.empty in
+
+	(* add downloaded packages *)
+	let selection = List.fold_right (fun (name, expr) map ->
+		AttrSet.add name expr map
 	) new_packages selection in
 
 	let attrs = [
