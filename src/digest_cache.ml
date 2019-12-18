@@ -11,14 +11,19 @@ type nix_digest = [
 	| `sha256 of string
 ]
 type checksum_mismatch = [ `checksum_mismatch of string ]
+type unknown_error = [ `error of string ]
 type error = [
 	| checksum_mismatch
+	| Cmd.command_failed
 	| Download.error
+	| unknown_error
 ]
 let string_of_checksum_mismatch (`checksum_mismatch e) = "Checksum mismatch: " ^ e
 let string_of_error : error -> string = function
 	| `checksum_mismatch _ as e -> string_of_checksum_mismatch e
 	| `download_failed _ as e -> Download.string_of_error e
+	| `command_failed _ as e -> Cmd.string_of_command_failed e
+	| `error s -> s
 type opam_digest = OpamHash.t
 
 type state = {
@@ -112,14 +117,16 @@ let save cache =
 	Unix.rename tmp path
 
 let sha256_of_path p =
-	let open Lwt in
-	Cmd.run_exn Cmd.exec_r ~block:(fun proc ->
-		proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list
-	) ["nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p]
-	>>= (function
-		| [line] -> return line
-		| lines -> failwith ("Unexpected nix-hash output:\n" ^ (String.concat "\n" lines))
-	) |> Lwt_main.run
+	let cmd_result : (string list, error) Result.t Lwt.t =
+		Cmd.run Cmd.exec_r ~join:Cmd.join_result ~block:(fun proc ->
+				proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list
+			)
+			["nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p]
+	in
+	Lwt_result.bind_result cmd_result (function
+		| [line] -> (Ok line)
+		| lines -> Error (`error ("nix-hash returned:\n" ^ (String.concat "\n" lines)))
+	)
 
 let check_digests (opam_digest:opam_digest list) path: (unit, [> checksum_mismatch]) Result.t =
 	assert (opam_digest <> []);
@@ -171,17 +178,14 @@ let ensure_ctx cache =
 	)
 
 let add url opam_digests cache : (nix_digest, error) Result.t Lwt.t =
+	let open Lwt_result.Infix in
 	let keys = List.map key_of_opam_digest opam_digests in
-	(* TODO limit concurrent downloads? with lwt_mutex? *)
 	add_custom cache ~keys (fun () ->
 		let (dest, dest_channel) = Filename.open_temp_file "opam2nix" "archive" in
-		(* TODO async downloads *)
 		let ctx = ensure_ctx cache in
-		Download.fetch ctx ~dest:dest_channel url |> Lwt.map (fun result ->
-			result |> Result.bind (fun () ->
-				check_digests opam_digests dest
-			) |> Result.map (fun () ->
-				`sha256 (sha256_of_path dest)
-			)
-		)
+		Download.fetch ctx ~dest:dest_channel url |> Lwt.map (Result.bind (fun () ->
+			check_digests opam_digests dest
+		)) >>= (fun () ->
+			sha256_of_path dest
+		) |> Lwt_result.map (fun digest -> `sha256 digest)
 	)

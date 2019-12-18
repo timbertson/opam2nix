@@ -1,23 +1,20 @@
 open Lwt.Infix
 
-module Types = struct
-	type command_failed = Command_failed of (int option * string list)
-end
-open Types
+type command_failed = [ `command_failed of (int option * string list) ]
 
 module Internal_ = struct
 	let desc cmd = String.concat " " cmd
 
 	let result_of_status ~cmd = let open Unix in function
 		| WEXITED 0 -> Ok ()
-		| WEXITED n -> Error (Command_failed (Some n, cmd))
-		| _ -> Error (Command_failed (None, cmd))
+		| WEXITED n -> Error (`command_failed (Some n, cmd))
+		| _ -> Error (`command_failed (None, cmd))
 
 	let print_desc ~print cmd =
 		if print || Util.verbose () then prerr_endline (" + " ^ (desc cmd))
 end
 
-let string_of_command_failed (Command_failed (_, cmd)) = (Internal_.desc cmd) ^ " failed"
+let string_of_command_failed (`command_failed (_, cmd)) = (Internal_.desc cmd) ^ " failed"
 
 module Internal = struct
 	include Internal_
@@ -27,9 +24,11 @@ module Internal = struct
 end
 open Internal
 
-let join_result out = function
+let join_result : 'a 'e. 'a -> (unit, command_failed) Result.t -> ('a, [> command_failed] as 'e) Result.t
+= fun out -> function
 	| Ok () -> Ok out
-	| Error e -> Error e
+	(* explicit destructuring required to make upcasting work *)
+	| Error (`command_failed e) -> Error (`command_failed e)
 
 let join_exn out = function
 	| Ok () -> out
