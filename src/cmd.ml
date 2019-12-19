@@ -45,7 +45,7 @@ let join_success_bool () = function
 let ignore_lwt _ = Lwt.return_unit
 
 let file_contents = let open Lwt_io in fun fd ->
-	read ?count:None fd
+	read ?count:None fd |> Lwt.map String.trim
 
 let stdout_contents proc =
 	file_contents proc#stdout

@@ -15,9 +15,11 @@
     },
     "self": {
       "fetch": {
+        "ref": "HEAD",
         "relativePath": "."
       },
       "relativePath": ".",
+      "ref": "HEAD",
       "type": "git-local"
     }
   },

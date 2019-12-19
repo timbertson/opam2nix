@@ -117,15 +117,11 @@ let save cache =
 	Unix.rename tmp path
 
 let sha256_of_path p =
-	let cmd_result : (string list, error) Result.t Lwt.t =
-		Cmd.run Cmd.exec_r ~join:Cmd.join_result ~block:(fun proc ->
-				proc#stdout |> Lwt_io.read_lines |> Lwt_stream.to_list
-			)
-			["nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p]
-	in
-	Lwt_result.bind_result cmd_result (function
-		| [line] -> (Ok line)
-		| lines -> Error (`error ("nix-hash returned:\n" ^ (String.concat "\n" lines)))
+	let output = Cmd.run_output_result ["nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p] in
+	Lwt_result.bind_result output (fun output ->
+		match String.split_on_char '\n' output with
+			| [line] -> (Ok line)
+			| lines -> Error (`error ("nix-hash returned:\n" ^ (String.concat "\n" lines)))
 	)
 
 let check_digests (opam_digest:opam_digest list) path: (unit, [> checksum_mismatch]) Result.t =
