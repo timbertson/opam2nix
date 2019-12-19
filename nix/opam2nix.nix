@@ -1,5 +1,7 @@
 { stdenv, lib, nix, callPackage,
-ocaml, findlib, utop, opam-installer, opam-solver, opam-state, ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils, basedir, gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
+ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
+ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils, basedir,
+gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
 coreutils, nix-update-source }:
 let
 version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);

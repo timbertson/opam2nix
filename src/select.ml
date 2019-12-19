@@ -170,7 +170,15 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_definitions () =
 		)
 	in
 
-	Repo.traverse ~repos (fun package ->
+	let log_package_on_error = fun fn pkg ->
+		try fn pkg
+		with e -> (
+			Printf.eprintf "Error raised while processing %s:\n" pkg.Repo.path;
+			raise e
+		)
+	in
+
+	Repo.traverse ~repos |> Seq.iter (log_package_on_error (fun package ->
 		let full_path = Repo.package_path package in
 		let repository_expr () = (
 			nix_digest_of_path (Repo.package_path package)
@@ -205,7 +213,8 @@ let build_universe ~repos ~ocaml_version ~base_packages ~direct_definitions () =
 					) |> Option.default (Lwt.return (Ok None))
 				in
 				add_package ~package:package.package { opam; url; src_expr; repository_expr }
-	);
+	));
+
 	direct_definitions |> List.iter (fun package ->
 		let name = package.direct_name in
 		let version = package.direct_version |> Option.default (Version.of_string "development") in
