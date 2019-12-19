@@ -7,7 +7,7 @@ let
 		rev = "f3b9e7b55e0aef12bb6f848f83aa7bfca5c29b7c";
 		sha256 = "1gjl98ly1ldxni6iswkl50i62bwriz0kpn12s03lbsrpaf54kibc";
 	};
-	opam-selection = opam2nix.build {
+	args = {
 		inherit (pkgs.ocaml-ng.ocamlPackages_4_08) ocaml;
 		selection = ./opam-selection.nix;
 		src = {
@@ -15,10 +15,11 @@ let
 			hello = ../.;
 		};
 	};
+	resolve = opam2nix.resolve args [ "${vdoml}/vdoml.opam" "hello.opam" ];
+	opam-selection = opam2nix.build args;
 in
 {
 	inherit (opam-selection) hello;
-	inherit vdoml;
-	inherit opam2nix;
+	inherit vdoml opam2nix resolve;
 }
 
