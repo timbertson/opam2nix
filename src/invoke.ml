@@ -208,7 +208,7 @@ let apply_patches env =
 	let subst_patches, subst_others =
 	List.partition (fun f -> List.mem_assq f patches)
 		(OpamFile.OPAM.substs opam)
-  in
+	in
 
 	let apply_substs path =
 		Printf.eprintf "Applying substitutions to: %s\n" (OpamFilename.Base.to_string path);
