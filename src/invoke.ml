@@ -66,8 +66,9 @@ let load_env () =
 		packages := Name.Map.add (Name.of_string name) impl !packages
 	in
 
-	let nix_json = JSON.from_file ".attrs.json" in
-	let json = nix_json |> JSON.Util.member "opamEnv" in
+	let json = JSON.from_string (getenv "opamEnv") in
+	(* TODO when we can use structuredAttrs *)
+	(* let json = JSON.from_file ".attrs.json" |> JSON.Util.member "opamEnv" in *)
 	debug "Using opamEnv: %s\n" (JSON.to_string json);
 	let () = match json with
 		| `Assoc pairs -> begin

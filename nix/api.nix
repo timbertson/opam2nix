@@ -113,8 +113,7 @@ rec {
 				buildPhase = "${invoke} build";
 				configurePhase = "true";
 				installPhase = "${invoke} install";
-				__structuredAttrs = true;
-				opamEnv = {
+				opamEnv = builtins.toJSON {
 					inherit (args) version;
 					name = args.pname;
 					deps = mapAttrs (name: impl:
