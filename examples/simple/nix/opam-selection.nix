@@ -3,14 +3,14 @@
 self:
 let
     lib = self.lib;
-    opam-commit = "fe7287db1d181301806bfb03d74368b2fc7f567a";
+    opam-commit = "f70ee2a206e7e8c563c6b604c6075f1a3a23a1f7";
     pkgs = self.pkgs;
     repo = (pkgs.fetchFromGitHub) 
     {
       owner = "ocaml";
       repo = "opam-repository";
       rev = opam-commit;
-      sha256 = "0hspp7f66nk4194aladpdzhjb1mizp53q5j7ya6ack5biyrkx4q3";
+      sha256 = "0lljsssl5vh6snxc0f186sarsv2z54vcad810qdbh4aj19sfjziy";
     };
     repoPath = self.repoPath;
     selection = self.selection;
@@ -65,7 +65,7 @@ in
     };
     conf-m4 = 
     {
-      buildInputs = [ (pkgs.m4 or null) ];
+      buildInputs = [ (pkgs.m4) ];
       opamInputs = {
       };
       opamSrc = repoPath repo 
@@ -108,16 +108,16 @@ in
       };
       opamSrc = repoPath repo 
       {
-        hash = "sha256:0sl24yl7j5rmag0nv4zwdvhmisndlm89qc6fwsdiicaffj09mcay";
-        package = "packages/dune/dune.1.11.3";
+        hash = "sha256:0ll4k4w9ahl9jizkbflwy37vhy2igr7ms0rqz5zv38xhhx8hd2fp";
+        package = "packages/dune/dune.1.11.4";
       };
       pname = "dune";
       src = pkgs.fetchurl 
       {
-        sha256 = "1lmvsis6dk8mccbwpypz9qdxr134gjhdwshxw6q12mi4x3kn6fn8";
-        url = "https://github.com/ocaml/dune/releases/download/1.11.3/dune-build-info-1.11.3.tbz";
+        sha256 = "1rkc8lqw30ifjaz8d81la6i8j05ffd0whpxqsbg6dci16945zjvp";
+        url = "https://github.com/ocaml/dune/releases/download/1.11.4/dune-build-info-1.11.4.tbz";
       };
-      version = "1.11.3";
+      version = "1.11.4";
     };
     dune-configurator = 
     {
@@ -163,16 +163,16 @@ in
       };
       opamSrc = repoPath repo 
       {
-        hash = "sha256:1qq838jd97imwxg75xa5gjxfqx07mz8kz31zhyrlyd2n2shfh5ap";
-        package = "packages/lwt/lwt.4.3.0";
+        hash = "sha256:17czq0yc74arp7vpdarnr5gg3xab2jarh0d65qbp4dzyx7zw8ly9";
+        package = "packages/lwt/lwt.4.4.0";
       };
       pname = "lwt";
       src = pkgs.fetchurl 
       {
-        sha256 = "0gfj6bgv6vp82mg8kw1g7s2h9g08gs9m7i4w1ffw3l77b8pzd6k9";
-        url = "https://github.com/ocsigen/lwt/archive/4.3.0.tar.gz";
+        sha256 = "1g4bg6lxdxpayvdr51c1l8022gsj39nds0vw9aay4kkl6nlzv6vl";
+        url = "https://github.com/ocsigen/lwt/archive/4.4.0.tar.gz";
       };
-      version = "4.3.0";
+      version = "4.4.0";
     };
     mmap = 
     {
@@ -212,6 +212,23 @@ in
       src = null;
       version = "4.08.1";
     };
+    ocaml-base-compiler = 
+    {
+      opamInputs = {
+      };
+      opamSrc = repoPath repo 
+      {
+        hash = "sha256:1gh1552rac1r3zzw1b7z0776walapin07bk0bpg8j561b4kwcb46";
+        package = "packages/ocaml-base-compiler/ocaml-base-compiler.4.08.1";
+      };
+      pname = "ocaml-base-compiler";
+      src = pkgs.fetchurl 
+      {
+        sha256 = "11fvsm861lr73lk181gl5iczprp8d83fvgc1q6dx8gxqhzad6gmm";
+        url = "https://github.com/ocaml/ocaml/archive/4.08.1.tar.gz";
+      };
+      version = "4.08.1";
+    };
     ocaml-config = 
     {
       opamInputs = 
@@ -228,19 +245,6 @@ in
       pname = "ocaml-config";
       src = null;
       version = "1";
-    };
-    ocaml-system = 
-    {
-      opamInputs = {
-      };
-      opamSrc = repoPath repo 
-      {
-        hash = "sha256:11687h71imdvkyhb28aldhs20czhj7bdpyprk19rbzrnhsqn9ylf";
-        package = "packages/ocaml-system/ocaml-system.4.08.1";
-      };
-      pname = "ocaml-system";
-      src = null;
-      version = "4.08.1";
     };
     ocamlbuild = 
     {
