@@ -279,7 +279,9 @@ let setup_repo ~path ~(commit:string option) : string Lwt.t =
 	let origin_head = "origin/HEAD" in
 	let resolve_commit rev = Cmd.run_output_exn ~print (git ["rev-parse"; rev]) |> Lwt.map String.trim in
 	let run_devnull = Cmd.run_unit_exn (Cmd.exec_none ~stdout:`Dev_null ~stderr:`Dev_null) ~print in
-	let fetch () = run_devnull (git ["fetch"; "--force"; repo_url]) in
+	let fetch () =
+		Printf.eprintf "Fetching...\n";
+		run_devnull (git ["fetch"; "--force"; repo_url; "HEAD:refs/heads/origin/HEAD"]) in
 	let reset_hard commit = run_devnull (git ["reset"; "--hard"; commit]) in
 	(* TODO need to lock? ... *)
 	let update_repo () =
@@ -289,7 +291,7 @@ let setup_repo ~path ~(commit:string option) : string Lwt.t =
 				Cmd.run_unit (Cmd.exec_none) ~join:Cmd.join_success_bool ~print (git ["cat-file"; "-e"; commit]) >>= (fun has_commit ->
 					if not has_commit then fetch () else Lwt.return_unit
 				) |> Lwt.map (fun () -> commit)
-			| None -> Lwt.return origin_head
+			| None -> fetch () |> Lwt.map (fun () -> origin_head)
 		) >>= fun commit ->
 		reset_hard commit >>= fun () ->
 		resolve_commit commit
