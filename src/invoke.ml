@@ -194,6 +194,36 @@ let execute_install_file env =
 		prerr_endline "no .install file found!";
 	)
 
+let fixup_lib_dir ~dest env =
+	(* Some packages assume $out/lib, even though opam and findlib
+	 * have lib set to $out/lib/ocaml/$OCAML_VERSION/site-lib.
+	 * It's tedious to fix up all the packages, so just massage
+	 * any package which installs directly into lib/.
+	 *)
+	let open OpamFilename.Op in
+	let name = env.pkgname |> Name.to_string in
+	let lib_base = dest / "lib" in
+	let incorrect_lib_dest = lib_base / name in
+
+	let lib_dir = vardir ~vars:env.vars ~dest "lib" in
+	let expected_lib_dest = lib_dir / name in
+
+	let expected_s = OpamFilename.Dir.to_string expected_lib_dest in
+	let incorrect_s = OpamFilename.Dir.to_string incorrect_lib_dest in
+	(* awkward prefix check removes the false positive for the `ocaml` library,
+	 * since lib/ocaml looks like a bad path _and_ nothing gets installed into
+	 * lib/ocaml/version/site-lib/ocaml *)
+	if not (OpamStd.String.starts_with ~prefix:incorrect_s expected_s) then (
+		if not (OpamFilename.exists_dir expected_lib_dest) then (
+			Printf.eprintf "expected libdir %s is not present, checking for faulty install in %s...\n"
+				expected_s incorrect_s;
+			if (OpamFilename.exists_dir incorrect_lib_dest) then (
+				Printf.eprintf "found! moving %s -> %s\n" incorrect_s expected_s;
+				OpamFilename.move_dir ~src:incorrect_lib_dest ~dst:expected_lib_dest
+			)
+		)
+	)
+
 let isdir path =
 	let open Unix in
 	try (stat path).st_kind = S_DIR
@@ -283,6 +313,7 @@ let install env =
 	run env OPAM.install;
 	execute_install_file env;
 	let dest = destDir () in
+	fixup_lib_dir ~dest env;
 	outputDirs ~vars:env.vars dest |> List.iter remove_empty_dir
 
 let dump env =
