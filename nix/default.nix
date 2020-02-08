@@ -1,6 +1,5 @@
-{ ocaml-ng }:
+{ ocaml-ng, ocamlPackages ? ocaml-ng.ocamlPackages_4_06, self ? ../. }:
 let
-	ocamlPackages = ocaml-ng.ocamlPackages_4_06;
 	ocaml = ocamlPackages.ocaml;
 	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; };
 	callOcamlPackage = ocamlPackages.newScope {
@@ -16,6 +15,5 @@ let
 		cudf = callOcamlPackage ./cudf.nix {};
 		dose3 = callOcamlPackage ./dose3.nix {};
 		mccs = callOcamlPackage ./mccs.nix {};
-		basedir = callOcamlPackage ./basedir.nix {};
 	};
-in callOcamlPackage ./opam2nix.nix {}
+in callOcamlPackage ./opam2nix.nix { inherit self; }

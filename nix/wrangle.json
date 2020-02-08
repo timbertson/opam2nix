@@ -4,8 +4,8 @@
       "fetch": {
         "owner": "timbertson",
         "repo": "nix-wrangle",
-        "rev": "833e82d266900be7817f1a51b7e0717df7bf6585",
-        "sha256": "1brdva3dbn33i4l1qns1hnjf39igqab4qkyaf3qd9psfj9v76bc8"
+        "rev": "34aa6db098e8bbb9d5196b0f7693239e9d13cd0e",
+        "sha256": "0xr23l2klxi8zjfx0fx4ab0linn1lwx2imf9hq0lnb36bqqrsifq"
       },
       "nix": "nix",
       "owner": "timbertson",
@@ -18,8 +18,8 @@
         "ref": "HEAD",
         "relativePath": "."
       },
-      "relativePath": ".",
       "ref": "HEAD",
+      "relativePath": ".",
       "type": "git-local"
     }
   },

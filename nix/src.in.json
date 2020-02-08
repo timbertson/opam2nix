@@ -1,7 +1,0 @@
-{
-	"type": "fetchFromGitHub",
-	"repo": "opam2nix",
-	"owner": "timbertson",
-	"localRepo": ".."
-}
-

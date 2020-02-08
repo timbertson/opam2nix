@@ -1,13 +1,13 @@
 { stdenv, lib, nix, callPackage,
 ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
-ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils, basedir,
+ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils,
 gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
-coreutils, nix-update-source }:
+coreutils, nix-update-source, self }:
 let
 version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
-self = stdenv.mkDerivation {
+opam2nix = stdenv.mkDerivation {
 	name = "opam2nix-${version}";
-	src = ../.;
+	src = self;
 	buildPhase = "gup release";
 	installPhase = ''
 		mkdir $out
@@ -18,7 +18,7 @@ self = stdenv.mkDerivation {
 		;
 	'';
 	passthru = let
-		makeApi = args: callPackage ./api.nix ({ opam2nix = self; } // args);
+		makeApi = args: callPackage ./api.nix ({ inherit opam2nix; } // args);
 		defaultApi = makeApi {};
 	in ({
 		format_version = import ./format_version.nix;
@@ -39,7 +39,6 @@ self = stdenv.mkDerivation {
 		}))
 		yojson
 		fileutils
-		basedir
 		gup
 		ounit
 		makeWrapper
@@ -49,4 +48,4 @@ self = stdenv.mkDerivation {
 	];
 };
 in
-self
+opam2nix
