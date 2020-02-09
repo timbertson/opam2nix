@@ -147,15 +147,21 @@ let exists opam_digests cache : bool =
 let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Result.t Lwt.t) : (nix_digest, error) Result.t Lwt.t =
 	let digests = !cache.digests in
 	let rec find_first = function
-		| [] -> None
+		| [] -> (
+			Util.debug "digest_cache no key found in: %s\n" (String.concat "|" keys);
+			None
+		)
 		| key::keys -> (
 				try Some (Cache.find key digests)
 				with Not_found -> find_first keys
-	) in
+			) |> Option.tap (fun _ -> Util.debug "digest_cache: found key: %s\n" key)
+	in
 	let update_cache value =
-		cache := { !cache with
-			digests = List.fold_left (fun map key -> Cache.add key value map) digests keys;
-		}
+		let add map key =
+			Util.debug "digest_cache: adding key %s\n" key;
+			Cache.add key value map
+		in
+		cache := { !cache with digests = List.fold_left add !cache.digests keys; }
 	in
 
 	match find_first keys with
