@@ -1,4 +1,4 @@
-type ('a, 'b) t = ('a, 'b) Pervasives.result
+type ('a, 'b) t = ('a, 'b) Stdlib.result
 
 let ok x = Ok x
 

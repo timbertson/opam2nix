@@ -1,4 +1,4 @@
-{ ocaml-ng, ocamlPackages ? ocaml-ng.ocamlPackages_4_06, self ? ../. }:
+{ ocaml-ng, ocamlPackages ? ocaml-ng.ocamlPackages_4_08, self ? ../. }:
 let
 	ocaml = ocamlPackages.ocaml;
 	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; };
