@@ -27,7 +27,7 @@ let string_of_error : error -> string = function
 type opam_digest = OpamHash.t
 
 type state = {
-	digests: nix_digest Cache.t;
+	digests: (nix_digest,error) Result.t Lwt.t Cache.t;
 	path: string;
 	download_ctx: Download.Ctx.t option; (* automatically populated on `fetch` and discarded on save *)
 }
@@ -98,10 +98,11 @@ let load path: nix_digest Cache.t =
 	JSON.from_file path |> cache_of_json
 
 let try_load path: t =
-	let digests = if Sys.file_exists path then load path else Cache.empty in
+	let digests = if Sys.file_exists path then (
+		load path |> Cache.map (fun value -> Lwt.return (Ok value))
+	) else Cache.empty in
 	ref { digests; path = path; download_ctx = None }
 
-(* TODO make this LWT *)
 let save cache =
 	!cache.download_ctx |> Option.may (fun ctx ->
 		Download.Ctx.destroy ctx;
@@ -109,12 +110,24 @@ let save cache =
 	);
 	let path = !cache.path in
 	let tmp = path ^ ".tmp" in
-	let json = json_of_cache !cache.digests in
-	let chan = open_out tmp in
-	JSON.pretty_to_channel ~std:true chan json;
-	flush chan;
-	close_out chan;
-	Unix.rename tmp path
+	let digests : nix_digest Cache.t Lwt.t = Cache.fold (fun key (value: (nix_digest,error) Result.t Lwt.t) (acc: nix_digest Cache.t Lwt.t) ->
+		value |> Lwt.bindr (function
+			| Ok digest -> acc |> Lwt.map (Cache.add key digest)
+			| Error _ -> acc (* drop from cache *)
+		)
+	) !cache.digests (Lwt.return Cache.empty)
+	in
+	digests
+	|> Lwt.map json_of_cache
+	|> Lwt.bindr (fun json ->
+		Lwt_io.with_file ~mode:Lwt_io.Output tmp (fun chan ->
+			let contents = JSON.pretty_to_string ~std:true json in
+			Lwt_io.write chan contents
+		)
+	)
+	|> Lwt.bindr (fun () ->
+		Lwt_unix.rename tmp path
+	)
 
 let sha256_of_path p =
 	let output = Cmd.run_output_result ["nix-hash"; "--base32"; "--flat"; "--type";"sha256"; p] in
@@ -140,10 +153,6 @@ let check_digests (opam_digest:opam_digest list) path: (unit, [> checksum_mismat
 	in
 	check opam_digest
 
-let exists opam_digests cache : bool =
-	let keys = List.map key_of_opam_digest opam_digests in
-	List.exists (fun key -> Cache.mem key !cache.digests) keys
-
 let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Result.t Lwt.t) : (nix_digest, error) Result.t Lwt.t =
 	let digests = !cache.digests in
 	let rec find_first = function
@@ -164,13 +173,11 @@ let add_custom cache ~(keys:string list) (block: unit -> (nix_digest,error) Resu
 		cache := { !cache with digests = List.fold_left add !cache.digests keys; }
 	in
 
-	match find_first keys with
-		| Some value -> Lwt.return (Ok value)
-		| None -> (
-			block () |> Lwt.map (fun result -> result
-				|> Result.tap update_cache
-			)
-		)
+	find_first keys |> Option.default_fn (fun () ->
+		let result = block () in
+		update_cache result;
+		result
+	)
 
 let ensure_ctx cache =
 	!cache.download_ctx |> Option.default_fn (fun () ->

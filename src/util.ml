@@ -1,3 +1,5 @@
+module Lwt = Lwt_ext
+
 let identity x = x
 
 let filter_map fn lst =
