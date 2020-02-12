@@ -3,7 +3,7 @@
 (library
  (name opam2nix)
  (public_name opam2nix)
- (modules :standard \ main)
+ (modules :standard \ main version_ml)
  (libraries str unix yojson
    opam-solver opam-state
    lwt lwt.unix curl curl.lwt
@@ -15,8 +15,16 @@
  (public_name opam2nix)
  (libraries opam2nix))
 
+(executable
+ (name version_ml)
+ (modules version_ml)
+ (libraries unix))
+
 (rule
- (targets version.ml)
- (deps (universe))
+ (target version.ml)
+ (deps
+  ../VERSION
+  (universe) ; depends on (possibly-absent) files in .git, but dune doesn't like that
+ )
  (action
-  (run gup -u %{targets})))
+  (run ./version_ml.exe %{target})))

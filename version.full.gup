@@ -1,8 +1,0 @@
-#!bash -eu
-gup --always
-VERSION="$(cat VERSION)"
-if [ -e .git ] && which git >/dev/null 2>&1; then
-	VERSION="$VERSION:$(git rev-parse HEAD)"
-fi
-echo "$VERSION" > "$1"
-gup --contents "$1"
