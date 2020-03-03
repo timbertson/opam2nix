@@ -1,5 +1,28 @@
 The examples show some concrete uses of `opam2nix`, and should be buildable as long as you have a recent `nixpkgs`.
 
+### Layout
+
+Each example has:
+
+ - default.nix: self-contained derivation which imports opam2nix and `<nixpkgs>` explicitly
+ - opam-selection.nix: generated information for all opam packages in use
+ - nix/default.nix: a parameterised derivation as you might find in `nixpkgs` - i.e. all dependencies injected. Uses the `opam2nix` API to build `opam-selection.nix`
+ - Makefile: commands for building the actual derivation, and for (re)generating `opam-selection.nix`
+
+The examples reference `./examples/opam2nix.nix`, which imports opam2nix directly from the parent directory. In your own repository, you would import it from github instead (see the toplevel README for instructions).
+
+### Building
+
+(e.g. for `./simple`)
+
+```bash
+cd simple
+make
+./result/bin/main
+```
+
+To get a shell instead, run `nix-shell`
+
 # Scenario 1. [simple](./simple)
 
 The simple use case is where all dependencies are in OPAM, you just want to build them via nix.
@@ -14,13 +37,3 @@ The main change is that the source for `vdoml` is required when building the ini
 
 The `make` target which builds the `opam-selections.nix` document passes in the path to vdoml which it generated with `nix-build --attr vdoml`, and the final build runs on `nix-build --attr hello` (the demo program).
 
-### Layout
-
-Each example has:
-
- - default.nix: self-contained derivation which imports opam2nix and `<nixpkgs>` explicitly
- - opam-selection.nix: generated information for all opam packages in use
- - nix/default.nix: a parameterised derivation as you might find in `nixpkgs` - i.e. all dependencies injected. Uses the `opam2nix` API to build `opam-selection.nix`
- - Makefile: commands for building the actual derivation, and for (re)generating `opam-selection.nix`
-
-The examples reference `./examples/opam2nix.nix`, which imports opam2nix directly from the parent directory. In your own repository, you would import it from github instead (see the toplevel README for instructions).

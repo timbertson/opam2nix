@@ -1,4 +1,5 @@
 (executable
  (name main)
- (libraries lwt vdoml)
+ (public_name main)
+ (libraries lwt lwt.unix vdoml)
 )
