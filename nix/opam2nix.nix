@@ -1,4 +1,4 @@
-{ stdenv, lib, nix, callPackage,
+{ stdenv, lib, nix, targetPackages, callPackage,
 ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
 ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils,
 gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
@@ -13,8 +13,7 @@ opam2nix = stdenv.mkDerivation {
 		mkdir $out
 		cp -r --dereference bin $out/bin
 		wrapProgram $out/bin/opam2nix \
-			--prefix PATH : "${opam-installer}/bin" \
-			--prefix PATH : "${nix.out}/bin" \
+			--prefix PATH : "${lib.makeBinPath [ opam-installer nix targetPackages.git ]}" \
 		;
 	'';
 	passthru = let
