@@ -1,18 +1,12 @@
-{ pkgs, fetchFromGitHub, ocamlPackages }:
+{ pkgs, fetchFromGitHub, ocamlPackages, src }:
 let
-	version = "2.0.4";
 	base = name: {
 		propagatedBuildInputs ? [],
 		buildInputs ? [],
 		... } @ attrs: attrs // {
 		pname = "opam-${name}";
-		inherit version buildInputs propagatedBuildInputs;
-		src = fetchFromGitHub {
-			owner = "ocaml";
-			repo = "opam";
-			rev = version;
-			sha256 = "1yx5k8v5vnnc20fmz5zx8kqd242j48qcknlk6vmkr7rkq886ipq2";
-		};
+		version = "dev";
+		inherit buildInputs propagatedBuildInputs src;
 		configureFlags = "--disable-checks";
 	};
 in

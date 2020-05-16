@@ -1,5 +1,32 @@
 {
   "sources": {
+    "cudf": {
+      "fetch": {
+        "sha256": "0771lwljqwwn3cryl0plny5a5dyyrj4z6bw66ha5n8yfbpcy8clr",
+        "url": "https://gforge.inria.fr/frs/download.php/36602/cudf-0.9.tar.gz"
+      },
+      "type": "url",
+      "url": "https://gforge.inria.fr/frs/download.php/36602/cudf-<version>.tar.gz",
+      "version": "0.9"
+    },
+    "dose": {
+      "fetch": {
+        "sha256": "00yvyfm4j423zqndvgc1ycnmiffaa2l9ab40cyg23pf51qmzk2jm",
+        "url": "http://gforge.inria.fr/frs/download.php/file/36063/dose3-5.0.1.tar.gz"
+      },
+      "type": "url",
+      "url": "http://gforge.inria.fr/frs/download.php/file/36063/dose3-<version>.tar.gz",
+      "version": "5.0.1"
+    },
+    "mccs": {
+      "fetch": {
+        "sha256": "0gf86c65jdxxcwd96kcmrqxrmnnzc0570gb9ad6c57rl3fyy8yhv",
+        "url": "https://github.com/AltGr/ocaml-mccs/archive/1.1+9.tar.gz"
+      },
+      "type": "url",
+      "url": "https://github.com/AltGr/ocaml-mccs/archive/<version>.tar.gz",
+      "version": "1.1+9"
+    },
     "nix-wrangle": {
       "fetch": {
         "owner": "timbertson",
@@ -11,6 +38,30 @@
       "owner": "timbertson",
       "ref": "v1",
       "repo": "nix-wrangle",
+      "type": "github"
+    },
+    "opam-file-format": {
+      "fetch": {
+        "owner": "ocaml",
+        "repo": "opam-file-format",
+        "rev": "3fd6def4a066eb735ecebd3085093fa1d75e9f57",
+        "sha256": "0fqb99asnair0043hhc8r158d6krv5nzvymd0xwycr5y72yrp0hv"
+      },
+      "owner": "ocaml",
+      "ref": "2.0.0",
+      "repo": "opam-file-format",
+      "type": "github"
+    },
+    "opam": {
+      "fetch": {
+        "owner": "ocaml",
+        "repo": "opam",
+        "rev": "8f0708c56e9e781076556b7f341f4f29563aa2e2",
+        "sha256": "1yx5k8v5vnnc20fmz5zx8kqd242j48qcknlk6vmkr7rkq886ipq2"
+      },
+      "owner": "ocaml",
+      "ref": "2.0.4",
+      "repo": "opam",
       "type": "github"
     },
     "self": {
