@@ -23,6 +23,7 @@ and t = [
 	| `PropertyPath of t * string list
 	| `Property_or of t * string * t
 	| `Attrs of t AttrSet.t
+	| `Rec_attrs of t AttrSet.t
 	| `NamedArguments of arg list
 	| `Function of t * t
 	| `Id of string
@@ -83,10 +84,28 @@ let write dest (t:t) =
 		let parens_if_needed part =
 			match part with
 				(* for neatness, we don't bother enclosing simple expressions in parens *)
-				| `Id _ | `Int _ | `Lit _ | `String _ | `MultilineString _ | `List _ | `Attrs _ -> _write part
+				| `Id _ | `Int _ | `Lit _ | `String _ | `MultilineString _ | `List _ | `Attrs _ | `Rec_attrs _ -> _write part
 				| _ -> put "("; _write part; put ")"
 		in
 		let property name = put ("." ^ (escape_key name)) in
+
+		let write_attrs ~prefix a =
+			pp_print_cut formatter ();
+			pp_open_box formatter indent_width;
+			put prefix;
+			put "{";
+			a |> AttrSet.iter (fun key v ->
+				(* XXX what about quoted keys? *)
+				nl ();
+				put (if keysafe key then key else "\"" ^ (escape_string key) ^ "\"");
+				put " = ";
+				_write v;
+				put ";";
+			);
+			pp_close_box formatter ();
+			nl ();
+			put "}";
+		in
 
 		match t with
 			| `String parts ->
@@ -169,21 +188,8 @@ let write dest (t:t) =
 					| `Lit s -> put s
 					| `Expr e -> _write e
 				)
-			| `Attrs a ->
-				pp_print_cut formatter ();
-				pp_open_box formatter indent_width;
-				put "{";
-				a |> AttrSet.iter (fun key v ->
-					(* XXX what about quoted keys? *)
-					nl ();
-					put (if keysafe key then key else "\"" ^ (escape_string key) ^ "\"");
-					put " = ";
-					_write v;
-					put ";";
-				);
-				pp_close_box formatter ();
-				nl ();
-				put "}";
+			| `Rec_attrs a -> write_attrs ~prefix:"rec " a
+			| `Attrs a -> write_attrs ~prefix:"" a
 			| `With (scope, expr) ->
 					put "with ";
 					_write scope;
