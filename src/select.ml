@@ -517,7 +517,7 @@ let main idx args =
 	]; in
 	let packages = ref [] in
 	let add_package x = packages := x :: !packages in
-	Arg.parse_argv ~current:(ref idx) args opts add_package "opam2nix: usage...";
+	Arg.parse_argv ~current:(ref idx) args opts add_package "usage: opam2nix [OPTIONS] package [package...]";
 
 	let () =
 		if Util.verbose () then

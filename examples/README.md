@@ -37,3 +37,6 @@ The main change is that the source for `vdoml` is required when building the ini
 
 The `make` target which builds the `opam-selections.nix` document passes in the path to vdoml which it generated with `nix-build --attr vdoml`, and the final build runs on `nix-build --attr hello` (the demo program).
 
+# Scenario 3. [dev-dependencies](./dev-dependencies)
+
+An extension of scenario 1 where you want to add development dependencies. It's almost idential to `simple`, see the comments in `nix/default.nix` for how it includes two different types of dependencies (ofrcing `depopts` to be installed, and adding packages which aren't even `depopts`).

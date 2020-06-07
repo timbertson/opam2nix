@@ -1,0 +1,14 @@
+opam-version: "2.0"
+authors: [ "tim@gfxmonk.net" ]
+homepage: "https://github.com/timbertson/opam2nix"
+maintainer: "tim@gfxmonk.net"
+depends: [
+  "lwt" { >= "2.5.1" }
+  "dune" {build}
+]
+depopts: [
+  "utop"
+]
+build: [
+  [ "dune" "build" "-p" "hello" ]
+]
