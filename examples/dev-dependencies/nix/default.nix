@@ -27,7 +27,6 @@ let
 	# (and not `nix-build`), you should override the `hello` derivation
 	# in shell.nix instead of here.
 	hello = opam-selection.hello.overrideAttrs (super: {
-		xyz = 1;
 		buildInputs = (super.buildInputs or []) ++ [opam-selection.ocamlformat];
 	});
 in
