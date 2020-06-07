@@ -16,9 +16,9 @@ let
 	#
 	# `ocamlformat` is not mentioned at all in `hello.opam`.
 	# So we add it to `resolve` arguments, as above.
-	# But our `hello` package reference it, because it wasn't
-	# listed as a dependency. So we also override the resulting
-	# nix derivation to inject `ocamlFormat`.
+	# But our `hello` package doesn't reference it, because it
+	# wasn't listed as a dependency. So we also override the
+	# resulting nix derivation to add it to `buildInputs`.
 	resolve = opam2nix.resolve args [
 		"hello.opam" "utop" "ocamlformat"
 	];
