@@ -1,10 +1,13 @@
 {
-	ocaml-ng, ocamlPackages ? ocaml-ng.ocamlPackages_4_08,
+	ocaml-ng, ocamlPackagesOverride ? ocaml-ng.ocamlPackages_4_08,
 	# sources from nix-wrangle:
 	self ? ../.,
 	opam, cudf, dose, mccs, opam-file-format
 }:
-let opamSrc = opam; in
+let
+	opamSrc = opam;
+	ocamlPackages = ocamlPackagesOverride;
+in
 let
 	ocaml = ocamlPackages.ocaml;
 	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; src = opamSrc; };
