@@ -112,7 +112,7 @@ let add_base_variables base_vars =
 		|> add_global_var "make" (S "make")
 		|> add_global_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
 		|> add_global_var "pinned" (B false) (* probably ? *)
-		|> add_global_var "jobs" (S "1") (* XXX NIX_JOBS? *)
+		|> add_global_var "jobs" (S (getenv_opt "NIX_BUILD_CORES" |> Option.default "1"))
 		|> add_global_var "enable-ocaml-beta-repository" (B false)
 		(* With preinstalled packages suppose they can't write
 		   in the ocaml directory *)

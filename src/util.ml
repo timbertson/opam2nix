@@ -150,8 +150,10 @@ let set_verbose v =
 
 let debug fmt = (if verbose () then Printf.eprintf else Printf.ifprintf stderr) fmt
 
+let getenv_opt name = try Some (Unix.getenv name) with Not_found -> None
+
 let () = (
-	let envvar = try Unix.getenv "OPAM2NIX_VERBOSE" with Not_found -> "" in
+	let envvar = getenv_opt "OPAM2NIX_VERBOSE" |> Option.default "" in
 	set_verbose (envvar = "1" || envvar = "true")
 )
 
