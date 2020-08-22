@@ -1,16 +1,3 @@
-diff --git a/Makefile b/Makefile
-index 09464ff..9bc1576 100644
---- a/Makefile
-+++ b/Makefile
-@@ -8,7 +8,7 @@ DIST_DIR = $(NAME)-$(VERSION)
- DIST_TARBALL = $(DIST_DIR).tar.gz
- 
- #VERBOSE := -classic-display
--OBFLAGS := $(VERBOSE) -j 10 -no-links -cflags -warn-error,FPSXY
-+OBFLAGS := $(VERBOSE) -j 10 -no-links -cflags -warn-error,FPSXY -cflags -unsafe-string
- APPFLAGS := $(VERBOSE) -j 10
- #OBFLAGS := $(OBFLAGS) -tag debug
- #OBFLAGS := $(OBFLAGS) -tag profile
 diff --git a/Makefile.config.in b/Makefile.config.in
 index 155a77a..a9b8bc2 100644
 --- a/Makefile.config.in

@@ -1,5 +1,5 @@
 {
-	ocaml-ng, ocamlPackagesOverride ? ocaml-ng.ocamlPackages_4_08,
+	ocaml-ng, ocamlPackagesOverride ? ocaml-ng.ocamlPackages_4_10,
 	# sources from nix-wrangle:
 	self ? ../.,
 	opam, cudf, dose, mccs, opam-file-format
@@ -53,6 +53,10 @@ let
 				createFindlibDestdir = true;
 				patches = [
 					./dose/compilation.diff
+					./dose/0001-Install-mli-cmx-etc.patch
+					./dose/0002-dont-make-printconf.patch
+					./dose/0003-Fix-for-ocaml-4.06.patch
+					./dose/0004-Add-unix-as-dependency-to-dose3.common-in-META.in.patch
 				];
 			}
 		) {};
