@@ -1,5 +1,5 @@
 { stdenv, lib, nix, targetPackages, callPackage,
-ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
+ocaml, findlib, utop, opam-installer, opam-solver, opam-state, opam-client,
 ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils,
 gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
 coreutils, nix-update-source, self }:
@@ -30,6 +30,7 @@ opam2nix = stdenv.mkDerivation {
 		findlib
 		opam-solver
 		opam-state
+		opam-client
 		opam-installer
 		nix
 		ocaml_lwt

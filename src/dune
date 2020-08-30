@@ -5,7 +5,7 @@
  (public_name opam2nix)
  (modules :standard \ main version_ml)
  (libraries str unix yojson
-   opam-solver opam-state
+   opam-solver opam-state opam-client
    lwt lwt.unix curl curl.lwt
    fileutils))
 

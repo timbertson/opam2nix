@@ -14,7 +14,7 @@ type env = {
 	vars : Vars.env;
 	opam : OpamFile.OPAM.t;
 	opam_src: [`File of string | `Dir of string];
-	pkgname : Name.t;
+	pkg: OpamPackage.t;
 }
 
 let string_of_dir = OpamFilename.Dir.to_string
@@ -122,9 +122,10 @@ let load_env () =
 	let self_opam_src = let path = Unix.getenv "opamSrc" in
 		if Sys.is_directory path then (`Dir path) else (`File path) in
 	let self = !self_name |> Option.or_failwith "self name not specified" |> Name.of_string in
+	let self_version = !self_version |> Option.or_failwith "self version not specified" in
 	let self_impl = Vars.{
 		path = Some destDir;
-		version = Some (!self_version |> Option.or_failwith "self version not specified");
+		version = Some self_version;
 	} in
 	let ocaml_version =
 		(match Name.Map.find (Name.of_string "ocaml") !packages with
@@ -145,7 +146,7 @@ let load_env () =
 			self = self;
 			vars = Opam_metadata.init_variables ();
 		});
-		pkgname = self;
+		pkg = OpamPackage.create self self_version;
 		opam_src = self_opam_src;
 		opam;
 	}
@@ -180,7 +181,7 @@ let remove_empty_dir d =
 	)
 
 let execute_install_file env =
-	let name = env.pkgname in
+	let name = env.pkg.name in
 	let install_file_path = (Name.to_string name ^ ".install") in
 	if (Sys.file_exists install_file_path) then (
 		prerr_endline ("Installing from " ^ install_file_path);
@@ -201,7 +202,7 @@ let fixup_lib_dir ~dest env =
 	 * any package which installs directly into lib/.
 	 *)
 	let open OpamFilename.Op in
-	let name = env.pkgname |> Name.to_string in
+	let name = env.pkg.name |> Name.to_string in
 	let lib_base = dest / "lib" in
 	let incorrect_lib_dest = lib_base / name in
 
@@ -229,64 +230,6 @@ let isdir path =
 	try (stat path).st_kind = S_DIR
 	with Unix_error(ENOENT, _, _) -> false
 
-let apply_patches env =
-	(* extracted from OpamAction.prepare_package_build *)
-	let opam = env.opam in
-	let filter_env = Vars.lookup env.vars in
-
-	let patches = OpamFile.OPAM.patches opam in
-
-	let subst_patches, subst_others =
-	List.partition (fun f -> List.mem_assq f patches)
-		(OpamFile.OPAM.substs opam)
-	in
-
-	let apply_substs path =
-		Printf.eprintf "Applying substitutions to: %s\n" (OpamFilename.Base.to_string path);
-		OpamFilter.expand_interpolations_in_file (filter_env) path
-	in
-
-	let iter_patches f =
-		List.fold_left (fun acc (base, filter) ->
-			let fail e =
-				OpamStd.Exn.fatal e;
-				OpamFilename.Base.to_string base :: acc
-			in
-			let filename_str = (OpamFilename.Base.to_string base) in
-			if OpamFilter.opt_eval_to_bool (filter_env) filter
-			then (
-				Printf.eprintf "applying patch: %s\n" filename_str;
-				if List.mem base subst_patches
-					then apply_substs base;
-				let result = try f filename_str with e -> Some e in
-				match result with
-					| Some (e: exn) -> fail e
-					| None -> acc
-				)
-			else (
-				Printf.eprintf "skipping patch: %s\n" filename_str;
-				acc
-			)
-		) [] patches in
-
-	(* Apply the patches *)
-	let patching_errors =
-		iter_patches (fun filename ->
-			OpamSystem.patch ~dir:(Sys.getcwd ()) filename |> OpamProcess.Job.run
-		)
-	in
-
-	if patching_errors <> [] then (
-		let msg =
-			Printf.sprintf "These patches didn't apply:\n%s"
-				(OpamStd.Format.itemize (fun x -> x) patching_errors)
-		in
-		failwith msg
-	);
-
-	(* Apply remaining substitutions *)
-	List.iter apply_substs subst_others
-
 let patch env =
 	(* copy all files into ./ if present *)
 	opam_file_path env.opam_src "files"
@@ -301,7 +244,12 @@ let patch env =
 		])
 		)
 	);
-	apply_patches env
+	let opam = env.opam in
+	let lookup_env = Vars.lookup env.vars in
+	let cwd = OpamFilename.Dir.of_string (Sys.getcwd ()) in
+	OpamAction.prepare_package_build lookup_env opam env.pkg cwd
+		|> OpamProcess.Job.run
+		|> Option.may raise
 
 let build env =
 	let dest = destDir () in
@@ -329,7 +277,7 @@ let dump env =
 
 let main idx args =
 	let action = try Some (Array.get args (idx+1)) with Not_found -> None in
-	let action = match action with
+	let action : env -> unit = match action with
 		| Some "patch" -> patch
 		| Some "build" -> build
 		| Some "install"-> install

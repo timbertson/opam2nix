@@ -19,6 +19,7 @@ let
 		opam-repository = callOcamlPackage opam.repository {};
 		opam-solver = callOcamlPackage opam.solver {};
 		opam-state = callOcamlPackage opam.state {};
+		opam-client = callOcamlPackage opam.client {};
 
 		opam-file-format = callOcamlPackage ({stdenv, ocaml, findlib }:
 			stdenv.mkDerivation {

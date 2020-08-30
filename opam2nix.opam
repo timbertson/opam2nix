@@ -3,6 +3,7 @@ depends: [
   "ocamlfind"
   "opam-solver"
   "opam-state"
+  "opam-client"
   "cudf" # needed for mccs, transitive dep of ocaml-solver
   "lwt"
   "lwt_ppx"

@@ -15,6 +15,10 @@ in
 		propagatedBuildInputs = [ ocamlgraph re ];
 		buildInputs = [cppo cmdliner];
 	});
+	client = { dune, opam-state, opam-solver, ocaml_extlib, opam-repository, re, cmdliner }: ocamlPackages.buildDunePackage (base "client" {
+		propagatedBuildInputs = [ opam-state opam-solver ocaml_extlib opam-repository re cmdliner ];
+		buildInputs = [dune];
+	});
 	format = { opam-core, opam-file-format, re}: ocamlPackages.buildDunePackage (base "format" {
 		propagatedBuildInputs = [ opam-core opam-file-format re];
 	});
