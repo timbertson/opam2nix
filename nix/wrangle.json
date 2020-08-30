@@ -44,11 +44,11 @@
       "fetch": {
         "owner": "ocaml",
         "repo": "opam",
-        "rev": "8f0708c56e9e781076556b7f341f4f29563aa2e2",
-        "sha256": "1yx5k8v5vnnc20fmz5zx8kqd242j48qcknlk6vmkr7rkq886ipq2"
+        "rev": "11fcbc9e4bd7cca322f3020ed414531737012bd4",
+        "sha256": "04042ayhpi76g0zp4fihsy1da7szmfhykii892wq2307r8y886wv"
       },
       "owner": "ocaml",
-      "ref": "2.0.4",
+      "ref": "2.1.0-beta",
       "repo": "opam",
       "type": "github"
     },

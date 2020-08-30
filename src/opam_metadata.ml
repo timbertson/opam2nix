@@ -27,7 +27,7 @@ let var_prefix = "opam_var_"
 type dependency =
 	| NixDependency of string
 	| SimpleOpamDependency of string
-	| ExternalDependencies of (string list * OpamTypes.filter) list
+	| ExternalDependencies of (OpamSysPkg.Set.t * OpamTypes.filter) list
 	| PackageDependencies of OpamTypes.filtered_formula
 
 type importance = Required | Optional
@@ -58,7 +58,8 @@ let string_of_dependency = function
 	| ExternalDependencies deps ->
 			"external:" ^ (
 				List.to_string (fun (deps, filter) ->
-					(String.concat ",") deps ^ " {" ^ OpamFilter.to_string filter ^ "}"
+					let names = deps |> OpamSysPkg.Set.elements |> List.map OpamSysPkg.to_string in
+					String.concat "," names ^ " {" ^ OpamFilter.to_string filter ^ "}"
 				)
 			) deps
 	| PackageDependencies formula ->
@@ -166,9 +167,10 @@ let add_nix_inputs
 					) else (Required, nixos_deps)
 				in
 				List.iter (fun deps ->
-					List.iter (fun dep ->
-						debug "  adding nix %s: %s\n" desc dep;
-						add_native importance dep
+					OpamSysPkg.Set.iter (fun dep ->
+						let name = OpamSysPkg.to_string dep in
+						debug "  adding nix %s: %s\n" desc name;
+						add_native importance name
 					) deps
 				) deps
 

@@ -79,46 +79,9 @@ let nix_digest_of_git_repo p =
 		)
 	) cleanup
 
-(* from https://github.com/ocaml/opam/blob/9c4ea9749b38ff60b2d3a3581ecf29fd55e16e28/src/state/opamSwitchState.ml#L479-L524 *)
 let get_conflicts ~lookup_var packages =
 	let package_set = packages |> OpamPackage.Map.keys |> OpamPackage.Set.of_list in
-	let conflict_classes = OpamPackage.Map.fold (fun nv {opam; _} acc ->
-		List.fold_left (fun acc cc ->
-			Name.Map.update cc
-				(OpamPackage.Set.add nv) OpamPackage.Set.empty acc)
-			acc
-			(OpamFile.OPAM.conflict_class opam)
-	) packages Name.Map.empty in
-
-	let conflict_class_formulas = Name.Map.map (fun pkgs ->
-		OpamPackage.to_map pkgs |>
-		Name.Map.mapi (fun name versions ->
-			let all_versions = OpamPackage.versions_of_name package_set name in
-			if Version.Set.equal versions all_versions then Empty
-			else
-				(OpamFormula.ors
-					(List.map (fun v -> Atom (`Eq, v))
-						(Version.Set.elements versions))))
-	) conflict_classes in
-
-	OpamPackage.Map.fold (fun nv {opam; _} acc ->
-		let conflicts = OpamFilter.filter_formula ~default:false
-			(lookup_var nv)
-			(OpamFile.OPAM.conflicts opam)
-		in
-		let conflicts = List.fold_left (fun acc cl ->
-			let cmap =
-				Name.Map.find cl conflict_class_formulas |>
-				Name.Map.remove nv.name
-			in
-			Name.Map.fold
-				(fun name vformula acc -> OpamFormula.ors [acc; Atom (name, vformula)])
-				cmap acc)
-			conflicts
-			(OpamFile.OPAM.conflict_class opam)
-		in
-		OpamPackage.Map.add nv conflicts acc)
-	packages OpamPackage.Map.empty
+	OpamSwitchState.get_conflicts_t lookup_var package_set OpamPackage.Map.empty
 
 let log_package_on_error = fun fn pkg ->
 	try fn pkg
