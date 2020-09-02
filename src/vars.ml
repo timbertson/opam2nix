@@ -37,6 +37,7 @@ let implicit_package_var key =
 		| Package pkg, "installed" | Package pkg, "enabled" -> Some pkg
 		| _ -> None
 
+(* TODO `env` could just be ocaml version *)
 let path_var ~env ~prefix ~scope key =
 	(* global vars reference dirs inside the prefix (swtich) location, whereas scoped vars
 	 * refer to the package dir within the above location *)
