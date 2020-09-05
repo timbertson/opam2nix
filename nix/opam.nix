@@ -28,6 +28,9 @@ in
 	repository = { opam-format }: ocamlPackages.buildDunePackage (base "repository" {
 		propagatedBuildInputs = [ opam-format ];
 	});
+
+	# TODO create a stub solver library which provides enough for opam-client,
+	# removing cudf / mccs deps
 	solver = { cudf, dose3, mccs, opam-format }: ocamlPackages.buildDunePackage (base "solver" {
 		propagatedBuildInputs = [ cudf dose3 mccs opam-format ];
 	});

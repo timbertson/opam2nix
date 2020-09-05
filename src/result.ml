@@ -23,3 +23,6 @@ let get_exn to_s = function
 
 let or_raise = function
 	| Ok x -> x | Error e -> raise e
+
+let map_err f = function
+	| Ok x -> Ok x | Error e -> Error (f e)

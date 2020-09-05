@@ -222,7 +222,7 @@ class dependency_map =
 			PackageMap.to_string reqs_to_string !map
 	end
 
-let url urlfile: (url, unsupported_archive) Result.t =
+let url urlfile: (url, [> unsupported_archive]) Result.t =
 	let (url, checksums) = URL.url urlfile, URL.checksum urlfile in
 	let OpamUrl.({ hash; transport; backend; _ }) = url in
 	let url_without_backend = OpamUrl.base_url url in
@@ -242,14 +242,6 @@ let url urlfile: (url, unsupported_archive) Result.t =
 	| `http, _, Some _ -> Error (`unsupported_archive "http with fragment")
 	| `rsync, transport, None -> Error (`unsupported_archive ("rsync transport: " ^ transport))
 	| `rsync, _, Some _ -> Error (`unsupported_archive "rsync with fragment")
-
-let load_url path =
-	if Sys.file_exists path then begin
-		let url_file = open_in path in
-		let rv = URL.read_from_channel url_file in
-		close_in url_file;
-		Some rv
-	end else None
 
 let load_opam path =
 	Util.debug "Loading opam file: %s\n" path;

@@ -52,6 +52,18 @@
       "repo": "opam",
       "type": "github"
     },
+    "opam-0install-solver": {
+      "fetch": {
+        "owner": "ocaml-opam",
+        "repo": "opam-0install-solver",
+        "rev": "21abe5d2bed1e6c61f1d846c5bf4912044253457",
+        "sha256": "04d6gh2avq7gm941k3mnh1yxci52mhwzq91gx5x0bcp40hl6qs3v"
+      },
+      "owner": "ocaml-opam",
+      "ref": "master",
+      "repo": "opam-0install-solver",
+      "type": "github"
+    },
     "opam-file-format": {
       "fetch": {
         "owner": "ocaml",
@@ -72,6 +84,18 @@
       "ref": "HEAD",
       "relativePath": ".",
       "type": "git-local"
+    },
+    "zeroinstall": {
+      "fetch": {
+        "owner": "0install",
+        "repo": "0install",
+        "rev": "55710075f657043f517ae977cad07a4f70bd4dfd",
+        "sha256": "0rz5n6s8c53wy0j9kgq598nkwmzmayz2m6hwlr6ip9n1914cc5p1"
+      },
+      "owner": "0install",
+      "ref": "master",
+      "repo": "0install",
+      "type": "github"
     }
   },
   "wrangle": {

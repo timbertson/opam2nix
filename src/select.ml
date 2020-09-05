@@ -5,30 +5,7 @@ module Version = OpamPackage.Version
 module OPAM = OpamFile.OPAM
 open Lwt.Infix
 open Repo
-
-(* a direct package is passed on the commandline, and is
- * not from any repository *)
-type direct_package = {
-	direct_opam_relative: string;
-	direct_opam: OPAM.t;
-	direct_name: Name.t;
-	direct_version: Version.t option;
-}
-
-(* an opam_source is a package from the opam repo *)
-type loaded_package = {
-	opam: OPAM.t;
-	repository_expr: unit -> Opam_metadata.opam_src Lwt.t;
-	src_expr: Digest_cache.t -> (Nix_expr.t option, Digest_cache.error) Result.t Lwt.t;
-	url: Opam_metadata.url option;
-}
-
-(* external constraints are the preselected boundaries of
- * the selection - what repos and compiler we're using *)
-type external_constraints = {
-	ocaml_version: Version.t;
-	repos: Repo.t list;
-}
+open Solver_env
 
 let print_universe chan u =
 	match u with { u_available; u_installed; _ } -> begin
@@ -40,18 +17,6 @@ let print_universe chan u =
 		u_installed |> print_package_set;
 		()
 	end
-
-let nix_digest_of_path p =
-	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
-	let (readable, writeable) = Unix.pipe ~cloexec:true () in
-	let open Cmd in
-	run_exn (exec_r ~stdin:(`FD_move readable)) ~print:false ~block:(fun hash_proc ->
-		Lwt.both
-			(file_contents (hash_proc#stdout))
-			(run_unit_exn (exec_none ~stdout:(`FD_move writeable)) ~print:false [ "nix-store"; "--dump"; p ])
-			|> Lwt.map (fun (output, ()) -> output)
-	) hash_cmd
-	|> Lwt.map (fun hash -> `sha256 hash)
 
 let unique_file_counter =
 	let state = ref 0 in
@@ -433,7 +398,7 @@ let write_solution ~external_constraints ~(available_packages:loaded_package Opa
 let is_likely_path p =
 	String.contains p '.' &&
 	Str.string_match (Str.regexp ".*opam$") p 0
-
+	
 let main idx args =
 	let dest = ref "opam-selection.nix" in
 	let detect_from = ref "" in

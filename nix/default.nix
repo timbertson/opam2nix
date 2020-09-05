@@ -2,7 +2,7 @@
 	ocaml-ng, ocamlPackagesOverride ? ocaml-ng.ocamlPackages_4_10,
 	# sources from nix-wrangle:
 	self ? ../.,
-	opam, cudf, dose, mccs, opam-file-format
+	opam, cudf, dose, mccs, opam-file-format, opam-0install-solver, zeroinstall,
 }:
 let
 	opamSrc = opam;
@@ -13,6 +13,7 @@ let
 	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; src = opamSrc; };
 	callOcamlPackage = ocamlPackages.newScope {
 		inherit ocaml ocamlPackages;
+		dune = ocamlPackages.dune_2;
 		opam-core = callOcamlPackage opam.core {};
 		opam-format = callOcamlPackage opam.format {};
 		opam-installer = callOcamlPackage opam.installer {};
@@ -20,6 +21,25 @@ let
 		opam-solver = callOcamlPackage opam.solver {};
 		opam-state = callOcamlPackage opam.state {};
 		opam-client = callOcamlPackage opam.client {};
+
+		zeroinstall-solver = callOcamlPackage ({ buildDunePackage }:
+			buildDunePackage {
+				useDune2 = true;
+				pname = "0install-solver";
+				version = "master";
+				src = zeroinstall;
+			}
+		) {};
+		
+		opam-0install = callOcamlPackage ({ buildDunePackage, fmt, cmdliner, opam-state, zeroinstall-solver }:
+			buildDunePackage {
+				pname = "opam-0install";
+				src = opam-0install-solver;
+				version = "master";
+				useDune2 = true;
+				propagatedBuildInputs = [fmt cmdliner opam-state zeroinstall-solver];
+			}
+		) {};
 
 		opam-file-format = callOcamlPackage ({stdenv, ocaml, findlib }:
 			stdenv.mkDerivation {
