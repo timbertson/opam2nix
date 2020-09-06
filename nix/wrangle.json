@@ -1,32 +1,5 @@
 {
   "sources": {
-    "cudf": {
-      "fetch": {
-        "sha256": "0771lwljqwwn3cryl0plny5a5dyyrj4z6bw66ha5n8yfbpcy8clr",
-        "url": "https://gforge.inria.fr/frs/download.php/36602/cudf-0.9-1.tar.gz"
-      },
-      "type": "url",
-      "url": "https://gforge.inria.fr/frs/download.php/36602/cudf-<version>.tar.gz",
-      "version": "0.9-1"
-    },
-    "dose": {
-      "fetch": {
-        "sha256": "00yvyfm4j423zqndvgc1ycnmiffaa2l9ab40cyg23pf51qmzk2jm",
-        "url": "http://gforge.inria.fr/frs/download.php/file/36063/dose3-5.0.1.tar.gz"
-      },
-      "type": "url",
-      "url": "http://gforge.inria.fr/frs/download.php/file/36063/dose3-<version>.tar.gz",
-      "version": "5.0.1"
-    },
-    "mccs": {
-      "fetch": {
-        "sha256": "0mswapf37rav8nvvbjc4c7c7wnl6qwgd3c5v0nfifmr910qygz72",
-        "url": "https://github.com/AltGr/ocaml-mccs/archive/1.1+11.tar.gz"
-      },
-      "type": "url",
-      "url": "https://github.com/AltGr/ocaml-mccs/archive/<version>.tar.gz",
-      "version": "1.1+11"
-    },
     "nix-wrangle": {
       "fetch": {
         "owner": "timbertson",

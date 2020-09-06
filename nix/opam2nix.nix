@@ -26,9 +26,8 @@ opam2nix = buildDunePackage {
 		api = makeApi;
 	}) // defaultApi;
 	buildInputs = [
-		# TODO: drop opam-solver?
-		# Potentially remove solver dependency from client too?
-		opam-solver
+		ocaml
+		findlib
 		opam-state
 		opam-client
 		opam-installer
