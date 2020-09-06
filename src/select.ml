@@ -339,7 +339,7 @@ let main idx args =
 	let direct_requests = direct_requests |> List.map load_direct in
 	let direct_definitions = direct_requests @ (!direct_definitions |> List.map load_direct) in
 
-	let requested_packages = ("ocaml-base-compiler" :: repo_packages) |> List.map (fun spec ->
+	let requested_packages = repo_packages |> List.map (fun spec ->
 		let relop_re = Str.regexp "[!<=>]+" in
 		Util.debug "Parsing spec %s\n" spec;
 		match Str.full_split relop_re spec with
@@ -352,10 +352,6 @@ let main idx args =
 			| _ -> failwith ("Invalid version spec: " ^ spec)
 	) in
 	
-	let requested_packages = requested_packages @ (direct_requests |> List.map (fun package ->
-		(package.direct_name, package.direct_version)
-	)) in
-
 	let config_base = Filename.concat (Unix.getenv "HOME") ".cache/opam2nix" in
 	let digest_map = Filename.concat config_base "digest.json" in
 	let repos_base = Filename.concat config_base "repos" in
@@ -381,6 +377,10 @@ let main idx args =
 		~detect_from
 		~cache
 		~ocaml_version:!ocaml_version) in
+
+	let requested_packages = requested_packages @ (direct_requests |> List.map (fun package ->
+		(package.direct_name, package.direct_version)
+	)) @ [(Name.of_string "ocaml-base-compiler", Some external_constraints.ocaml_version)] in
 
 	let package_names : OpamPackage.Name.t list = requested_packages |> List.map fst in
 	let constrained_versions = requested_packages |> List.filter_map (fun (name, version) ->
