@@ -1,19 +1,17 @@
-{ stdenv, lib, nix, targetPackages, callPackage,
+{ lib, nix, targetPackages, callPackage,
 ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
-opam-client, opam-0install,
+opam-client, opam-0install, buildDunePackage,
 ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils,
 gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
 coreutils, nix-update-source, self }:
 let
 version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
-opam2nix = stdenv.mkDerivation {
-	name = "opam2nix-${version}";
+opam2nix = buildDunePackage {
+	pname = "opam2nix";
+	inherit version;
 	src = self;
-	buildPhase = "dune build -p opam2nix";
-	installPhase = ''
-		mkdir $out
-		dune install -p opam2nix
-		cp -r --dereference bin $out/bin
+	useDune2 = true;
+	postInstall = ''
 		wrapProgram $out/bin/opam2nix \
 			--prefix PATH : "${lib.makeBinPath [ opam-installer nix targetPackages.git ]}" \
 		;
@@ -28,9 +26,6 @@ opam2nix = stdenv.mkDerivation {
 		api = makeApi;
 	}) // defaultApi;
 	buildInputs = [
-		ocaml
-		findlib
-
 		# TODO: drop opam-solver?
 		# Potentially remove solver dependency from client too?
 		opam-solver
@@ -48,7 +43,6 @@ opam2nix = stdenv.mkDerivation {
 		gup
 		ounit
 		makeWrapper
-		dune
 		ocaml-migrate-parsetree
 		coreutils
 	];

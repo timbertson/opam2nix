@@ -1,22 +1,9 @@
 open Util
-open OpamTypes
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 module OPAM = OpamFile.OPAM
 open Lwt.Infix
 open Repo
-open Solver_env
-
-let print_universe chan u =
-	match u with { u_available; u_installed; _ } -> begin
-		let open Printf in
-		let print_package_set = OpamPackage.Set.iter (fun pkg -> fprintf chan " - %s\n" (OpamPackage.to_string pkg)) in
-		fprintf chan "Available:\n";
-		u_available |> print_package_set;
-		fprintf chan "Installed:\n";
-		u_installed |> print_package_set;
-		()
-	end
 
 let unique_file_counter =
 	let state = ref 0 in
@@ -44,153 +31,18 @@ let nix_digest_of_git_repo p =
 		)
 	) cleanup
 
-let get_conflicts ~lookup_var packages =
-	let package_set = packages |> OpamPackage.Map.keys |> OpamPackage.Set.of_list in
-	OpamSwitchState.get_conflicts_t lookup_var package_set OpamPackage.Map.empty
-
-let log_package_on_error = fun fn pkg ->
-	try fn pkg
-	with e -> (
-		Printf.eprintf "Error raised while processing %s:\n" (Repo.full_path pkg);
-		raise e
-	)
-;;
-
-let build_universe ~external_constraints ~base_packages ~direct_definitions () =
-	let ocaml_version = external_constraints.ocaml_version in
-	let available_packages = ref OpamPackage.Map.empty in
-
-	let global_vars = Opam_metadata.init_variables () in
-
-	let lookup_var package =
-		let version = OpamPackage.version package in
-		let name = OpamPackage.name package in
-		Vars.(lookup {
-			ocaml_version;
-			packages = (Name.Map.of_list (
-				[
-					name, (Installed {
-						path = None; (* not yet known *)
-						version = Some version;
-					});
-					Name.of_string "ocaml", (Installed {
-						path = None; (* not yet known *)
-						version = Some ocaml_version;
-					})
-				] @ (base_packages |> List.map (fun name -> (name, Provided)))
-			));
-			prefix = None; (* not known *)
-			self = name;
-			vars = global_vars;
-		}) in
-
-	let add_package ~(package:OpamPackage.t) loaded =
-		let lookup_var = lookup_var package in
-		let available_filter = OPAM.available loaded.opam in
-		let available =
-			try package.name <> (Name.of_string "opam") && OpamFilter.eval_to_bool lookup_var available_filter
-			with e -> (
-				Printf.eprintf "Assuming package %s is unavailable due to error: %s\n" (OpamPackage.to_string package) (Printexc.to_string e);
-				false
-			)
-		in
-		if available then (
-			available_packages := OpamPackage.Map.add package loaded !available_packages
-		) else (
-			let vars = OpamFilter.variables available_filter in
-			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
-			Util.debug "  # Ignoring package %s (incompatible with %s)\n" (OpamPackage.to_string package) vars_str
-		)
-	in
-
-	Repo.traverse ~repos:(external_constraints.repos) |> Seq.iter (log_package_on_error (fun package ->
-		let full_path = Repo.full_path package in
-		let repository_expr () = (
-			nix_digest_of_path full_path
-			|> Lwt.map (fun (`sha256 digest) ->
-				let digest = "sha256:" ^ digest in
-				let open Repo in
-				`Dir (Nix_expr.(`Call [
-					`Id "repoPath";
-					`PropertyPath (`Id "repos", [package.repo.repo_key; "src"]);
-					`Attrs (AttrSet.build [
-						"package", str package.rel_path;
-						"hash", str digest;
-					])
-				]))
-			)
-		) in
-		let opam = Opam_metadata.load_opam (Filename.concat full_path "opam") in
-		let url = (
-			let open Opam_metadata in
-			let urlfile = match OPAM.url opam with
-				| Some _ as url -> url
-				| None -> load_url (Filename.concat full_path "url")
-			in
-			urlfile |> Option.map url
-		) in
-		match url |> Option.sequence_result with
-			| Error (`unsupported_archive reason) ->
-				Util.debug "Skipping %s (Unsupported archive: %s)\n" (Repo.package_desc package) reason
-			| Ok url ->
-				let src_expr = fun cache ->
-					url |> Option.map (fun url ->
-						Opam_metadata.nix_of_url ~cache url |> Lwt.map (Result.map Option.some)
-					) |> Option.default (Lwt.return (Ok None))
-				in
-				add_package ~package:package.package { opam; url; src_expr; repository_expr }
-	));
-
-	direct_definitions |> List.iter (fun package ->
-		let name = package.direct_name in
-		let version = package.direct_version |> Option.default (Version.of_string "development") in
-		add_package ~package:(OpamPackage.create name version)
-			{
-				opam = package.direct_opam;
-				url = None;
-				src_expr = (fun _ -> Lwt.return (Ok (Some (
-					`Call [`Lit "self.directSrc"; name |> Name.to_string |> Nix_expr.str]
-				))));
-				repository_expr = fun () -> Lwt.return (`File (Nix_expr.str package.direct_opam_relative));
-			}
-	);
-
-	let available_packages = !available_packages in
-	Printf.eprintf "Loaded %d packages\n" (OpamPackage.Map.cardinal available_packages);
-
-	let base_packages = (Name.of_string "ocaml" :: base_packages)
-		|> List.map (fun name -> OpamPackage.create name ocaml_version)
-		|> OpamPackage.Set.of_list
-	in
-	let get_depends deptype_access =
-		OpamPackage.Map.mapi (fun pkg { opam; _ } ->
-			OpamFilter.partial_filter_formula (lookup_var pkg) (deptype_access opam)
-		) available_packages
-	in
-	let conflicts = get_conflicts ~lookup_var available_packages in
-	(available_packages, { OpamSolver.empty_universe with
-		u_packages  = OpamPackage.Set.empty;
-		u_action    = Install;
-		u_installed = base_packages;
-		u_base      = base_packages;
-		u_available = available_packages |> OpamPackage.Map.bindings |> List.map fst |> OpamPackage.Set.of_list;
-		u_depends   = get_depends OPAM.depends;
-		u_depopts   = get_depends OPAM.depopts;
-		u_conflicts = conflicts;
-	})
-
 let newer_versions available pkg =
 	let newer a b =
 		(* is a newer than b? *)
 		OpamPackage.Version.compare (OpamPackage.version a) (OpamPackage.version b) > 0
 	in
-	OpamPackage.Set.filter (fun avail ->
-		OpamPackage.name avail == OpamPackage.name pkg && newer avail pkg
-	) available
-	|> OpamPackage.Set.elements
-	|> List.sort (fun a b ->
-		OpamPackage.Version.compare (OpamPackage.version a) (OpamPackage.version b)
-	)
+	available
+		|> List.filter (fun avail ->
+			OpamPackage.name avail == OpamPackage.name pkg && newer avail pkg
+		)
+		|> List.sort (fun a b ->
+			OpamPackage.Version.compare (OpamPackage.version a) (OpamPackage.version b)
+		)
 
 let setup_repo ~cache ~repos_base ~key spec : Repo.t Lwt.t = (
 	let open Util in
@@ -255,7 +107,7 @@ let setup_repo ~cache ~repos_base ~key spec : Repo.t Lwt.t = (
 ;;
 
 let setup_external_constraints
-	~repos_base ~repos ~detect_from ~ocaml_version ~cache : external_constraints Lwt.t =
+	~repos_base ~repos ~detect_from ~ocaml_version ~cache : Solver.external_constraints Lwt.t =
 	let remove_quotes s = s
 		|> Str.global_replace (Str.regexp "\"") ""
 		|> String.trim
@@ -302,17 +154,25 @@ let setup_external_constraints
 	) in
 
 	Lwt.both ocaml_version resolved_repos |> Lwt.map (fun (ocaml_version, repos) ->
-		{ ocaml_version; repos; }
+		Solver.{ ocaml_version; repos; }
 	)
 ;;
 
-let write_solution ~external_constraints ~(available_packages:loaded_package OpamPackage.Map.t) ~cache ~base_packages ~universe solution dest =
-	let new_packages = OpamSolver.new_packages solution in
-	let () = match OpamPackage.Set.fold (fun pkg lst ->
+let write_solution ~external_constraints ~cache  ~universe installed dest =
+	let open Solver in
+	let available_packages = !(universe.packages)
+		|> OpamPackage.Map.bindings
+		|> List.filter_map (fun (key, value) -> match value with
+			| Ok pkg -> Some (key, pkg)
+			| Error _ -> None
+		)
+	|> OpamPackage.Map.of_list in
+
+	let () = match installed |> List.concat_map (fun pkg ->
 		if OpamPackage.name pkg |> Name.to_string = "ocaml"
-			then lst (* ignore newer ocaml versions, they're often fake *)
-			else lst @ (newer_versions universe.u_available pkg)
-	) new_packages [] with
+			then [] (* ignore newer ocaml versions, they're often fake *)
+			else newer_versions (OpamPackage.Map.keys available_packages) pkg
+	) with
 		| [] -> ()
 		| newer_versions ->
 			Printf.eprintf "\nNOTE:\nThe following package versions are newer than the selected versions,\nbut were not selected due to version constraints:\n";
@@ -325,29 +185,24 @@ let write_solution ~external_constraints ~(available_packages:loaded_package Opa
 	let open Nix_expr in
 
 	(* download all new packages (Digest_cache usage will automatically throttle *)
-	let new_packages = OpamPackage.Set.elements new_packages |> Lwt_list.map_p (fun pkg ->
+	let new_packages = installed |> Lwt_list.map_p (fun pkg ->
 		let open Opam_metadata in
-		let { opam; url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
+		let { loaded_opam; loaded_url; src_expr; repository_expr } = OpamPackage.Map.find pkg available_packages in
 		Lwt.both (src_expr cache) (repository_expr ()) |> Lwt.map (fun (src, repository_expr) ->
 			let src = src |> Result.get_exn (fun e ->
-				let url = Option.to_string Opam_metadata.string_of_url url in
+				let url = Option.to_string Opam_metadata.string_of_url loaded_url in
 				Printf.sprintf "%s (%s)" (Digest_cache.string_of_error e) url
 			) in
 			(OpamPackage.name pkg |> Name.to_string,
-				nix_of_opam ~deps ~pkg ~opam ~url
+				nix_of_opam ~deps ~pkg ~opam:loaded_opam ~url:loaded_url
 					~src ~opam_src:repository_expr ())
 		)
 	) |> Lwt_main.run in
 
-	(* prime base packages *)
-	let selection = List.fold_right (fun base ->
-		AttrSet.add (Name.to_string base) (`Lit "true")
-	) base_packages AttrSet.empty in
-
 	(* add downloaded packages *)
 	let selection = List.fold_right (fun (name, expr) map ->
 		AttrSet.add name expr map
-	) new_packages selection in
+	) new_packages AttrSet.empty in
 
 	let attrs = [
 		"format-version", `Int 4;
@@ -484,21 +339,22 @@ let main idx args =
 	let direct_requests = direct_requests |> List.map load_direct in
 	let direct_definitions = direct_requests @ (!direct_definitions |> List.map load_direct) in
 
-	let requested_packages : OpamFormula.atom list = ("ocaml-base-compiler" :: repo_packages) |> List.map (fun spec ->
+	let requested_packages = ("ocaml-base-compiler" :: repo_packages) |> List.map (fun spec ->
 		let relop_re = Str.regexp "[!<=>]+" in
 		Util.debug "Parsing spec %s\n" spec;
 		match Str.full_split relop_re spec with
 			| [Str.Text name; Str.Delim relop; Str.Text ver] ->
-				let relop = OpamLexer.relop relop in
-				let ver = OpamPackage.Version.of_string ver in
-				(Name.of_string name, Some (relop, ver))
+				(* As of 20200906, we only support explicit versioning in cmdline specs *)
+				if String.equal relop "=" then (
+					(Name.of_string name, Some (OpamPackage.Version.of_string ver))
+				) else failwith ("Unsupported version operator: " ^ relop)
 			| [Str.Text name] -> (OpamPackage.Name.of_string name, None)
 			| _ -> failwith ("Invalid version spec: " ^ spec)
 	) in
+	
 	let requested_packages = requested_packages @ (direct_requests |> List.map (fun package ->
-		(package.direct_name, package.direct_version |> Option.map (fun v -> `Eq, v))
+		(package.direct_name, package.direct_version)
 	)) in
-	let package_names : OpamPackage.Name.t list = requested_packages |> List.map (fun (name, _) -> name) in
 
 	let config_base = Filename.concat (Unix.getenv "HOME") ".cache/opam2nix" in
 	let digest_map = Filename.concat config_base "digest.json" in
@@ -526,52 +382,29 @@ let main idx args =
 		~cache
 		~ocaml_version:!ocaml_version) in
 
-	Printf.eprintf "Loading repository...\n"; flush stderr;
-	let (available_packages, universe) = build_universe
-		~base_packages
-		~external_constraints
-		~direct_definitions
-		() in
-	if Util.verbose () then print_universe stderr universe;
-	let request = {
-		wish_install = requested_packages;
-		wish_remove = [];
-		wish_upgrade = [];
-		extra_attributes = [];
-		criteria = `Default;
-	} in
+	let package_names : OpamPackage.Name.t list = requested_packages |> List.map fst in
+	let constrained_versions = requested_packages |> List.filter_map (fun (name, version) ->
+		version |> Option.map (fun version -> (name, version))
+	) in
 
-	Printf.eprintf "Solving...\n";
+	let universe = Solver.build_universe
+		~external_constraints
+		~base_packages
+		~constrained_versions
+		~direct_definitions () in
+		
+	Printf.eprintf "Solving...\n"; flush stderr;
 	flush stderr;
-	let () = OpamSolverConfig.init () in
-	let () = (match OpamSolver.resolve universe ~orphans:OpamPackage.Set.empty request with
-		| Success solution ->
-				OpamSolver.print_solution
-					~messages:(fun pkg -> [OpamPackage.to_string pkg])
-					~append:(fun _nv -> "")
-					~requested:(package_names |> OpamPackage.Name.Set.of_list)
-					~reinstall:OpamPackage.Set.empty
-					solution;
-				write_solution
-					~external_constraints
-					~available_packages
-					~base_packages
-					~universe
-					~cache
-					solution dest
-		| Conflicts conflict ->
-			prerr_endline (
-				OpamCudf.string_of_conflict (universe.u_available)
-					(fun (p, version_formula) -> (
-						"package " ^ (OpamPackage.Name.to_string p)
-						^ " version " ^ (
-							OpamFormula.string_of_formula
-								(fun (op, ver) -> (OpamPrinter.relop op) ^ (OpamPackage.Version.to_string ver))
-								version_formula
-						) ^ " unavailable"
-					))
-					conflict
-			);
+
+	let () = (match Solver.solve universe package_names with
+		| Error e -> (
+			print_endline (Solver.diagnostics e);
 			exit 1
+		)
+		| Ok solution ->
+			let installed = Solver.packages_of_result solution in
+			Printf.eprintf "Selected packages:\n";
+			installed |> List.iter (fun pkg -> Printf.eprintf "- %s\n" (OpamPackage.to_string pkg));
+			write_solution ~external_constraints ~universe ~cache installed dest
 	) in
 	()

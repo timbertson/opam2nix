@@ -14,6 +14,13 @@ let ends_with suffix s =
 	let len = String.length s in
 	len >= suffix_len && String.sub s (len - suffix_len) (suffix_len) = suffix
 
+let without_leading prefix s =
+	let prefix_len = String.length prefix in
+	let len = String.length s in
+	if len >= prefix_len && String.sub s 0 prefix_len = prefix
+	then Some (String.sub s prefix_len (len - prefix_len))
+	else None
+
 let without_trailing suffix s =
 	let suffix_len = String.length suffix in
 	let len = String.length s in
@@ -142,6 +149,8 @@ let set_verbose v =
 	_verbose := v
 
 let debug fmt = (if verbose () then Printf.eprintf else Printf.ifprintf stderr) fmt
+
+let tap fn t = fn t; t
 
 let getenv_opt name = try Some (Unix.getenv name) with Not_found -> None
 

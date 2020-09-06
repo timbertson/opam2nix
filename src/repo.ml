@@ -4,14 +4,6 @@ module Version = OpamPackage.Version
 module Name = OpamPackage.Name
 module Seq = Seq_ext
 
-let (%) f g x = f (g x)
-
-type version = OpamPackage.Version.t
-
-type repo_url =
-	| Github of (string * string)
-	| Url of string
-
 type spec = {
 	github_owner: string;
 	github_name: string;
@@ -28,25 +20,29 @@ type t = {
 	repo_digest: Digest_cache.nix_digest Lwt.t;
 }
 
-module PackageSet = OpamPackage.Set
-
-let decreasing_version_order versions =
-	let compare a b =
-		(* Note: we invert this because we want a descending list *)
-		OpamPackage.Version.compare a b
-	in
-	versions |> List.sort compare
-
-let latest_version versions = List.hd (decreasing_version_order versions)
-
 type package = {
 	repo: t;
-	package: OpamPackage.t;
 	rel_path: string;
-
-	(* TODO Make these lazy? *)
+	package: OpamPackage.t;
 	opam: OPAM.t;
 	url: URL.t option;
+}
+
+(* Loaded package, either from an opam repo or direct package supplied on the commandline *)
+type loaded_package = {
+	loaded_opam: OPAM.t;
+	repository_expr: unit -> Opam_metadata.opam_src Lwt.t;
+	src_expr: Digest_cache.t -> (Nix_expr.t option, Digest_cache.error) Result.t Lwt.t;
+	loaded_url: Opam_metadata.url option;
+}
+
+(* a direct package is passed on the commandline, and is
+ * not from any repository *)
+type direct_package = {
+	direct_opam_relative: string;
+	direct_opam: OPAM.t;
+	direct_name: Name.t;
+	direct_version: Version.t option;
 }
 
 let packages_dir = "packages"
@@ -65,7 +61,6 @@ let load_url path =
 		Some rv
 	end else None
 
-
 let list_package =
 	let version_sep = "." in
 	let version_join package version =
@@ -76,12 +71,19 @@ let list_package =
 		let package_abs = Filename.concat repo.repo_path package_base in
 		let list_versions () =
 			debug "listing %s\n" package_abs;
-			let dirs = list_dirs package_abs in
-			dirs |> filter_map (fun ent ->
-				if Sys.file_exists (Filename.concat(Filename.concat package_abs ent) "opam")
-					then Some (Version.of_string ent)
-					else (Printf.eprintf "Skipping non-package directory %s ()\n" ent; None)
+			let dirs = try
+				list_dirs package_abs
+			with Sys_error e -> (
+				debug "Skipping (%s)\n" e;
+				[]
 			)
+			in
+			dirs
+				|> filter_map (without_leading (package ^ version_sep))
+				|> List.map Version.of_string
+				|> List.filter (fun version ->
+					Sys.file_exists (Filename.concat (Filename.concat package_abs (version_join package version)) "opam")
+				)
 		in
 
 		list_versions () |> List.map (fun version ->
@@ -89,36 +91,21 @@ let list_package =
 			let full_path = Filename.concat repo.repo_path rel_path in
 			let opam = Opam_metadata.load_opam (Filename.concat full_path "opam") in
 			{
-				repo;
+				repo; rel_path; opam;
 				package = OpamPackage.create (Name.of_string package) version;
-				(* TODO is rel_path still needed? *)
-				rel_path;
-				opam;
 				url = OPAM.url opam |> Option.or_else (load_url (Filename.concat full_path "url"));
 			}
 		)
 	)
 
-let traverse ~repos : package Seq.t =
-	let filter =
-		let seen = ref PackageSet.empty in
-		fun package ->
-			if PackageSet.mem package.package !seen then (
-				Printf.eprintf "Skipping %s (already loaded %s)\n" package.rel_path (package_desc package);
-				false
-			) else (
-				seen := PackageSet.add package.package !seen;
-				debug "Processing package %s\n" package.rel_path;
-				true
-			)
-	in
-
-	let traverse_repo repo = (
-		list_dirs (Filename.concat repo.repo_path packages_dir)
-			|> Seq.of_list
-			|> Seq.flat_map (fun pkg -> list_package repo pkg |> Seq.of_list)
-	) in
-	repos
-		|> Seq.of_list
-		|> Seq.flat_map traverse_repo
-		|> Seq.filter filter
+let nix_digest_of_path p =
+	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in
+	let (readable, writeable) = Unix.pipe ~cloexec:true () in
+	let open Cmd in
+	run_exn (exec_r ~stdin:(`FD_move readable)) ~print:false ~block:(fun hash_proc ->
+		Lwt.both
+			(file_contents (hash_proc#stdout))
+			(run_unit_exn (exec_none ~stdout:(`FD_move writeable)) ~print:false [ "nix-store"; "--dump"; p ])
+			|> Lwt.map (fun (output, ()) -> output)
+	) hash_cmd
+	|> Lwt.map (fun hash -> `sha256 hash)
