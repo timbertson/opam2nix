@@ -196,9 +196,9 @@ let add_nix_inputs
 			OpamPackageVar.filter_depends_formula
 				~build:true
 				~post:false
-				~test:true
-				~doc:true
-				~default:true
+				~test:false
+				~doc:false
+				~default:false
 				~env:nixos_env
 				formula |> add_formula Optional
 		)
