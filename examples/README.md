@@ -40,3 +40,9 @@ The `make` target which builds the `opam-selections.nix` document passes in the 
 # Scenario 3. [dev-dependencies](./dev-dependencies)
 
 An extension of scenario 1 where you want to add development dependencies. It's almost idential to `simple`, see the comments in `nix/default.nix` for how it includes two different types of dependencies (ofrcing `depopts` to be installed, and adding packages which aren't even `depopts`).
+
+# Utility. [package](./package/)
+
+This is less of an example and more of a simple way to check that an opam package builds correctly.
+
+You can run `./build.sh packagename`, and it'll build that package into `result/`
