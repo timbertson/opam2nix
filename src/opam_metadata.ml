@@ -103,6 +103,7 @@ let native_system_vars () =
 
 let nixos_vars () =
 	native_system_vars ()
+		|> add_global_var "os-family" (S "unknown")
 		|> add_global_var "os-distribution" (S "nixos")
 		|> add_global_var "os-version" (S "unknown")
 			(* I don't think we can easily get a number here, but it should
