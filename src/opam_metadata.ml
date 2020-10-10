@@ -103,6 +103,7 @@ let native_system_vars () =
 
 let nixos_vars () =
 	native_system_vars ()
+		|> add_global_var "os-family" (S "unknown")
 		|> add_global_var "os-distribution" (S "nixos")
 		|> add_global_var "os-version" (S "unknown")
 			(* I don't think we can easily get a number here, but it should
@@ -248,9 +249,15 @@ let load_opam path =
 	if not (Sys.file_exists path) then raise (Invalid_package ("No opam file at " ^ path));
 	let open OpamFilename in
 	(* TODO could pass this in if we want to embrace OpamFilename more fully *)
-	let path = OpamFilename.create (Dir.of_string (Filename.dirname path)) (Base.of_string (Filename.basename path)) in
-	let path = OpamFile.make path in
-	OPAM.read path |> OpamFormatUpgrade.opam_file
+	let dir = Dir.of_string (Filename.dirname path) in
+	let base = Base.of_string (Filename.basename path) in
+	let file = OpamFilename.create dir base |> OpamFile.make in
+	let loaded = OPAM.read file in
+	if OPAM.format_errors loaded <> [] then (
+		OPAM.print_errors loaded;
+		failwith (Printf.sprintf "Invalid OPAM file: %s" path)
+	);
+	loaded |> OpamFormatUpgrade.opam_file
 
 let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t Lwt.t =
 	let open Nix_expr in
