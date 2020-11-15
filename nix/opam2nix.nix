@@ -1,6 +1,6 @@
 { lib, nix, targetPackages, callPackage,
 ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
-opam-client, opam-0install, buildDunePackage,
+opam-0install, buildDunePackage,
 ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils,
 gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
 coreutils, nix-update-source, self }:
@@ -29,7 +29,6 @@ opam2nix = buildDunePackage {
 		ocaml
 		findlib
 		opam-state
-		opam-client
 		opam-installer
 		opam-0install
 		nix

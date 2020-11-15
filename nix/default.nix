@@ -20,7 +20,6 @@ let
 		opam-repository = callOcamlPackage opam.repository {};
 		opam-solver = callOcamlPackage opam.solver {};
 		opam-state = callOcamlPackage opam.state {};
-		opam-client = callOcamlPackage opam.client {};
 
 		zeroinstall-solver = callOcamlPackage ({ buildDunePackage }:
 			buildDunePackage {
