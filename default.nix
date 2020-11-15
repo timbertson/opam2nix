@@ -14,10 +14,10 @@ let
 in
 { pkgs ? null, nix-wrangle ? null, ... }@provided:
 let
-  _pkgs = fallback pkgs (if builtins.hasAttr "pkgs" sourcesJson
-    then fetch systemNixpkgs sourcesJson.pkgs else systemNixpkgs);
+  _pkgs = fallback pkgs (
+    if builtins.hasAttr "pkgs" sourcesJson
+    then import (fetch systemNixpkgs sourcesJson.pkgs) {} else systemNixpkgs
+  );
   _wrangle = fallback nix-wrangle (_pkgs.callPackage "${fetch _pkgs wrangleJson}/${wrangleJson.nix}" {});
 in
 (_wrangle.api { pkgs = _pkgs; }).inject { inherit provided; path = ./.; }
-
-
