@@ -3,10 +3,11 @@ let
 	base = name: {
 		propagatedBuildInputs ? [],
 		buildInputs ? [],
+		useDune2 ? true,
 		... } @ attrs: attrs // {
 		pname = "opam-${name}";
 		version = "dev";
-		inherit buildInputs propagatedBuildInputs src;
+		inherit useDune2 buildInputs propagatedBuildInputs src;
 		configureFlags = "--disable-checks";
 	};
 in
