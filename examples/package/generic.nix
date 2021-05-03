@@ -9,7 +9,7 @@ let
 in
 {
 	resolve = opam2nix.resolve opam-args ([
-		(if version == null then name else "${name}@${version}")
+		(if version == null then name else "${name}=${version}")
 	] ++ resolveArgs);
 	selection = opam2nix.build opam-args;
 }
