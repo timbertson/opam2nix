@@ -20,7 +20,7 @@ let
 	# wasn't listed as a dependency. So we also override the
 	# resulting nix derivation to add it to `buildInputs`.
 	resolve = opam2nix.resolve args [
-		"hello.opam" "utop" "ocamlformat"
+		"hello.opam" "utop" "ocamlformat=0.18.0"
 	];
 
 	# NOTE: If you only want `ocamlformat` to be available inside a nix shell
