@@ -205,10 +205,10 @@ let write_solution ~external_constraints ~cache  ~universe installed dest =
 	) new_packages AttrSet.empty in
 
 	let attrs = [
-		"format-version", `Int 4;
-		"repos", `Id "repos";
-		"ocaml-version", str (external_constraints.ocaml_version |> Version.to_string);
-		"selection", `Attrs selection
+		`Expr ("format-version", `Int 4);
+		`Inherit (None, ["repos"]);
+		`Expr ("ocaml-version", str (external_constraints.ocaml_version |> Version.to_string));
+		`Expr ("selection", `Attrs selection)
 	] in
 
 	let sha256 digest = Lwt_main.run digest |> fun (`sha256 x) -> x in
@@ -239,7 +239,7 @@ let write_solution ~external_constraints ~cache  ~universe installed dest =
 			"repoPath", `Lit "self.repoPath";
 			"repos", `Attrs (AttrSet.build repo_attrsets);
 		],
-		`Attrs (AttrSet.build attrs);
+		`Attrs attrs;
 	)) in
 	Lwt_main.run (Digest_cache.save cache);
 	let oc = open_out dest in
