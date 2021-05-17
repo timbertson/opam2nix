@@ -351,9 +351,15 @@ let main idx args =
 			| [Str.Text name] -> (OpamPackage.Name.of_string name, None)
 			| _ -> failwith ("Invalid version spec: " ^ spec)
 	) in
-	
-	let config_base = Filename.concat (Unix.getenv "HOME") ".cache/opam2nix" in
-	let digest_map = Filename.concat config_base "digest.json" in
+
+	let config_base =
+		Filename.concat (
+			match Sys.getenv_opt "XDG_CACHE_HOME" with
+			| None -> Filename.concat (Unix.getenv "HOME") ".cache"
+			| Some cache -> cache
+		) "opam2nix"
+	in
+    let digest_map = Filename.concat config_base "digest.json" in
 	let repos_base = Filename.concat config_base "repos" in
 	let repo_specs = !repo_specs in
 
