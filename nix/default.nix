@@ -17,6 +17,7 @@ let
 		fileutils = ocamlPackages.fileutils.overrideAttrs (o: {
 			# disable tests, workaround for https://github.com/timbertson/opam2nix/issues/47
 			configureFlags = [];
+			doCheck = false;
 		});
 		opam-core = callOcamlPackage opam.core {};
 		opam-format = callOcamlPackage opam.format {};
