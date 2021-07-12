@@ -1,10 +1,3 @@
-module AttrSet = struct
-	include Map.Make(String)
-	let build pairs = pairs |> List.fold_left (fun map (k,v) ->
-		add k v map) empty
-	let keys map = bindings map |> List.map(fun (a,_) -> a)
-end
-
 type string_component = [
 	| `Lit of string
 	| `Expr of t
@@ -22,13 +15,13 @@ and t = [
 	| `Property of t * string
 	| `PropertyPath of t * string list
 	| `Property_or of t * string * t
-	| `Attrs of t AttrSet.t
-	| `Rec_attrs of t AttrSet.t
+	| `Attrs of attrset
+	| `Rec_attrs of attrset
 	| `NamedArguments of arg list
 	| `Function of t * t
 	| `Id of string
 	| `Int of int
-	| `Let_bindings of t AttrSet.t * t
+	| `Let_bindings of attrset * t
 	| `Call of t list
 	| `Template of string_component list
 	| `Lit of string
@@ -36,6 +29,33 @@ and t = [
 	| `Null
 	| `With of (t * t)
 ]
+
+and attrset = attr list
+
+and attr = [
+  | `Expr of string * t
+  | `Inherit of t option * string list
+]
+
+module AttrSet = struct
+	type t = attrset
+
+	let build pairs = List.fold_right (fun (k,v) acc ->
+			(`Expr (k, v)) :: acc) pairs []
+
+	let keys t =
+		List.fold_right (fun attr acc ->
+			match attr with
+			| `Expr (k, _) -> k :: acc
+			| `Inherit (_, keys) -> keys @ acc
+		) [] t
+
+	let add name expr t = `Expr (name, expr) :: t
+
+	let empty = []
+
+	let iter f t = List.iter f t
+end
 
 let str s = `String [`Lit s]
 
@@ -89,12 +109,30 @@ let write dest (t:t) =
 		in
 		let property name = put ("." ^ (escape_key name)) in
 
+		let write_inherit expr keys =
+			nl ();
+			put "inherit";
+			space ();
+			begin match expr with
+				| None -> ();
+				| Some expr ->
+					put "(";
+					_write expr;
+					put ")";
+					space ();
+			end;
+			pp_print_list pp_print_string ~pp_sep:pp_print_space formatter keys;
+			put ";"
+		in
+
 		let write_attrs ~prefix a =
 			pp_print_cut formatter ();
 			pp_open_box formatter indent_width;
 			put prefix;
 			put "{";
-			a |> AttrSet.iter (fun key v ->
+			a |> AttrSet.iter (function
+				| `Inherit (expr, keys) -> write_inherit expr keys
+				| `Expr (key, v) ->
 				(* XXX what about quoted keys? *)
 				nl ();
 				put (if keysafe key then key else "\"" ^ (escape_string key) ^ "\"");
@@ -155,13 +193,15 @@ let write dest (t:t) =
 				put "let";
 				(* pp_print_cut formatter (); *)
 				pp_open_box formatter 1;
-				vars |> AttrSet.iter (fun key v ->
-					(* XXX what about quoted keys? *)
-					nl ();
-					put key;
-					put " = ";
-					_write v;
-					put ";";
+				vars |> AttrSet.iter (function
+					| `Inherit (expr, keys) -> write_inherit expr keys
+					| `Expr (key, v) ->
+						(* XXX what about quoted keys? *)
+						nl ();
+						put key;
+						put " = ";
+						_write v;
+						put ";"
 				);
 				pp_close_box formatter ();
 				nl ();
@@ -200,5 +240,3 @@ let write dest (t:t) =
 	_write t;
 	pp_close_box formatter ();
 	pp_print_newline formatter ();
-
-
