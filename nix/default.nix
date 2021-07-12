@@ -55,10 +55,7 @@ let
 			}
 		) {};
 
-		ocamlgraph = callOcamlPackage <nixpkgs/pkgs/development/ocaml-modules/ocamlgraph/default.nix> {
-			lablgtk = null;
-			gtkSupport = false;
-		};
+		ocamlgraph = callOcamlPackage <nixpkgs/pkgs/development/ocaml-modules/ocamlgraph/default.nix> {} ;
 	};
 
 in callOcamlPackage ./opam2nix.nix { inherit self; }
