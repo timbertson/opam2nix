@@ -332,7 +332,7 @@ let main idx args =
 			direct_name = name;
 			direct_version = opam.version;
 			direct_opam = opam;
-			direct_opam_relative = opam_filename;
+			direct_opam_relative = path;
 		}
 	in
 
