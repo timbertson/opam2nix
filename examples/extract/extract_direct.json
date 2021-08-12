@@ -1,0 +1,8 @@
+{
+  "repositories": [
+    { "id": "opam", "path": "/Users/tcuthbertson/.cache/opam2nix/repos/opam-repository/" }
+  ],
+  "spec": [
+    { "definition": "/Users/tcuthbertson/Code/ocaml/opam2nix/examples/extract/lwt.opam" }
+  ]
+}

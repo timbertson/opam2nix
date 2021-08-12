@@ -1,0 +1,13 @@
+{
+  "repositories": [
+    { "id": "opam", "path": "/Users/tcuthbertson/.cache/opam2nix/repos/opam-repository/" }
+    , { "id": "test", "path": "test-repo" }
+  ],
+  "selection": [
+    { "name": "lwt", "version": "5.0.0" }
+    , { "name": "base-unix", "version": "base" }
+    , { "name": "faraday", "version": "0.2.0" }
+    , { "name": "tezos-rpc", "version": "9.4" }
+    , { "name": "sample", "version": "0.1" }
+  ]
+}

@@ -4,6 +4,7 @@ let tap fn = function None -> None | Some x -> fn x; Some x
 let filter fn = function None -> None | Some x -> (if fn x then Some x else None)
 let may fn = function None -> () | Some x -> fn x
 let bind fn = function None -> None | Some x -> fn x
+let fold if_some if_none = function Some x -> if_some x | None -> if_none ()
 let default d v = match v with Some v -> v | None -> d
 let default_fn d v = match v with Some v -> v | None -> d ()
 let or_else alt v = match v with Some _ -> v | None -> alt

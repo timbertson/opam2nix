@@ -20,6 +20,15 @@ type url_type =
 	]
 
 type unsupported_archive = [ `unsupported_archive of string ]
+let string_of_unsupported_archive : unsupported_archive -> string =
+	function (`unsupported_archive msg) -> "Unsupported archive: " ^ msg
+
+let url_to_yojson (`http (url, _digests)) =
+	`Assoc [
+		url, `String url;
+		(* TODO: digests *)
+	]
+
 exception Invalid_package of string
 
 let var_prefix = "opam_var_"
@@ -244,6 +253,16 @@ let url urlfile: (url, [> unsupported_archive]) Result.t =
 	| `rsync, transport, None -> Error (`unsupported_archive ("rsync transport: " ^ transport))
 	| `rsync, _, Some _ -> Error (`unsupported_archive "rsync with fragment")
 
+let _post_load_opam ~desc loaded =
+	if OPAM.format_errors loaded <> [] then (
+		OPAM.print_errors loaded;
+		failwith (Printf.sprintf "Invalid OPAM file contents:\n%s" desc)
+	);
+	loaded |> OpamFormatUpgrade.opam_file
+
+let load_opam_string str =
+	_post_load_opam ~desc:("\n" ^ str) (OPAM.read_from_string str)
+
 let load_opam path =
 	Util.debug "Loading opam file: %s\n" path;
 	if not (Sys.file_exists path) then raise (Invalid_package ("No opam file at " ^ path));
@@ -252,12 +271,7 @@ let load_opam path =
 	let dir = Dir.of_string (Filename.dirname path) in
 	let base = Base.of_string (Filename.basename path) in
 	let file = OpamFilename.create dir base |> OpamFile.make in
-	let loaded = OPAM.read file in
-	if OPAM.format_errors loaded <> [] then (
-		OPAM.print_errors loaded;
-		failwith (Printf.sprintf "Invalid OPAM file: %s" path)
-	);
-	loaded |> OpamFormatUpgrade.opam_file
+	_post_load_opam ~desc:path (OPAM.read file)
 
 let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t Lwt.t =
 	let open Nix_expr in
