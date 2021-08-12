@@ -5,6 +5,7 @@ open Util
 let commands : (string * (int -> string array -> unit)) list = [
 	"invoke", Invoke.main;
 	"resolve", Select.main;
+	"extract", Extract.main;
 	"version", Version.main;
 ]
 
