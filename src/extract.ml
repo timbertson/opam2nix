@@ -124,11 +124,4 @@ let run () =
 		|> JSON.pretty_to_string
 		|> Lwt_io.printf "%s\n"
 
-let main _idx _args =
-	(*
-	 * parse selection
-	 * if necessary, solve for constraints
-	 * now we have a solution, dump it into JSON
-	 * include dependencies, repo source, build instructions and file list.
-	 *)
-	Lwt_main.run (run ())
+let main _idx _args = Lwt_main.run (run ())
