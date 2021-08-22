@@ -23,6 +23,12 @@ type unsupported_archive = [ `unsupported_archive of string ]
 let string_of_unsupported_archive : unsupported_archive -> string =
 	function (`unsupported_archive msg) -> "Unsupported archive: " ^ msg
 
+let url_to_yojson (`http (url, _digests)) =
+	`Assoc [
+		url, `String url;
+		(* TODO: digests *)
+	]
+
 exception Invalid_package of string
 
 let var_prefix = "opam_var_"
