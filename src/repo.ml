@@ -28,6 +28,13 @@ type package = {
 	url: URL.t option;
 }
 
+(* low level pkg returned by lookup *)
+type lookup_result = {
+	p_rel_path: string;
+	p_opam: OPAM.t;
+	p_url: URL.t option;
+}
+
 (* Loaded package, either from an opam repo or direct package supplied on the commandline *)
 type loaded_package = {
 	loaded_opam: OPAM.t;
@@ -97,6 +104,27 @@ let list_package =
 			}
 		)
 	)
+
+let lookup = fun repo_path package -> (
+	let pname = OpamPackage.Name.to_string (OpamPackage.name package) in
+	let pver = OpamPackage.Version.to_string (OpamPackage.version package) in
+	let rel_path =
+		Filename.concat
+			(Filename.concat packages_dir pname)
+			(pname ^ "." ^ pver)
+	in
+	let full_path = Filename.concat repo_path rel_path in
+	let opam_path = Filename.concat full_path "opam" in
+	if Sys.file_exists opam_path then
+		let opam = Opam_metadata.load_opam (opam_path) in
+			Some {
+				p_rel_path = rel_path;
+				p_opam = opam;
+				p_url = OPAM.url opam |> Option.or_else (load_url (Filename.concat full_path "url"));
+			}
+	else
+		None
+)
 
 let nix_digest_of_path p =
 	let hash_cmd = [ "nix-hash"; "--type"; "sha256"; "--flat"; "--base32"; "/dev/stdin" ] in

@@ -20,6 +20,9 @@ type url_type =
 	]
 
 type unsupported_archive = [ `unsupported_archive of string ]
+let string_of_unsupported_archive : unsupported_archive -> string =
+	function (`unsupported_archive msg) -> "Unsupported archive: " ^ msg
+
 exception Invalid_package of string
 
 let var_prefix = "opam_var_"

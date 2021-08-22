@@ -1,7 +1,7 @@
 { lib, nix, targetPackages, callPackage,
 ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
 opam-0install, buildDunePackage,
-ocaml_lwt, lwt_ppx, ocurl, yojson, fileutils,
+ppx_deriving, lwt, lwt_ppx, ocurl, yojson, ppx_deriving_yojson, fileutils,
 gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
 coreutils, nix-update-source, self }:
 let
@@ -32,11 +32,12 @@ opam2nix = buildDunePackage {
 		opam-installer
 		opam-0install
 		nix
-		ocaml_lwt
-		(ocurl.overrideAttrs (o: {
-			propagatedBuildInputs = (o.propagatedBuildInputs or []) ++ [ocaml_lwt lwt_ppx];
-		}))
+		lwt
+		lwt_ppx
+		ocurl
 		yojson
+		ppx_deriving
+		ppx_deriving_yojson
 		fileutils
 		gup
 		ounit
