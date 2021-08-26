@@ -96,24 +96,26 @@ let load_package ~url pkg : loaded_package = (
 	{ loaded_opam = pkg.opam; loaded_url = url; src_expr; repository_expr }
 )
 
-let check_availability ~lookup_var pkg =
-	let available_filter = OPAM.available pkg.opam in
+let is_available ~lookup_var ~opam ~package =
+	let available_filter = OPAM.available opam in
 	let available =
-		try Ok (pkg.package.name <> (Name.of_string "opam")
-			&& OpamFilter.eval_to_bool (lookup_var pkg.package) available_filter
+		try Ok (OpamPackage.name package <> (Name.of_string "opam")
+			&& OpamFilter.eval_to_bool (lookup_var package) available_filter
 		) with e -> (
 			Error (`unavailable (Printexc.to_string e))
 		)
 	in
-	available |> Result.bind (fun available ->
-		if available then (
-			Ok pkg
-		) else (
+	available |> Result.bind (function
+		| true -> Ok ()
+		| false ->
 			let vars = OpamFilter.variables available_filter in
 			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
 			Error (`unavailable (Printf.sprintf "incompatible with %s" vars_str))
-		)
 	)
+
+let check_availability ~lookup_var pkg =
+	is_available ~lookup_var ~opam:pkg.opam ~package:pkg.package
+		|> Result.map (fun () -> pkg)
 	
 module Context : Zi.S.CONTEXT with type t = universe = struct
 	type t = universe
@@ -166,5 +168,6 @@ module Context : Zi.S.CONTEXT with type t = universe = struct
 		|> OpamFilter.partial_filter_formula (env.lookup_var pkg)
 		|> OpamFilter.filter_deps ~build:true ~post:true ~test:false ~doc:false ~dev:false ~default:false
 end
+
 
 include Zi.Solver.Make(Context)

@@ -1,0 +1,9 @@
+{
+  "repositories": [
+    { "id": "opam", "path": "/Users/tcuthbertson/.cache/opam2nix/repos/opam-repository/" }
+    , { "id": "test", "path": "test-repo" }
+  ],
+  "spec": [
+    { "name": "lwt" }
+  ]
+}

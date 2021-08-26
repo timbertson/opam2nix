@@ -32,6 +32,7 @@ type package = {
 
 (* low level pkg returned by lookup *)
 type lookup_result = {
+	p_package: OpamPackage.t;
 	p_rel_path: string;
 	p_opam: OPAM.t;
 	p_url: URL.t option;
@@ -83,6 +84,7 @@ let lookup = fun repo_path package -> (
 	if Sys.file_exists opam_path then
 		let opam = Opam_metadata.load_opam (opam_path) in
 			Some {
+				p_package = package;
 				p_rel_path = rel_path;
 				p_opam = opam;
 				p_url = OPAM.url opam |> Option.or_else (load_url (Filename.concat full_path "url"));
@@ -91,29 +93,32 @@ let lookup = fun repo_path package -> (
 		None
 )
 
-let list_package =
-	fun repo package -> (
-		debug "processing package %s\n" package;
-		let package_base = Filename.concat packages_dir package in
-		let package_abs = Filename.concat repo.repo_path package_base in
-		let list_versions () =
-			debug "listing %s\n" package_abs;
-			let dirs = try
-				list_dirs package_abs
-			with Sys_error e -> (
-				debug "Skipping (%s)\n" e;
-				[]
-			)
-			in
-			dirs |> filter_map (without_leading (package ^ version_sep))
-		in
-
-		list_versions () |> List.filter_map (fun version ->
-			let package = OpamPackage.create (Name.of_string package) (Version.of_string version) in
-			lookup repo.repo_path package |> Option.map (fun { p_opam = opam; p_rel_path = rel_path; p_url = url} ->
-				{ repo; rel_path; opam; package; url; }
-			)
+let lookup_package_versions repo_path package = (
+	debug "processing package %s\n" package;
+	let package_base = Filename.concat packages_dir package in
+	let package_abs = Filename.concat repo_path package_base in
+	let list_versions () =
+		debug "listing %s\n" package_abs;
+		let dirs = try
+			list_dirs package_abs
+		with Sys_error e -> (
+			debug "Skipping (%s)\n" e;
+			[]
 		)
+		in
+		dirs |> filter_map (without_leading (package ^ version_sep))
+	in
+
+	list_versions () |> List.filter_map (fun version ->
+		let package = OpamPackage.create (Name.of_string package) (Version.of_string version) in
+		lookup repo_path package
+	)
+)
+
+let list_package repo package =
+	lookup_package_versions repo.repo_path package
+	|> List.map (fun { p_package = package; p_opam = opam; p_rel_path = rel_path; p_url = url} ->
+		{ repo; rel_path; opam; package; url; }
 	)
 
 let nix_digest_of_path p =
