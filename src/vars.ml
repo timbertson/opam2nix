@@ -31,6 +31,11 @@ type env =
 		vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
 	}
 
+type partial_env = {
+	p_packages: OpamPackage.t OpamPackage.Name.Map.t;
+	p_vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
+}
+
 let implicit_package_var key =
 	let open OpamVariable.Full in
 	match (scope key, OpamVariable.to_string (variable key)) with
@@ -60,6 +65,32 @@ let path_var ~env ~prefix ~scope key =
 			| Some pkgname -> (prefix / relpath) / (Name.to_string pkgname)
 		))
 	)
+
+let package_var_partial ~env =
+	let r_false = Some (B false) in
+	let r_true = Some (B true) in
+	let s v = Some (S v) in
+	let b v = Some (B v) in
+	fun ~pkg key ->
+		debug "(variable `%s` of package `%s`)\n" key (Name.to_string pkg);
+		let impl = Name.Map.find_opt pkg env.p_packages in
+		match key with
+			| "installed" -> b (Option.is_some impl)
+			| "enable" -> s (if (Option.is_some impl) then "enable" else "disable")
+			| "name" -> s (Name.to_string pkg)
+			| _ -> impl |> Option.bind (fun impl -> match key with
+				| "dev" -> r_false
+				(* test and doc are undocumented, but appear in the wild... *)
+				| "test" | "with-test" -> r_false
+				| "doc" | "with-doc" -> r_false
+				| "with-build" -> r_true (* dep used at build time. One day we'll remove these from PropagatedBuildInputs *)
+
+				| "post" -> r_false (* dep is to be installed after (or unrelated to) this package. Doesn't make much sense in nix *)
+				| "pinned" -> r_false (* dep is to be installed after (or unrelated to) this package. Doesn't make much sense in nix *)
+				| "version" -> s (OpamPackage.version impl |> OpamPackage.Version.to_string)
+				| _ -> None
+			)
+
 
 let package_var ~env =
 	let r_false = Some (B false) in
@@ -114,6 +145,20 @@ let simple_lookup ~vars key =
 		with Not_found -> None
 	)
 
+let lookup_partial env self key =
+	let open OpamVariable in
+	let keystr = (Full.to_string key) in
+	let package_var = package_var_partial ~env in
+	debug "Looking up opam var %s ..\n" keystr;
+	let result = simple_lookup ~vars:env.p_vars key |> Option.or_else_fn (fun () ->
+		let unqualified = Full.variable key |> OpamVariable.to_string in
+		match Full.scope key with
+			| Full.Package pkg -> package_var ~pkg:pkg unqualified
+			| Full.Self | Full.Global -> package_var ~pkg:self unqualified
+	) in
+	debug " -> %s\n" (Option.to_string OpamVariable.string_of_variable_contents result);
+	result
+
 let lookup env key =
 	let open OpamVariable in
 	let keystr = (Full.to_string key) in
@@ -152,3 +197,4 @@ let lookup env key =
 	if Option.is_none result then
 		Printf.eprintf "WARN: opam var %s not found...\n" keystr;
 	result
+
