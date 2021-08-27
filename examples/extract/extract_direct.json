@@ -1,0 +1,6 @@
+{
+  "repositories": [],
+  "selection": [
+    { "name": "lwt", "version": "5.0.0", "definition": "/Users/tcuthbertson/.cache/opam2nix/repos/opam-repository/packages/lwt/lwt.5.0.0" }
+  ]
+}
