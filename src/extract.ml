@@ -122,14 +122,16 @@ type depexts = {
 	optional: string list;
 } [@@deriving to_yojson]
 
+let empty_depexts = { optional = []; required = [] }
+
 type buildable = {
 	version: string;
 	repository: string option;
 	src: Opam_metadata.url option [@to_yojson url_to_yojson];
 	build_commands: string list list;
 	install_commands: string list list;
-	depends: package_name list;
-	depexts: depexts;
+	depends: package_name list [@default []];
+	depexts: depexts [@default empty_depexts];
 } [@@deriving to_yojson]
 
 let parse_request : JSON.t -> request = fun json ->
@@ -370,12 +372,11 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 			|> List.concat_map OpamSysPkg.Set.elements
 			|> List.map OpamSysPkg.to_string
 			|> List.sort_uniq String.compare in
-		let empty = { optional = []; required = [] } in
 
 		let raw_depexts = OPAM.depexts opam in
 		filter_map (apply_filters lookup_var) raw_depexts |> (function
-			| [] -> { empty with optional = List.map fst raw_depexts |> merge_and_sort }
-			| nixos_deps -> { empty with required = nixos_deps |> merge_and_sort }
+			| [] -> { empty_depexts with optional = List.map fst raw_depexts |> merge_and_sort }
+			| nixos_deps -> { empty_depexts with required = nixos_deps |> merge_and_sort }
 		)
 	in
 	let resolve_commands =
