@@ -1,13 +1,17 @@
 module JSON = Yojson.Safe
 open Util
-
-(* I can't find string_of_yojson function directly, so let's summon one by magic :) *)
-type _str = string [@@deriving yojson]
+module Name = OpamPackage.Name
+module Version = OpamPackage.Version
+module OPAM = OpamFile.OPAM
 
 type package_name = OpamPackage.Name.t
-let package_name_of_yojson j = _str_of_yojson j |> Result.map OpamPackage.Name.of_string
+let package_name_of_yojson j = [%of_yojson: string] j |> Result.map OpamPackage.Name.of_string
+
+type package_version = OpamPackage.Version.t
+let package_version_of_yojson j = [%of_yojson: string] j |> Result.map OpamPackage.Version.of_string
 
 type _package_raw = { name : string; version: string; } [@@deriving yojson]
+type package = OpamPackage.t
 let package_of_yojson j = _package_raw_of_yojson j |> Result.map (fun { name; version } ->
 	OpamPackage.create (OpamPackage.Name.of_string name) (OpamPackage.Version.of_string version)
 )
@@ -31,28 +35,64 @@ type repository = {
 type package_constraint = {
 	c_op: string [@key "op"];
 	c_value: string [@key "value"];
-} [@@deriving yojson]
+}
+
+let package_constraint_of_yojson j = j
+	|> [%of_yojson: string * string]
+	|> Result.map (fun (c_op, c_value) -> { c_op; c_value })
+
+type package_definition =
+	| From_repository
+	(* path may be either an opam file or containing directory *)
+	| Direct of string
+	
+let package_definition_of_yojson j =
+	[%of_yojson: string option] j |> Result.map (function
+		| None -> From_repository
+		| Some s -> Direct s
+	)
 
 type package_spec = {
 	s_name: package_name [@key "name"];
+	s_definition: package_definition [@key "definition"] [@default From_repository];
 	constraints: package_constraint list [@default []];
 } [@@deriving of_yojson]
+
+type selected_package = {
+	sel_name: package_name [@key "name"];
+	sel_version: package_version [@key "version"];
+	sel_definition: package_definition [@key "definition"] [@default From_repository];
+} [@@deriving of_yojson]
+
+let package_of_selected { sel_name; sel_version; _ } =
+	OpamPackage.create sel_name sel_version
+
+type selected_package_map = selected_package OpamPackage.Name.Map.t
+
+let selected_package_map_of_yojson j = j
+	|> [%of_yojson: selected_package list]
+	|> Result.map (fun selected ->
+		selected
+		|> List.map (fun sel -> sel.sel_name, sel)
+		|> OpamPackage.Name.Map.of_list
+	)
 
 type solve_ctx = {
 	c_lookup_var: OpamPackage.t -> OpamVariable.Full.t -> OpamVariable.variable_contents option;
 	c_constraints: OpamFormula.version_constraint option OpamPackage.Name.Map.t;
 	c_repo_paths: string list;
+	c_inputs: package_definition OpamPackage.Name.Map.t;
 	c_packages : (Repo.lookup_result, Solver.error) result OpamPackage.Map.t ref;
 }
 
 type selection =
 	| Solve of package_spec list
-	| Exact of package_set
+	| Exact of selected_package_map
 
 type request_json = {
 	rj_repositories: repository list [@key "repositories"];
 	rj_spec: package_spec list option [@key "spec"][@default None];
-	rj_selection: package_set option [@key "selection"][@default None];
+	rj_selection: selected_package_map option [@key "selection"][@default None];
 } [@@deriving of_yojson]
 
 type request = {
@@ -62,13 +102,13 @@ type request = {
 
 type spec = {
 	spec_repositories: repository list [@key "repositories"];
-	spec_packages: package_set [@key "packages"];
-} [@@deriving of_yojson]
+	spec_packages: selected_package_map [@key "packages"];
+}
 
 type buildable = {
 	name: string;
 	version: string;
-	repository: string;
+	repository: string option;
 	src: Opam_metadata.url option;
 	build_commands: string list list;
 	install_commands: string list list;
@@ -86,6 +126,33 @@ let init_variables () = Opam_metadata.init_variables ()
 	(* TODO don't add this in the first place *)
 	(* TODO accept k/v pairs in request *)
 	|> OpamVariable.Full.Map.remove (OpamVariable.Full.global (OpamVariable.of_string "jobs"))
+	
+let load_direct ~name path : Repo.lookup_result =
+	let opam_path = if Sys.is_directory path
+		then Filename.concat path "opam"
+		else path
+	in
+	let fallback_version () =
+		(* If the path happens to be a directory named foo.1.2.3, treat that
+		as the fallback version *)
+		let base = Filename.basename path in
+		let prefix = (Name.to_string name) ^ "." in
+		let stripped = OpamStd.String.remove_prefix ~prefix base in
+		Version.of_string (
+			if stripped <> base then
+				OpamStd.String.remove_suffix ~suffix:".opam" stripped
+			else "dev"
+		)
+	in
+	let fallback_url () = Repo.load_url (Filename.concat path "url") in
+	let opam = Opam_metadata.load_opam (opam_path) in
+	let version = OPAM.version_opt opam |> Option.default_fn fallback_version in
+	Repo.{
+		p_package = OpamPackage.create name version;
+		p_rel_path = opam_path; (* it's not relative but that's OK, extract doesn't need relative paths *)
+		p_opam = opam;
+		p_url = OPAM.url opam |> Option.or_else_fn fallback_url;
+	}
 
 module Zi = Opam_0install
 module Context : Zi.S.CONTEXT with type t = solve_ctx = struct
@@ -98,7 +165,7 @@ module Context : Zi.S.CONTEXT with type t = solve_ctx = struct
 		| `unavailable s -> Fmt.pf f "Unavailable: %s" s
 		| `unsupported_archive s -> Fmt.pf f "Unsupported archive: %s" s
 		
-	let check_url pkg =
+	let check_url pkg : (Opam_metadata.url option, rejection) Stdlib.result =
 		pkg.p_url
 			|> Option.map Opam_metadata.url
 			|> Option.sequence_result
@@ -106,26 +173,31 @@ module Context : Zi.S.CONTEXT with type t = solve_ctx = struct
 	let candidates : t -> OpamPackage.Name.t -> (OpamPackage.Version.t * (OpamFile.OPAM.t, rejection) Stdlib.result) list
 	= fun ctx name ->
 		let name_str = Name.to_string name in
-		let () = ctx.c_repo_paths |> List.concat_map (fun repo -> Repo.lookup_package_versions repo name_str)
-			(* Drop duplicates from multiple repos *)
-			|> List.filter (fun pkg -> not (OpamPackage.Map.mem pkg.p_package !(ctx.c_packages)))
-			|> List.iter (fun pkg ->
-				check_url pkg |> Result.iter (fun _ ->
-					let result = Solver.is_available ~lookup_var:(ctx.c_lookup_var) ~opam:pkg.p_opam ~package:pkg.p_package
-						|> Result.map (fun () -> pkg)
-					in
-					ctx.c_packages :=  OpamPackage.Map.add pkg.p_package result !(ctx.c_packages)
-				)
-			)
-		in
-		
-		OpamPackage.Map.bindings !(ctx.c_packages)|> List.filter_map (fun (k,v) ->
-			if Name.equal (OpamPackage.name k) name
-				then Some (k.version, v |> Result.map(fun pkg -> pkg.p_opam))
-				else None
-		) |> List.sort (fun (va, _) (vb, _) ->
-			Version.compare vb va
-		)
+		(* TODO is this caching actually useful? ZI probably does it *)
+		let version loaded = OpamPackage.version loaded.p_package in
+		match OpamPackage.Name.Map.find_opt name ctx.c_inputs with
+			| Some (Direct s) ->
+				let loaded = load_direct ~name s in
+				[ version loaded, (Ok loaded.p_opam) ]
+
+			| None | Some (From_repository) ->
+				let seen = ref Version.Set.empty in
+				ctx.c_repo_paths
+					|> List.concat_map (fun repo -> Repo.lookup_package_versions repo name_str)
+					|> List.filter_map (fun loaded ->
+						(* Drop duplicates from multiple repos *)
+						if (Version.Set.mem (version loaded) !seen) then None else (
+							let opam = check_url loaded |> Result.bind (fun _ ->
+								Solver.is_available ~lookup_var:(ctx.c_lookup_var) ~opam:loaded.p_opam ~package:loaded.p_package
+							) |> Result.map (fun () ->
+								(* only mark a package as seen if it's available *)
+								seen := Version.Set.add (version loaded) !seen;
+								loaded.p_opam
+							) in
+							Some (version loaded, opam)
+						)
+					)
+					|> List.sort (fun (va, _) (vb, _) -> Version.compare vb va)
 		
 	let user_restrictions : t -> OpamPackage.Name.t -> OpamFormula.version_constraint option
 	= fun ctx name -> OpamPackage.Name.Map.find name ctx.c_constraints
@@ -139,8 +211,10 @@ end
 
 let solve : request -> spec = fun { req_repositories; req_selection } ->
 	match req_selection with
-		| Exact pset -> { spec_repositories = req_repositories; spec_packages = pset }
+		| Exact pmap -> { spec_repositories = req_repositories; spec_packages = pmap }
 		| Solve specs ->
+			Printf.eprintf "Solving ...\n";
+			flush stderr;
 			let module Solver = Zi.Solver.Make(Context) in
 
 			let lookup_var package =
@@ -150,13 +224,18 @@ let solve : request -> spec = fun { req_repositories; req_selection } ->
 					p_vars = init_variables ();
 				}) (OpamPackage.name package)
 			in
+			let definition_map = specs
+				|> List.map (fun spec -> spec.s_name, spec.s_definition)
+				|> OpamPackage.Name.Map.of_list
+			in
+			let package_names = specs |> List.map (fun spec -> spec.s_name) in
 			let ctx = {
 				c_repo_paths = req_repositories |> List.map (fun r -> r.local_path);
+				c_inputs = definition_map;
 				c_packages = ref OpamPackage.Map.empty;
 				c_constraints = OpamPackage.Name.Map.empty; (* TODO *)
 				c_lookup_var = lookup_var;
 			} in
-			let package_names = specs |> List.map (fun spec -> spec.s_name) in
 			(match Solver.solve ctx package_names with
 				| Error e -> (
 					prerr_endline (Solver.diagnostics e);
@@ -166,38 +245,53 @@ let solve : request -> spec = fun { req_repositories; req_selection } ->
 					let installed = Solver.packages_of_result solution in
 					Printf.eprintf "Selected packages:\n";
 					installed |> List.iter (fun pkg -> Printf.eprintf "- %s\n" (OpamPackage.to_string pkg));
+					flush stderr;
 					{
 						spec_repositories = req_repositories;
-						spec_packages = installed |> OpamPackage.Set.of_list;
+						spec_packages = installed |>
+							List.map (fun p ->
+								let sel_name = OpamPackage.name p in
+								let sel_definition = definition_map
+									|> OpamPackage.Name.Map.find_opt sel_name
+									|> Option.default From_repository
+								in
+								(sel_name, {
+									sel_name;
+									sel_version = OpamPackage.version p;
+									sel_definition;
+								})
+							)
+							|> OpamPackage.Name.Map.of_list
 					}
 			)
 
-let lookup : OpamPackage.t -> repository -> Repo.lookup_result option = fun pkg repo ->
-	Repo.lookup repo.local_path pkg
-	
-let find_impl : OpamPackage.t -> repository list -> repository * Repo.lookup_result = fun pkg ->
-	let rec search = function
-		| [] -> failwith ("Package not found in any repository: " ^ (OpamPackage.to_string pkg))
-		| repository::tail -> (match lookup pkg repository with
-			| Some found -> (repository, found)
-			| None -> search tail
+let find_impl : selected_package -> repository list -> repository option * Repo.lookup_result = fun pkg ->
+	match pkg.sel_definition with
+		| Direct path -> fun _ -> (None, load_direct ~name:pkg.sel_name path)
+		| From_repository -> (
+			let lookup : selected_package -> repository -> Repo.lookup_result option = fun pkg repo ->
+				Repo.lookup repo.local_path (package_of_selected pkg)
+			in
+			let rec search = function
+				| [] -> failwith ("Package not found in any repository: " ^ (OpamPackage.to_string (package_of_selected pkg)))
+				| repository::tail -> (match lookup pkg repository with
+					| Some found -> (Some repository, found)
+					| None -> search tail
+				)
+			in search
 		)
-	in search
 	
-let buildable : package_set -> OpamPackage.t -> (repository * Repo.lookup_result) -> buildable = fun installed pkg (repo, loaded) ->
+let buildable : selected_package_map -> selected_package -> (repository option * Repo.lookup_result) -> buildable = fun installed pkg (repo, loaded) ->
 	let url = loaded.Repo.p_url
 		|> Option.map Opam_metadata.url
 		|> Option.map (Result.get_exn Opam_metadata.string_of_unsupported_archive)
 	in
 	let vars = Vars.{
-		p_packages = installed
-			|> OpamPackage.Set.elements
-			|> List.map (fun p -> (OpamPackage.name p, p))
-			|> OpamPackage.Name.Map.of_list;
+		p_packages = installed |> OpamPackage.Name.Map.map package_of_selected;
 		p_vars = init_variables ();
 	} in
 	let opam = loaded.Repo.p_opam in
-	let lookup_var = Vars.lookup_partial vars (OpamPackage.name pkg) in
+	let lookup_var = Vars.lookup_partial vars pkg.sel_name in
 	let resolve_commands =
 		let open OpamFilter in
 		let open OpamTypes in
@@ -225,9 +319,9 @@ let buildable : package_set -> OpamPackage.t -> (repository * Repo.lookup_result
 		commands lookup_var
 	in
 	{
-		name = OpamPackage.Name.to_string (OpamPackage.name pkg);
-		version = OpamPackage.Version.to_string (OpamPackage.version pkg);
-		repository = repo.repository_id;
+		name = OpamPackage.Name.to_string pkg.sel_name;
+		version = OpamPackage.Version.to_string pkg.sel_version;
+		repository = repo |> Option.map (fun repo -> repo.repository_id);
 		src = url;
 		build_commands =
 			OpamFile.OPAM.build opam |> resolve_commands;
@@ -237,8 +331,8 @@ let buildable : package_set -> OpamPackage.t -> (repository * Repo.lookup_result
 
 let dump : spec -> JSON.t = fun { spec_repositories; spec_packages } ->
 	let buildable = spec_packages
-		|> OpamPackage.Set.elements
-		|> List.map (fun pkg -> buildable spec_packages pkg (find_impl pkg spec_repositories))
+		|> OpamPackage.Name.Map.values
+		|> List.map (fun (pkg: selected_package) -> buildable spec_packages pkg (find_impl pkg spec_repositories))
 		|> List.sort (fun a b -> String.compare a.name b.name)
 	in
 	`Assoc (buildable |> List.map (fun buildable ->
