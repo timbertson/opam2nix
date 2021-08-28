@@ -53,15 +53,22 @@ let package_definition_of_yojson j =
 	)
 
 type package_spec = {
-	s_name: package_name [@key "name"];
+	s_name: package_name option [@key "name"] [@default None];
 	s_definition: package_definition [@key "definition"] [@default From_repository];
 	constraints: package_constraint list [@default []];
 } [@@deriving of_yojson]
 
+type lazy_definition =
+	| Definition of package_definition
+	| Loaded_definition of Repo.lookup_result
+
+(* JSON can't represent loaded definitions *)
+let lazy_definition_of_yojson j = [%of_yojson: package_definition] j |> Result.map (fun d -> Definition d)
+
 type selected_package = {
 	sel_name: package_name [@key "name"];
 	sel_version: package_version [@key "version"];
-	sel_definition: package_definition [@key "definition"] [@default From_repository];
+	sel_definition: lazy_definition [@key "definition"] [@default (Definition From_repository)];
 } [@@deriving of_yojson]
 
 let package_of_selected { sel_name; sel_version; _ } =
@@ -81,7 +88,7 @@ type solve_ctx = {
 	c_lookup_var: OpamPackage.t -> OpamVariable.Full.t -> OpamVariable.variable_contents option;
 	c_constraints: OpamFormula.version_constraint option OpamPackage.Name.Map.t;
 	c_repo_paths: string list;
-	c_inputs: package_definition OpamPackage.Name.Map.t;
+	c_preloaded: Repo.lookup_result OpamPackage.Name.Map.t;
 	c_packages : (Repo.lookup_result, Solver.error) result OpamPackage.Map.t ref;
 }
 
@@ -132,21 +139,28 @@ let load_direct ~name path : Repo.lookup_result =
 		then Filename.concat path "opam"
 		else path
 	in
-	let fallback_version () =
+	let fallback_url () = Repo.load_url (Filename.concat path "url") in
+	let opam = Opam_metadata.load_opam (opam_path) in
+	let basename = Filename.basename path in
+	let name = name |> Option.or_else (OPAM.name_opt opam) |> Option.default_fn (fun () ->
+		(* Name can only be missing for a file called `[pkgname].opam` *)
+		let stripped = OpamStd.String.remove_suffix ~suffix:".opam" basename in
+		if stripped <> basename then
+			Name.of_string stripped
+		else
+			failwith ("Couldn't determine package name from " ^ path)
+	) in
+	let version = OPAM.version_opt opam |> Option.default_fn (fun () ->
 		(* If the path happens to be a directory named foo.1.2.3, treat that
 		as the fallback version *)
-		let base = Filename.basename path in
 		let prefix = (Name.to_string name) ^ "." in
-		let stripped = OpamStd.String.remove_prefix ~prefix base in
+		let stripped = OpamStd.String.remove_prefix ~prefix basename in
 		Version.of_string (
-			if stripped <> base then
+			if stripped <> basename then
 				OpamStd.String.remove_suffix ~suffix:".opam" stripped
 			else "dev"
 		)
-	in
-	let fallback_url () = Repo.load_url (Filename.concat path "url") in
-	let opam = Opam_metadata.load_opam (opam_path) in
-	let version = OPAM.version_opt opam |> Option.default_fn fallback_version in
+	) in
 	Repo.{
 		p_package = OpamPackage.create name version;
 		p_rel_path = opam_path; (* it's not relative but that's OK, extract doesn't need relative paths *)
@@ -175,12 +189,9 @@ module Context : Zi.S.CONTEXT with type t = solve_ctx = struct
 		let name_str = Name.to_string name in
 		(* TODO is this caching actually useful? ZI probably does it *)
 		let version loaded = OpamPackage.version loaded.p_package in
-		match OpamPackage.Name.Map.find_opt name ctx.c_inputs with
-			| Some (Direct s) ->
-				let loaded = load_direct ~name s in
-				[ version loaded, (Ok loaded.p_opam) ]
-
-			| None | Some (From_repository) ->
+		match OpamPackage.Name.Map.find_opt name ctx.c_preloaded with
+			| Some loaded -> [ version loaded, (Ok loaded.p_opam) ]
+			| None ->
 				let seen = ref Version.Set.empty in
 				ctx.c_repo_paths
 					|> List.concat_map (fun repo -> Repo.lookup_package_versions repo name_str)
@@ -219,24 +230,34 @@ let solve : request -> spec = fun { req_repositories; req_selection } ->
 
 			let lookup_var package =
 				Vars.(lookup_partial {
-					(* TODO ocaml package ? *)
+					(* TODO preload "ocaml" package ? *)
 					p_packages = OpamPackage.Name.Map.empty;
 					p_vars = init_variables ();
 				}) (OpamPackage.name package)
 			in
-			let definition_map = specs
-				|> List.map (fun spec -> spec.s_name, spec.s_definition)
-				|> OpamPackage.Name.Map.of_list
+			let loaded_definitions = specs
+				|> List.filter_map (fun spec ->
+						match spec.s_definition with
+							| From_repository -> None
+							| Direct path ->
+								let loaded = load_direct ~name:spec.s_name path in
+								Some (OpamPackage.name loaded.p_package, loaded)
+				) |> OpamPackage.Name.Map.of_list
 			in
-			let package_names = specs |> List.map (fun spec -> spec.s_name) in
+			let direct_names = Name.Map.keys loaded_definitions in
+			let repo_names = specs |> List.filter_map (fun spec ->
+				match spec.s_definition with
+					| From_repository -> Some (spec.s_name |> Option.or_failwith "Package name or definition required")
+					| Direct _ -> None
+			) in
 			let ctx = {
 				c_repo_paths = req_repositories |> List.map (fun r -> r.local_path);
-				c_inputs = definition_map;
+				c_preloaded = loaded_definitions;
 				c_packages = ref OpamPackage.Map.empty;
 				c_constraints = OpamPackage.Name.Map.empty; (* TODO *)
 				c_lookup_var = lookup_var;
 			} in
-			(match Solver.solve ctx package_names with
+			(match Solver.solve ctx (direct_names @ repo_names) with
 				| Error e -> (
 					prerr_endline (Solver.diagnostics e);
 					exit 1
@@ -251,9 +272,11 @@ let solve : request -> spec = fun { req_repositories; req_selection } ->
 						spec_packages = installed |>
 							List.map (fun p ->
 								let sel_name = OpamPackage.name p in
-								let sel_definition = definition_map
+								let sel_definition = loaded_definitions
 									|> OpamPackage.Name.Map.find_opt sel_name
-									|> Option.default From_repository
+									|> Option.fold
+										(fun loaded -> Loaded_definition loaded)
+										(fun () -> Definition From_repository)
 								in
 								(sel_name, {
 									sel_name;
@@ -265,10 +288,11 @@ let solve : request -> spec = fun { req_repositories; req_selection } ->
 					}
 			)
 
-let find_impl : selected_package -> repository list -> repository option * Repo.lookup_result = fun pkg ->
+let find_impl : selected_package -> repository list -> repository option * Repo.lookup_result = fun pkg repos ->
 	match pkg.sel_definition with
-		| Direct path -> fun _ -> (None, load_direct ~name:pkg.sel_name path)
-		| From_repository -> (
+		| Loaded_definition loaded -> (None, loaded)
+		| Definition (Direct path) -> (None, load_direct ~name:(Some pkg.sel_name) path)
+		| Definition (From_repository) -> (
 			let lookup : selected_package -> repository -> Repo.lookup_result option = fun pkg repo ->
 				Repo.lookup repo.local_path (package_of_selected pkg)
 			in
@@ -278,7 +302,7 @@ let find_impl : selected_package -> repository list -> repository option * Repo.
 					| Some found -> (Some repository, found)
 					| None -> search tail
 				)
-			in search
+			in search repos
 		)
 	
 let buildable : selected_package_map -> selected_package -> (repository option * Repo.lookup_result) -> buildable = fun installed pkg (repo, loaded) ->
