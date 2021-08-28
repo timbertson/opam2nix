@@ -113,7 +113,6 @@ type spec = {
 }
 
 type buildable = {
-	name: string;
 	version: string;
 	repository: string option;
 	src: Opam_metadata.url option;
@@ -344,7 +343,6 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 		commands lookup_var
 	in
 	{
-		name = OpamPackage.Name.to_string pkg.sel_name;
 		version = OpamPackage.Version.to_string pkg.sel_version;
 		repository = repo |> Option.map (fun repo -> repo.repository_id);
 		src = url;
@@ -357,11 +355,12 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 let dump : spec -> JSON.t = fun { spec_repositories; spec_packages } ->
 	let buildable = spec_packages
 		|> OpamPackage.Name.Map.values
-		|> List.map (fun (pkg: selected_package) -> buildable spec_packages pkg (find_impl pkg spec_repositories))
-		|> List.sort (fun a b -> String.compare a.name b.name)
+		|> List.map (fun (pkg: selected_package) ->
+			(pkg.sel_name, buildable spec_packages pkg (find_impl pkg spec_repositories)))
+		|> List.sort (fun (aname,_) (bname,_) -> Name.compare aname bname)
 	in
-	`Assoc (buildable |> List.map (fun buildable ->
-		(buildable.name, buildable_to_yojson buildable)
+	`Assoc (buildable |> List.map (fun (name, buildable) ->
+		(Name.to_string name, buildable_to_yojson buildable)
 	))
 
 let run () =
