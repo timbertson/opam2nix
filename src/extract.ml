@@ -135,7 +135,8 @@ let init_variables () = Opam_metadata.init_variables ()
 	|> OpamVariable.Full.Map.remove (OpamVariable.Full.global (OpamVariable.of_string "jobs"))
 	
 let load_direct ~name path : Repo.lookup_result =
-	let opam_path = if Sys.is_directory path
+	let isdir = Sys.is_directory path in
+	let opam_path = if isdir
 		then Filename.concat path "opam"
 		else path
 	in
@@ -156,7 +157,7 @@ let load_direct ~name path : Repo.lookup_result =
 		let prefix = (Name.to_string name) ^ "." in
 		let stripped = OpamStd.String.remove_prefix ~prefix basename in
 		Version.of_string (
-			if stripped <> basename then
+			if isdir && stripped <> basename then
 				OpamStd.String.remove_suffix ~suffix:".opam" stripped
 			else "dev"
 		)
@@ -211,7 +212,7 @@ module Context : Zi.S.CONTEXT with type t = solve_ctx = struct
 					|> List.sort (fun (va, _) (vb, _) -> Version.compare vb va)
 		
 	let user_restrictions : t -> OpamPackage.Name.t -> OpamFormula.version_constraint option
-	= fun ctx name -> OpamPackage.Name.Map.find name ctx.c_constraints
+	= fun ctx name -> OpamPackage.Name.Map.find_opt name ctx.c_constraints |> Option.bind identity
 
 	let filter_deps : t -> OpamPackage.t -> OpamTypes.filtered_formula -> OpamTypes.formula
 	= fun ctx pkg f ->
