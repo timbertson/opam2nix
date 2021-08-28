@@ -112,10 +112,14 @@ type spec = {
 	spec_packages: selected_package_map [@key "packages"];
 }
 
+let url_to_yojson = function
+	| Some (`http (url, _digests)) -> `Assoc ["url", `String url]
+	| None -> `Null
+
 type buildable = {
 	version: string;
 	repository: string option;
-	src: Opam_metadata.url option;
+	src: Opam_metadata.url option [@to_yojson url_to_yojson];
 	build_commands: string list list;
 	install_commands: string list list;
 } [@@deriving to_yojson]
