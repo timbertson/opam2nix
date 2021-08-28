@@ -6,6 +6,7 @@ module OPAM = OpamFile.OPAM
 
 type package_name = OpamPackage.Name.t
 let package_name_of_yojson j = [%of_yojson: string] j |> Result.map OpamPackage.Name.of_string
+let package_name_to_yojson name = `String (Name.to_string name)
 
 type package_version = OpamPackage.Version.t
 let package_version_of_yojson j = [%of_yojson: string] j |> Result.map OpamPackage.Version.of_string
@@ -116,12 +117,19 @@ let url_to_yojson = function
 	| Some (`http (url, _digests)) -> `Assoc ["url", `String url]
 	| None -> `Null
 
+type depexts = {
+	required: string list;
+	optional: string list;
+} [@@deriving to_yojson]
+
 type buildable = {
 	version: string;
 	repository: string option;
 	src: Opam_metadata.url option [@to_yojson url_to_yojson];
 	build_commands: string list list;
 	install_commands: string list list;
+	depends: package_name list;
+	depexts: depexts;
 } [@@deriving to_yojson]
 
 let parse_request : JSON.t -> request = fun json ->
@@ -320,6 +328,56 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 	} in
 	let opam = loaded.Repo.p_opam in
 	let lookup_var = Vars.lookup_partial vars pkg.sel_name in
+
+	let depends =
+		let of_formula formula =
+			let rec accumulate_deps acc = let open OpamFormula in function
+				| Empty    -> acc
+				| Atom x   -> x :: acc
+				| Block x  -> accumulate_deps acc x
+				| And(x,y) | Or(x,y) -> (accumulate_deps [] x) @ (accumulate_deps acc y)
+			in
+			OpamPackageVar.filter_depends_formula
+				~build:true
+				~post:false
+				~test:false
+				~doc:false
+				~default:false
+				~env:lookup_var
+				formula
+			|> accumulate_deps []
+			|> List.map (fun (name, _) -> name)
+			|> List.filter (fun name -> Name.Map.mem name installed)
+		in
+		( of_formula (OPAM.depends opam)
+		@ of_formula (OPAM.depopts opam)
+		) |> List.sort_uniq Name.compare
+	in
+	let depexts =
+		let apply_filters env (deps, filter) =
+			try
+				if (OpamFilter.eval_to_bool ~default:false env filter) then
+					Some (deps)
+				else
+					None
+			with Invalid_argument desc -> (
+				Printf.eprintf "  Note: depext filter raised Invalid_argument: %s\n" desc;
+				None
+			)
+		in
+		
+		let merge_and_sort sets = sets
+			|> List.concat_map OpamSysPkg.Set.elements
+			|> List.map OpamSysPkg.to_string
+			|> List.sort_uniq String.compare in
+		let empty = { optional = []; required = [] } in
+
+		let raw_depexts = OPAM.depexts opam in
+		filter_map (apply_filters lookup_var) raw_depexts |> (function
+			| [] -> { empty with optional = List.map fst raw_depexts |> merge_and_sort }
+			| nixos_deps -> { empty with required = nixos_deps |> merge_and_sort }
+		)
+	in
 	let resolve_commands =
 		let open OpamFilter in
 		let open OpamTypes in
@@ -350,6 +408,8 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 		version = OpamPackage.Version.to_string pkg.sel_version;
 		repository = repo |> Option.map (fun repo -> repo.repository_id);
 		src = url;
+		depends;
+		depexts;
 		build_commands =
 			OpamFile.OPAM.build opam |> resolve_commands;
 		install_commands =
