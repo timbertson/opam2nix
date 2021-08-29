@@ -42,16 +42,25 @@ let package_constraint_of_yojson j = j
 	|> [%of_yojson: string * string]
 	|> Result.map (fun (c_op, c_value) -> { c_op; c_value })
 
+type opam_source = Opam_file of string | Opam_contents of string
+
+let string_of_opam_source = function Opam_file s -> s | Opam_contents _ -> "[literal string]"
+
 type package_definition =
 	| From_repository
 	(* path may be either an opam file or containing directory *)
-	| Direct of string
+	| Direct of opam_source
 	
-let package_definition_of_yojson j =
-	[%of_yojson: string option] j |> Result.map (function
-		| None -> From_repository
-		| Some s -> Direct s
-	)
+type opam_source_json = {
+	osj_contents: string [@key "contents"];
+} [@@deriving of_yojson]
+
+let package_definition_of_yojson: JSON.t -> (package_definition, string) result = function
+	| `Null -> Ok From_repository
+	| `String s -> Ok (Direct (Opam_file s))
+	| `Assoc j -> [%of_yojson: opam_source_json] (`Assoc j)
+			|> Result.map (fun j -> Direct (Opam_contents j.osj_contents))
+	| _ -> Error "package_definition"
 
 type package_spec = {
 	s_name: package_name option [@key "name"] [@default None];
@@ -147,39 +156,63 @@ let init_variables () = Opam_metadata.init_variables ()
 	(* TODO accept k/v pairs in request *)
 	|> OpamVariable.Full.Map.remove (OpamVariable.Full.global (OpamVariable.of_string "jobs"))
 	
-let load_direct ~name path : Repo.lookup_result =
-	let isdir = Sys.is_directory path in
-	let opam_path = if isdir
-		then Filename.concat path "opam"
-		else path
+let load_direct ~name opam_source : Repo.lookup_result =
+	let (opam, opam_dir, opam_filename) = match opam_source with
+		| Opam_file path -> (
+			let isdir = Sys.is_directory path in
+			let opam_dir = if isdir then Some(path) else None in
+			let opam_path = if isdir
+				then Filename.concat path "opam"
+				else path
+			in
+
+			let opam = Opam_metadata.load_opam opam_path in
+
+			let basename = Filename.basename path in
+			opam, opam_dir, Some(basename)
+		)
+		| Opam_contents c -> (
+			let opam = Opam_metadata.load_opam_string c in
+			opam, None, None
+		)
 	in
-	let fallback_url () = Repo.load_url (Filename.concat path "url") in
-	let opam = Opam_metadata.load_opam (opam_path) in
-	let basename = Filename.basename path in
-	let name = name |> Option.or_else (OPAM.name_opt opam) |> Option.default_fn (fun () ->
+
+	let name = name |> Option.or_else (OPAM.name_opt opam) |> Option.or_else_fn (fun () ->
 		(* Name can only be missing for a file called `[pkgname].opam` *)
-		let stripped = OpamStd.String.remove_suffix ~suffix:".opam" basename in
-		if stripped <> basename then
-			Name.of_string stripped
-		else
-			failwith ("Couldn't determine package name from " ^ path)
-	) in
-	let version = OPAM.version_opt opam |> Option.default_fn (fun () ->
+		opam_filename
+		|> Option.bind (function filename ->
+			let stripped = OpamStd.String.remove_suffix ~suffix:".opam" filename in
+			if stripped <> filename then
+				Some (Name.of_string stripped)
+			else
+				None
+		)
+	) |> Option.or_failwith ("Couldn't determine package name from " ^ (string_of_opam_source opam_source))
+	in
+
+	let version = OPAM.version_opt opam |> Option.or_else_fn (fun () ->
 		(* If the path happens to be a directory named foo.1.2.3, treat that
 		as the fallback version *)
-		let prefix = (Name.to_string name) ^ "." in
-		let stripped = OpamStd.String.remove_prefix ~prefix basename in
-		Version.of_string (
-			if isdir && stripped <> basename then
-				OpamStd.String.remove_suffix ~suffix:".opam" stripped
-			else "dev"
+		opam_dir |> Option.map Filename.basename |> Option.bind (fun basename ->
+			let prefix = (Name.to_string name) ^ "." in
+			let stripped = OpamStd.String.remove_prefix ~prefix basename in
+			if stripped <> basename then
+				Some (Version.of_string (OpamStd.String.remove_suffix ~suffix:".opam" stripped))
+			else None
 		)
+	) |> Option.default (Version.of_string "dev")
+	in
+
+	let url = OPAM.url opam |> Option.or_else_fn (fun () ->
+		(* TODO what if there is no url? *)
+		opam_dir |> Option.bind (fun dir -> Repo.load_url (Filename.concat dir "url"))
 	) in
+
 	Repo.{
 		p_package = OpamPackage.create name version;
-		p_rel_path = opam_path; (* it's not relative but that's OK, extract doesn't need relative paths *)
+		p_rel_path = "UNUSED"; (* TODO: remove? *)
 		p_opam = opam;
-		p_url = OPAM.url opam |> Option.or_else_fn fallback_url;
+		p_url = url;
 	}
 
 module Zi = Opam_0install
@@ -411,10 +444,8 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 		src = url;
 		depends;
 		depexts;
-		build_commands =
-			OpamFile.OPAM.build opam |> resolve_commands;
-		install_commands =
-			OpamFile.OPAM.install opam |> resolve_commands;
+		build_commands = OpamFile.OPAM.build opam |> resolve_commands;
+		install_commands = OpamFile.OPAM.install opam |> resolve_commands;
 	}
 
 let dump : spec -> JSON.t = fun { spec_repositories; spec_packages } ->
