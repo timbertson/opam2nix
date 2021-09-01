@@ -117,9 +117,9 @@ type request = {
 	req_selection: selection;
 }
 
-type spec = {
-	spec_repositories: repository list [@key "repositories"];
-	spec_packages: selected_package_map [@key "packages"];
+type solution = {
+	sln_repositories: repository list;
+	sln_packages: selected_package_map;
 }
 
 let url_to_yojson = function
@@ -267,9 +267,9 @@ module Context : Zi.S.CONTEXT with type t = solve_ctx = struct
 		|> OpamFilter.filter_deps ~build:true ~post:true ~test:false ~doc:false ~dev:false ~default:false
 end
 
-let solve : request -> spec = fun { req_repositories; req_selection } ->
+let solve : request -> solution = fun { req_repositories; req_selection } ->
 	match req_selection with
-		| Exact pmap -> { spec_repositories = req_repositories; spec_packages = pmap }
+		| Exact pmap -> { sln_repositories = req_repositories; sln_packages = pmap }
 		| Solve specs ->
 			Printf.eprintf "Solving ...\n";
 			flush stderr;
@@ -315,8 +315,8 @@ let solve : request -> spec = fun { req_repositories; req_selection } ->
 					installed |> List.iter (fun pkg -> Printf.eprintf "- %s\n" (OpamPackage.to_string pkg));
 					flush stderr;
 					{
-						spec_repositories = req_repositories;
-						spec_packages = installed |>
+						sln_repositories = req_repositories;
+						sln_packages = installed |>
 							List.map (fun p ->
 								let sel_name = OpamPackage.name p in
 								let sel_definition = loaded_definitions
@@ -448,11 +448,11 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 		install_commands = OpamFile.OPAM.install opam |> resolve_commands;
 	}
 
-let dump : spec -> JSON.t = fun { spec_repositories; spec_packages } ->
-	let buildable = spec_packages
+let dump : solution -> JSON.t = fun { sln_repositories; sln_packages } ->
+	let buildable = sln_packages
 		|> OpamPackage.Name.Map.values
 		|> List.map (fun (pkg: selected_package) ->
-			(pkg.sel_name, buildable spec_packages pkg (find_impl pkg spec_repositories)))
+			(pkg.sel_name, buildable sln_packages pkg (find_impl pkg sln_repositories)))
 		|> List.sort (fun (aname,_) (bname,_) -> Name.compare aname bname)
 	in
 	`Assoc (buildable |> List.map (fun (name, buildable) ->
