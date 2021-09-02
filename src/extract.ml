@@ -210,7 +210,6 @@ let load_direct ~name opam_source : Repo.lookup_result =
 
 	Repo.{
 		p_package = OpamPackage.create name version;
-		p_rel_path = "UNUSED"; (* TODO: remove? *)
 		p_opam = opam;
 		p_url = url;
 	}

@@ -30,14 +30,6 @@ type package = {
 	url: URL.t option;
 }
 
-(* low level pkg returned by lookup *)
-type lookup_result = {
-	p_package: OpamPackage.t;
-	p_rel_path: string;
-	p_opam: OPAM.t;
-	p_url: URL.t option;
-}
-
 (* Loaded package, either from an opam repo or direct package supplied on the commandline *)
 type loaded_package = {
 	loaded_opam: OPAM.t;
@@ -53,6 +45,13 @@ type direct_package = {
 	direct_opam: OPAM.t;
 	direct_name: Name.t;
 	direct_version: Version.t option;
+}
+
+(* low level pkg returned by lookup, which is all Extract module needs *)
+type lookup_result = {
+	p_package: OpamPackage.t;
+	p_opam: OPAM.t;
+	p_url: URL.t option;
 }
 
 let packages_dir = "packages"
@@ -71,7 +70,7 @@ let load_url path =
 		Some rv
 	end else None
 
-let lookup = fun repo_path package -> (
+let _lookup = fun repo_path package -> (
 	let pname = OpamPackage.Name.to_string (OpamPackage.name package) in
 	let pver = OpamPackage.Version.to_string (OpamPackage.version package) in
 	let rel_path =
@@ -83,17 +82,18 @@ let lookup = fun repo_path package -> (
 	let opam_path = Filename.concat full_path "opam" in
 	if Sys.file_exists opam_path then
 		let opam = Opam_metadata.load_opam (opam_path) in
-			Some {
+			Some (rel_path, {
 				p_package = package;
-				p_rel_path = rel_path;
 				p_opam = opam;
 				p_url = OPAM.url opam |> Option.or_else (load_url (Filename.concat full_path "url"));
-			}
+			})
 	else
 		None
 )
 
-let lookup_package_versions repo_path package = (
+let lookup repo_path package = _lookup repo_path package |> Option.map snd
+
+let _lookup_package_versions repo_path package = (
 	debug "processing package %s\n" package;
 	let package_base = Filename.concat packages_dir package in
 	let package_abs = Filename.concat repo_path package_base in
@@ -111,13 +111,15 @@ let lookup_package_versions repo_path package = (
 
 	list_versions () |> List.filter_map (fun version ->
 		let package = OpamPackage.create (Name.of_string package) (Version.of_string version) in
-		lookup repo_path package
+		_lookup repo_path package
 	)
 )
 
+let lookup_package_versions repo_path package = _lookup_package_versions repo_path package |> List.map snd
+
 let list_package repo package =
-	lookup_package_versions repo.repo_path package
-	|> List.map (fun { p_package = package; p_opam = opam; p_rel_path = rel_path; p_url = url} ->
+	_lookup_package_versions repo.repo_path package
+	|> List.map (fun (rel_path, { p_package = package; p_opam = opam; p_url = url}) ->
 		{ repo; rel_path; opam; package; url; }
 	)
 
