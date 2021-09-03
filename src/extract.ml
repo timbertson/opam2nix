@@ -151,11 +151,6 @@ let parse_request : JSON.t -> request = fun json ->
 			| _other -> Error "exactly one of spec or selection required"
 	) |> Result.get_exn identity
 
-let init_variables () = Opam_metadata.init_variables ()
-	(* TODO don't add this in the first place *)
-	(* TODO accept k/v pairs in request *)
-	|> OpamVariable.Full.Map.remove (OpamVariable.Full.global (OpamVariable.of_string "jobs"))
-	
 let load_direct ~name opam_source : Repo.lookup_result =
 	let (opam, opam_dir, opam_filename) = match opam_source with
 		| Opam_file path -> (
@@ -274,12 +269,13 @@ let solve : request -> solution = fun { req_repositories; req_selection } ->
 			flush stderr;
 			let module Solver = Zi.Solver.Make(Context) in
 
+			let packages =
+				let ocaml = Name.of_string "ocaml" in
+				Name.Map.of_list [ocaml, Vars.selected_package ocaml]
+			in
+			let vars = Vars.state ~is_building:false packages in
 			let lookup_var package =
-				Vars.(lookup_partial {
-					(* TODO preload "ocaml" package ? *)
-					p_packages = OpamPackage.Name.Map.empty;
-					p_vars = init_variables ();
-				}) (OpamPackage.name package)
+				Vars.lookup vars ~self:(Some (OpamPackage.name package))
 			in
 			let loaded_definitions = specs
 				|> List.filter_map (fun spec ->
@@ -351,17 +347,13 @@ let find_impl : selected_package -> repository list -> repository option * Repo.
 			in search repos
 		)
 	
-let buildable : selected_package_map -> selected_package -> (repository option * Repo.lookup_result) -> buildable = fun installed pkg (repo, loaded) ->
+let buildable : Vars.state -> selected_package -> (repository option * Repo.lookup_result) -> buildable = fun state pkg (repo, loaded) ->
 	let url = loaded.Repo.p_url
 		|> Option.map Opam_metadata.url
 		|> Option.map (Result.get_exn Opam_metadata.string_of_unsupported_archive)
 	in
-	let vars = Vars.{
-		p_packages = installed |> OpamPackage.Name.Map.map package_of_selected;
-		p_vars = init_variables ();
-	} in
 	let opam = loaded.Repo.p_opam in
-	let lookup_var = Vars.lookup_partial vars pkg.sel_name in
+	let lookup_var = Vars.lookup state ~self:(Some pkg.sel_name) in
 
 	let depends =
 		let of_formula formula =
@@ -381,7 +373,7 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 				formula
 			|> accumulate_deps []
 			|> List.map (fun (name, _) -> name)
-			|> List.filter (fun name -> Name.Map.mem name installed)
+			|> List.filter (fun name -> Name.Map.mem name state.Vars.st_packages)
 		in
 		( of_formula (OPAM.depends opam)
 		@ of_formula (OPAM.depopts opam)
@@ -448,10 +440,15 @@ let buildable : selected_package_map -> selected_package -> (repository option *
 	}
 
 let dump : solution -> JSON.t = fun { sln_repositories; sln_packages } ->
+	let state = Vars.state ~is_building:false (
+			sln_packages |> Name.Map.map (fun { sel_name; sel_version; _ } ->
+				Vars.selected_package ~version:sel_version sel_name
+			)
+	) in
 	let buildable = sln_packages
 		|> OpamPackage.Name.Map.values
 		|> List.map (fun (pkg: selected_package) ->
-			(pkg.sel_name, buildable sln_packages pkg (find_impl pkg sln_repositories)))
+			(pkg.sel_name, buildable state pkg (find_impl pkg sln_repositories)))
 		|> List.sort (fun (aname,_) (bname,_) -> Name.compare aname bname)
 	in
 	`Assoc (buildable |> List.map (fun (name, buildable) ->

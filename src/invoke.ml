@@ -11,7 +11,7 @@ let getenv k =
 		raise e
 
 type env = {
-	vars : Vars.env;
+	vars : Vars.state;
 	opam : OpamFile.OPAM.t;
 	opam_src: [`File of string | `Dir of string];
 	pkg: OpamPackage.t;
@@ -29,11 +29,12 @@ let assert_string_var = let open OpamVariable in function
 	| Some (S s) -> s
 	| other -> failwith ("Expected string, got " ^ (Option.to_string string_of_variable_contents other))
 
-let vardir ~vars ~dest name =
-	Vars.path_var ~env:vars ~prefix:dest ~scope:None name |> assert_string_var
+let vardir env name =
+	Vars.lookup env.vars ~self:(Some (OpamPackage.name env.pkg)) (OpamVariable.Full.self (OpamVariable.of_string name))
+		|> assert_string_var
 		|> OpamFilename.Dir.of_string
 
-let outputDirs ~vars dest = [ binDir dest; vardir ~vars ~dest "stublibs"; vardir ~vars ~dest "lib" ]
+let outputDirs env dest = [ binDir dest; vardir env "stublibs"; vardir env "lib" ]
 
 let opam_path = function
 	| `File path -> path
@@ -54,16 +55,9 @@ let load_env () =
 	let self_version = ref None in
 	let packages = ref Name.Map.empty in
 
-	let add_package name impl =
-		debug " - package %s: %s\n" name (match impl with
-			| Absent -> "absent"
-			| Provided -> "provided"
-			| Installed { path; version } ->
-				Printf.sprintf "%s (%s)"
-					(Option.to_string string_of_dir path)
-					(Option.to_string Version.to_string version)
-		);
-		packages := Name.Map.add (Name.of_string name) impl !packages
+	let add_package impl =
+		debug " - package %s\n" (string_of_selected_package impl);
+		packages := Name.Map.add impl.name impl !packages
 	in
 
 	let json = JSON.from_string (getenv "opamEnv") in
@@ -77,10 +71,10 @@ let load_env () =
 						debug "adding packages from opamEnv\n";
 						attrs |> List.iter (fun (pkgname, value) ->
 							match value with
-								| `Null -> add_package pkgname Absent
+								| `Null | `Bool false -> ()
 
 									(* Bool is used for base packages, which have no corresponding path *)
-								| `Bool b -> add_package pkgname (if b then Provided else Absent)
+								| `Bool true -> let name = Name.of_string pkgname in add_package (selected_package name)
 
 								| `Assoc attrs -> (
 									let path = ref None in
@@ -92,14 +86,13 @@ let load_env () =
 											| "version", `Null -> version := None
 											| _, other -> unexpected_json ("deps." ^ pkgname) other
 									);
-									add_package pkgname (Installed {
-										(* path is optional in the type, but by `invoke` time all paths
-										 * should be defined *)
-										path = Some (!path
+									add_package (selected_package
+										~path:(!path
 											|> Option.or_failwith "missing `path` in deps"
-											|> OpamFilename.Dir.of_string);
-										version = !version;
-									})
+											|> OpamFilename.Dir.of_string)
+										?version:!version
+										(Name.of_string pkgname)
+									)
 								)
 
 								| other -> unexpected_json "deps value" other
@@ -124,38 +117,27 @@ let load_env () =
 	let self = !self_name |> Option.or_failwith "self name not specified" |> Name.of_string in
 	let self_version = !self_version |> Option.or_failwith "self version not specified" in
 	let self_impl = Vars.{
+		name = self;
 		path = Some destDir;
-		version = Some self_version;
+		sel_version = Some self_version;
 	} in
-	let ocaml_version =
-		(match Name.Map.find (Name.of_string "ocaml") !packages with
-			| Installed impl -> impl.version
-			| _other -> None
-		) |> Option.or_failwith "ocaml version not provided"
-	in
 	let opam =
 		let path = opam_path self_opam_src in
 		Printf.eprintf "Loading %s\n" path;
 		Opam_metadata.load_opam path
 	in
 	{
-		vars = Vars.({
-			ocaml_version;
-			prefix = Some destDir;
-			packages = !packages |> Name.Map.add self (Installed self_impl);
-			self = self;
-			vars = Opam_metadata.init_variables ();
-		});
+		vars = Vars.state ~is_building:true (!packages |> Name.Map.add self self_impl);
 		pkg = OpamPackage.create self self_version;
 		opam_src = self_opam_src;
 		opam;
 	}
 
-let resolve commands vars =
-	commands |> OpamFilter.commands (Vars.lookup vars)
+let resolve commands env =
+	commands |> OpamFilter.commands (Vars.lookup env.vars ~self:(Some (OpamPackage.name env.pkg)))
 
 let run env get_commands =
-	let commands = resolve (get_commands env.opam) env.vars in
+	let commands = resolve (get_commands env.opam) env in
 	commands |> List.iter (fun args ->
 		match args with
 			| [] -> ()
@@ -188,7 +170,7 @@ let execute_install_file env =
 		let dest = destDir () in
 		Lwt_main.run (Cmd.run_unit_exn Cmd.exec_none ~print:true [ "opam-installer";
 			"--prefix"; string_of_dir dest;
-			"--libdir"; vardir ~vars:env.vars ~dest "lib" |> string_of_dir;
+			"--libdir"; vardir env "lib" |> string_of_dir;
 			install_file_path ]
 		)
 	) else (
@@ -206,7 +188,7 @@ let fixup_lib_dir ~dest env =
 	let lib_base = dest / "lib" in
 	let incorrect_lib_dest = lib_base / name in
 
-	let lib_dir = vardir ~vars:env.vars ~dest "lib" in
+	let lib_dir = vardir env "lib" in
 	let expected_lib_dest = lib_dir / name in
 
 	let expected_s = OpamFilename.Dir.to_string expected_lib_dest in
@@ -245,7 +227,7 @@ let patch env =
 		)
 	);
 	let opam = env.opam in
-	let lookup_env = Vars.lookup env.vars in
+	let lookup_env = Vars.lookup env.vars ~self:(Some (OpamPackage.name env.pkg)) in
 	let cwd = OpamFilename.Dir.of_string (Sys.getcwd ()) in
 	OpamAction.prepare_package_build lookup_env opam env.pkg cwd
 		|> OpamProcess.Job.run
@@ -254,7 +236,7 @@ let patch env =
 let build env =
 	let dest = destDir () in
 	ensure_dir_exists dest;
-	outputDirs ~vars:env.vars dest |> List.iter ensure_dir_exists;
+	outputDirs env dest |> List.iter ensure_dir_exists;
 	run env OPAM.build
 
 let install env =
@@ -262,11 +244,11 @@ let install env =
 	execute_install_file env;
 	let dest = destDir () in
 	fixup_lib_dir ~dest env;
-	outputDirs ~vars:env.vars dest |> List.iter remove_empty_dir
+	outputDirs env dest |> List.iter remove_empty_dir
 
 let dump env =
 	let dump desc get_commands =
-		let commands = resolve (get_commands env.opam) env.vars in
+		let commands = resolve (get_commands env.opam) env in
 		Printf.printf "# %s:\n" desc;
 		commands |> List.iter (fun args ->
 			Printf.printf "+ %s\n" (String.concat " " args)
