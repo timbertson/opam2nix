@@ -88,58 +88,6 @@ let string_of_requirement = function
 
 let string_of_importance = function Required -> "required" | Optional -> "optional"
 
-let add_var (scope: OpamVariable.t -> OpamVariable.Full.t) name v vars =
-	let var: OpamVariable.Full.t = scope (OpamVariable.of_string name) in
-	vars |> OpamVariable.Full.Map.add var v
-
-let package_var pkgname = OpamVariable.Full.create (OpamPackage.Name.of_string pkgname)
-let global_var = OpamVariable.Full.global
-let self_var = OpamVariable.Full.self
-let add_global_var = add_var global_var
-let add_package_var pkgname = add_var (package_var pkgname)
-let add_self_var name = add_var self_var name
-
-let native_system_vars () =
-	let state = OpamVariable.Full.Map.empty in
-	let system_variables = OpamSysPoll.variables in
-	List.fold_left
-		(fun state ((name: OpamVariable.t), value) ->
-			(Lazy.force value) |> Option.map (fun value ->
-				OpamVariable.Full.Map.add (OpamVariable.Full.global name) value state
-			) |> Option.default state
-		)
-		state system_variables
-
-let nixos_vars () =
-	native_system_vars ()
-		|> add_global_var "os-family" (S "unknown")
-		|> add_global_var "os-distribution" (S "nixos")
-		|> add_global_var "os-version" (S "unknown")
-			(* I don't think we can easily get a number here, but it should
-			 * rarely matter *)
-
-let add_base_variables base_vars =
-	base_vars
-		|> add_global_var "make" (S "make")
-		|> add_global_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
-		|> add_global_var "pinned" (B false) (* probably ? *)
-		|> add_global_var "jobs" (S (getenv_opt "NIX_BUILD_CORES" |> Option.default "1"))
-		|> add_global_var "enable-ocaml-beta-repository" (B false)
-		(* With preinstalled packages suppose they can't write
-		   in the ocaml directory *)
-		|> add_global_var "preinstalled" (B true)
-		|> add_package_var "ocaml" "preinstalled" (B true)
-		|> add_package_var "ocaml" "native" (B true)
-		|> add_package_var "ocaml" "native-tools" (B true)
-		|> add_package_var "ocaml" "native-dynlink" (B true)
-
-let init_variables () = add_base_variables (nixos_vars ())
-
-let installed_pkg_var key = let open OpamVariable in match Full.scope key with
-	| Full.Package pkg when ((Full.variable key |> OpamVariable.to_string) = "installed") ->
-			Some pkg
-	| _ -> None
-
 let add_nix_inputs
 	~(add_native: importance -> string -> unit)
 	~(add_opam:importance -> string -> unit)
@@ -148,7 +96,7 @@ let add_nix_inputs
 		| Required -> "dep"
 		| Optional -> "optional dep"
 	in
-	let nixos_env = Vars.simple_lookup ~vars:(nixos_vars ()) in
+	let nixos_env = Vars.(simple_lookup ~vars:(nixos_vars ())) in
 	debug "Adding dependency: %s\n" (string_of_dependency dep);
 	match dep with
 		| NixDependency name ->
