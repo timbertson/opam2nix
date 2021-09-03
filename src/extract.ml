@@ -270,8 +270,7 @@ let solve : request -> solution = fun { req_repositories; req_selection } ->
 			let module Solver = Zi.Solver.Make(Context) in
 
 			let packages =
-				let ocaml = Name.of_string "ocaml" in
-				Name.Map.of_list [ocaml, Vars.selected_package ocaml]
+				Name.Map.of_list [Vars.ocaml_name, Vars.selected_package Vars.ocaml_name]
 			in
 			let vars = Vars.state ~is_building:false packages in
 			let lookup_var package =

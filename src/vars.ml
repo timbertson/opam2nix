@@ -10,6 +10,8 @@ open OpamFilename.Op
 module Name = OpamPackage.Name
 module Version = OpamPackage.Version
 
+let ocaml_name = Name.of_string "ocaml"
+
 (* Information about a pacakge.
  * Post-solve, only name and version are known.
  * Path is only known at build time (i.e. during Invoke)
@@ -24,6 +26,7 @@ type selected_package = {
 type state = {
 	st_packages: selected_package Name.Map.t;
 	st_vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
+	ocaml_version: Version.t;
 	(* Only set to true from invoke, otherwise unix user & group will not be undefined *)
 	is_building : bool;
 }
@@ -77,7 +80,11 @@ let init_variables ~is_building () =
 		else common
 
 let state ~is_building packages =
-	{ is_building; st_packages = packages; st_vars = init_variables ~is_building () }
+	let ocaml_version = Name.Map.find_opt ocaml_name packages
+		|> Option.bind (fun ocaml -> ocaml.sel_version)
+		|> Option.or_failwith "ocaml not present in package set"
+	in
+	{ is_building; ocaml_version; st_packages = packages; st_vars = init_variables ~is_building () }
 
 let string_of_dir = OpamFilename.Dir.to_string
 
@@ -119,10 +126,6 @@ let path_var ~ocaml_version ~prefix ~scope key =
 		))
 	)
 
-let find_ocaml_version state =
-	Name.Map.find_opt (Name.of_string "ocaml") state.st_packages |> Option.bind (fun ocaml -> ocaml.sel_version)
-
-
 let package_var : state -> Name.t -> string -> variable_contents option =
 	let r_false = Some (B false) in
 	let r_true = Some (B true) in
@@ -139,8 +142,7 @@ let package_var : state -> Name.t -> string -> variable_contents option =
 			| _ -> impl |> Option.bind (fun { sel_version; path; _ } ->
 				path
 				|> Option.bind (fun path ->
-					find_ocaml_version state |> Option.bind (fun ocaml_version ->
-						path_var ~ocaml_version ~prefix:path ~scope:(Some pkg) key)
+					path_var ~ocaml_version:state.ocaml_version ~prefix:path ~scope:(Some pkg) key
 				)
 				|> Option.or_else (match key with
 					| "dev" -> r_false
@@ -207,9 +209,7 @@ let lookup (state: state) ~(self: Name.t option) key =
 						 * and then fallback to resolving a self-var. *)
 						self |> Option.bind (fun self ->
 							prefix state self |> Option.bind (fun prefix ->
-								(find_ocaml_version state) |> Option.bind (fun ocaml_version ->
-									path_var ~ocaml_version ~prefix ~scope:None unqualified
-								)
+								path_var ~ocaml_version:state.ocaml_version ~prefix ~scope:None unqualified
 							) |> Option.or_else_fn (fun () ->
 								package_var self unqualified
 							)

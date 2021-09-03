@@ -29,11 +29,10 @@ let build_universe ~external_constraints ~base_packages ~constrained_versions ~d
 	let lookup_var package =
 		let version = OpamPackage.version package in
 		let name = OpamPackage.name package in
-		let ocaml = Name.of_string "ocaml" in
 		let vars = Vars.state ~is_building:false (Name.Map.of_list (
 			[
 				name, Vars.selected_package ~version name;
-				ocaml, Vars.selected_package ~version:ocaml_version ocaml
+				Vars.ocaml_name, Vars.selected_package ~version:ocaml_version Vars.ocaml_name
 			] @ (base_packages |> List.map (fun name -> (name, Vars.selected_package name)))
 		)) in
 		Vars.lookup vars ~self:(Some name) in
