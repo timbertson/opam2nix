@@ -33,14 +33,10 @@ type repository = {
 	local_path: string [@key "path"];
 } [@@deriving yojson]
 
-type package_constraint = {
-	c_op: string [@key "op"];
-	c_value: string [@key "value"];
-}
-
-let package_constraint_of_yojson j = j
+type version_constraint = OpamFormula.version_constraint
+let version_constraint_of_yojson j = j
 	|> [%of_yojson: string * string]
-	|> Result.map (fun (c_op, c_value) -> { c_op; c_value })
+	|> Result.map (fun (op, v) -> OpamLexer.relop op, Version.of_string v)
 
 type opam_source = Opam_file of string | Opam_contents of string
 
@@ -62,10 +58,17 @@ let package_definition_of_yojson: JSON.t -> (package_definition, string) result 
 			|> Result.map (fun j -> Direct (Opam_contents j.osj_contents))
 	| _ -> Error "package_definition"
 
+let optional_yojson underlying zero = function `Null -> Ok zero | other -> underlying other
+
+(* allow null because it's convenient *)
+let yojson_of_version_constraint_list = optional_yojson [%of_yojson: version_constraint list] []
+
 type package_spec = {
 	s_name: package_name option [@key "name"] [@default None];
 	s_definition: package_definition [@key "definition"] [@default From_repository];
-	constraints: package_constraint list [@default []];
+	constraints: version_constraint list
+		[@default []]
+		[@of_yojson yojson_of_version_constraint_list]
 } [@@deriving of_yojson]
 
 type lazy_definition =
@@ -96,17 +99,23 @@ let selected_package_map_of_yojson j = j
 
 type solve_ctx = {
 	c_lookup_var: OpamPackage.t -> OpamVariable.Full.t -> OpamVariable.variable_contents option;
-	c_constraints: OpamFormula.version_constraint option OpamPackage.Name.Map.t;
+	c_constraints: OpamFormula.version_constraint list OpamPackage.Name.Map.t;
 	c_repo_paths: string list;
 	c_preloaded: Repo.lookup_result OpamPackage.Name.Map.t;
 	c_packages : (Repo.lookup_result, Solver.error) result OpamPackage.Map.t ref;
 }
 
+type solve_request = {
+	solve_ocaml_version: Version.t option;
+	solve_specs: package_spec list;
+}
+
 type selection =
-	| Solve of package_spec list
+	| Solve of solve_request
 	| Exact of selected_package_map
 
 type request_json = {
+	rj_ocaml_version: package_version option [@key "ocaml_version"][@default None];
 	rj_repositories: repository list [@key "repositories"];
 	rj_spec: package_spec list option [@key "spec"][@default None];
 	rj_selection: selected_package_map option [@key "selection"][@default None];
@@ -144,12 +153,19 @@ type buildable = {
 } [@@deriving to_yojson]
 
 let parse_request : JSON.t -> request = fun json ->
-	request_json_of_yojson json |> Result.bind (fun { rj_repositories = req_repositories; rj_spec; rj_selection } ->
+	request_json_of_yojson json |> Result.bind (fun { rj_repositories = req_repositories; rj_spec; rj_selection; rj_ocaml_version } ->
 		match (rj_selection, rj_spec) with
-			| (None, Some spec) -> Ok { req_repositories; req_selection = Solve spec }
+			| (None, Some spec) -> Ok {
+				req_repositories;
+				req_selection = Solve { solve_specs = spec; solve_ocaml_version = rj_ocaml_version }
+			}
 			| (Some selection, None) -> Ok { req_repositories; req_selection = Exact selection }
 			| _other -> Error "exactly one of spec or selection required"
-	) |> Result.get_exn identity
+	) |> Result.get_exn (fun err ->
+		Printf.sprintf "Failed to extract request JSON:\n%s\n\nError: %s"
+		(JSON.pretty_to_string json)
+		err
+	)
 
 let load_direct ~name opam_source : Repo.lookup_result =
 	let (opam, opam_dir, opam_filename) = match opam_source with
@@ -242,17 +258,30 @@ module Context : Zi.S.CONTEXT with type t = solve_ctx = struct
 							let opam = check_url loaded |> Result.bind (fun _ ->
 								Solver.is_available ~lookup_var:(ctx.c_lookup_var) ~opam:loaded.p_opam ~package:loaded.p_package
 							) |> Result.map (fun () ->
-								(* only mark a package as seen if it's available *)
+								(* only mark a package version seen if it's available;
+									a version in another repository could be available *)
 								seen := Version.Set.add (version loaded) !seen;
 								loaded.p_opam
 							) in
 							Some (version loaded, opam)
 						)
 					)
+					|> List.map (fun (version, opam) ->
+						(version, opam |> Result.bind (fun opam ->
+							let constraints = Name.Map.find_opt name ctx.c_constraints |> Option.default [] in
+							let satisfied :bool = List.for_all (fun (op, constraint_version) ->
+									OpamFormula.eval_relop op version constraint_version
+								) constraints
+							in
+							if satisfied
+								then Ok opam
+								else Error (`unavailable "User constraint")
+						))
+					)
 					|> List.sort (fun (va, _) (vb, _) -> Version.compare vb va)
 		
 	let user_restrictions : t -> OpamPackage.Name.t -> OpamFormula.version_constraint option
-	= fun ctx name -> OpamPackage.Name.Map.find_opt name ctx.c_constraints |> Option.bind identity
+	= fun _ctx _name -> None (* just used for diagnostics *)
 
 	let filter_deps : t -> OpamPackage.t -> OpamTypes.filtered_formula -> OpamTypes.formula
 	= fun ctx pkg f ->
@@ -264,38 +293,60 @@ end
 let solve : request -> solution = fun { req_repositories; req_selection } ->
 	match req_selection with
 		| Exact pmap -> { sln_repositories = req_repositories; sln_packages = pmap }
-		| Solve specs ->
+		| Solve { solve_ocaml_version = ocaml_version; solve_specs = specs } ->
 			Printf.eprintf "Solving ...\n";
 			flush stderr;
 			let module Solver = Zi.Solver.Make(Context) in
 
 			let packages =
-				Name.Map.of_list [Vars.ocaml_name, Vars.selected_package Vars.ocaml_name]
+				Name.Map.of_list [Vars.ocaml_name, Vars.selected_package ?version:ocaml_version Vars.ocaml_name]
 			in
-			let vars = Vars.state ~is_building:false packages in
+			(* partial is false because solving shouldn't need to resolve any build-time vars *)
+			let vars = Vars.state ~partial:false ~is_building:false packages in
 			let lookup_var package =
 				Vars.lookup vars ~self:(Some (OpamPackage.name package))
 			in
-			let loaded_definitions = specs
-				|> List.filter_map (fun spec ->
-						match spec.s_definition with
-							| From_repository -> None
-							| Direct path ->
-								let loaded = load_direct ~name:spec.s_name path in
-								Some (OpamPackage.name loaded.p_package, loaded)
-				) |> OpamPackage.Name.Map.of_list
+			
+			let annotated_specs : (package_spec * Repo.lookup_result option) Name.Map.t = specs
+				|> List.map (fun spec ->
+					match spec.s_definition with
+						| From_repository ->
+							(spec.s_name |> Option.or_failwith "Package name or definition required",
+								(spec, None))
+						| Direct path ->
+							let loaded = load_direct ~name:spec.s_name path in
+							(OpamPackage.name loaded.p_package,
+								(spec, Some loaded))
+				) |> Name.Map.of_list
 			in
+
+			let loaded_definitions = annotated_specs
+				|> Name.Map.filter_map (fun _ (_spec, loaded) -> loaded)
+			in
+
 			let direct_names = Name.Map.keys loaded_definitions in
 			let repo_names = specs |> List.filter_map (fun spec ->
 				match spec.s_definition with
 					| From_repository -> Some (spec.s_name |> Option.or_failwith "Package name or definition required")
 					| Direct _ -> None
 			) in
+
+			let user_constraints = annotated_specs |> Name.Map.filter_map (fun _name (spec, _loaded) ->
+				if spec.constraints = [] then None else Some spec.constraints
+			) in
+
+			(* if ocaml_version is given, pin it. This will override any manual restriction on `ocaml`,
+				but why would the user do both? *)
+			let all_constraints = ocaml_version |> Option.fold
+				(fun version -> Name.Map.add Vars.ocaml_name [(`Eq, version)] user_constraints)
+				(fun () -> user_constraints)
+			in
+
 			let ctx = {
 				c_repo_paths = req_repositories |> List.map (fun r -> r.local_path);
 				c_preloaded = loaded_definitions;
 				c_packages = ref OpamPackage.Map.empty;
-				c_constraints = OpamPackage.Name.Map.empty; (* TODO *)
+				c_constraints = all_constraints;
 				c_lookup_var = lookup_var;
 			} in
 			(match Solver.solve ctx (direct_names @ repo_names) with
@@ -439,7 +490,7 @@ let buildable : Vars.state -> selected_package -> (repository option * Repo.look
 	}
 
 let dump : solution -> JSON.t = fun { sln_repositories; sln_packages } ->
-	let state = Vars.state ~is_building:false (
+	let state = Vars.state ~partial:true ~is_building:false (
 			sln_packages |> Name.Map.map (fun { sel_name; sel_version; _ } ->
 				Vars.selected_package ~version:sel_version sel_name
 			)
@@ -464,4 +515,9 @@ let run () =
 		|> JSON.pretty_to_string
 		|> Lwt_io.printf "%s\n"
 
-let main _idx _args = Lwt_main.run (run ())
+let main _idx _args =
+	try Lwt_main.run (run ())
+	with Failure msg -> (
+		prerr_endline msg;
+		exit 1
+	)

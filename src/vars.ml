@@ -28,7 +28,8 @@ type state = {
 	st_vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
 	ocaml_version: Version.t;
 	(* Only set to true from invoke, otherwise unix user & group will not be undefined *)
-	is_building : bool;
+	is_building: bool;
+	st_partial: bool; (* false simply suppressed unresolved warnings *)
 }
 
 let add_var (scope: OpamVariable.t -> OpamVariable.Full.t) name v vars =
@@ -79,12 +80,18 @@ let init_variables ~is_building () =
 		then common |> add_global_var "jobs" (S (getenv_opt "NIX_BUILD_CORES" |> Option.default "1"))
 		else common
 
-let state ~is_building packages =
+let state ~is_building ?(partial=true) packages =
 	let ocaml_version = Name.Map.find_opt ocaml_name packages
 		|> Option.bind (fun ocaml -> ocaml.sel_version)
 		|> Option.or_failwith "ocaml not present in package set"
 	in
-	{ is_building; ocaml_version; st_packages = packages; st_vars = init_variables ~is_building () }
+	{
+		is_building;
+		ocaml_version;
+		st_partial = partial;
+		st_packages = packages;
+		st_vars = init_variables ~is_building ();
+	}
 
 let string_of_dir = OpamFilename.Dir.to_string
 
@@ -94,7 +101,6 @@ let string_of_selected_package { name; sel_version; path } = Printf.sprintf "{ n
 	(Option.to_string OpamFilename.Dir.to_string path)
 
 let selected_package ?version ?path name = { name; sel_version = version; path }
-
 
 let implicit_package_var key =
 	let open OpamVariable.Full in
@@ -217,6 +223,6 @@ let lookup (state: state) ~(self: Name.t option) key =
 			)
 	) in
 	debug " -> %s\n" (Option.to_string OpamVariable.string_of_variable_contents result);
-	if Option.is_none result then
+	if (not state.st_partial) && Option.is_none result then
 		Printf.eprintf "WARN: opam var %s not found...\n" keystr;
 	result
