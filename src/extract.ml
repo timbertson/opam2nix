@@ -102,7 +102,6 @@ type solve_ctx = {
 	c_constraints: OpamFormula.version_constraint list OpamPackage.Name.Map.t;
 	c_repo_paths: string list;
 	c_preloaded: Repo.lookup_result OpamPackage.Name.Map.t;
-	c_packages : (Repo.lookup_result, Solver.error) result OpamPackage.Map.t ref;
 }
 
 type solve_request = {
@@ -345,7 +344,6 @@ let solve : request -> solution = fun { req_repositories; req_selection } ->
 			let ctx = {
 				c_repo_paths = req_repositories |> List.map (fun r -> r.local_path);
 				c_preloaded = loaded_definitions;
-				c_packages = ref OpamPackage.Map.empty;
 				c_constraints = all_constraints;
 				c_lookup_var = lookup_var;
 			} in
