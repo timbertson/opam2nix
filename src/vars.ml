@@ -26,7 +26,7 @@ type selected_package = {
 type state = {
 	st_packages: selected_package Name.Map.t;
 	st_vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
-	ocaml_version: Version.t;
+	ocaml_version: Version.t option;
 	(* Only set to true from invoke, otherwise unix user & group will not be undefined *)
 	is_building: bool;
 	st_partial: bool; (* false simply suppressed unresolved warnings *)
@@ -83,7 +83,6 @@ let init_variables ~is_building () =
 let state ~is_building ?(partial=true) packages =
 	let ocaml_version = Name.Map.find_opt ocaml_name packages
 		|> Option.bind (fun ocaml -> ocaml.sel_version)
-		|> Option.or_failwith "ocaml not present in package set"
 	in
 	{
 		is_building;
@@ -108,8 +107,7 @@ let implicit_package_var key =
 		| Package pkg, "installed" | Package pkg, "enabled" -> Some pkg
 		| _ -> None
 
-(* TODO calculate ocaml_version lazily once we're settled on the state type *)
-let path_var ~ocaml_version ~prefix ~scope key =
+let _path_var ~ocaml_version ~prefix ~scope key =
 	(* global vars reference dirs inside the prefix (swtich) location, whereas scoped vars
 	 * refer to the package dir within the above location *)
 	let scope = ref scope in
@@ -131,6 +129,9 @@ let path_var ~ocaml_version ~prefix ~scope key =
 			| Some pkgname -> (prefix / relpath) / (Name.to_string pkgname)
 		))
 	)
+
+let path_var ~ocaml_version ~prefix ~scope key = ocaml_version |> Option.bind
+	(fun ocaml_version -> _path_var ~ocaml_version ~prefix ~scope key)
 
 let package_var : state -> Name.t -> string -> variable_contents option =
 	let r_false = Some (B false) in
