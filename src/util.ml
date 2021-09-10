@@ -2,6 +2,8 @@ module Lwt = Lwt_ext
 
 let identity x = x
 
+let (%) f g x = f (g x)
+
 let filter_map fn lst =
 	lst |> List.fold_left (fun acc item ->
 		match fn item with

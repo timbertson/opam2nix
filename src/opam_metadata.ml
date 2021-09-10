@@ -20,6 +20,15 @@ type url_type =
 	]
 
 type unsupported_archive = [ `unsupported_archive of string ]
+let string_of_unsupported_archive : unsupported_archive -> string =
+	function (`unsupported_archive msg) -> "Unsupported archive: " ^ msg
+
+let url_to_yojson (`http (url, _digests)) =
+	`Assoc [
+		url, `String url;
+		(* TODO: digests *)
+	]
+
 exception Invalid_package of string
 
 let var_prefix = "opam_var_"
@@ -79,58 +88,6 @@ let string_of_requirement = function
 
 let string_of_importance = function Required -> "required" | Optional -> "optional"
 
-let add_var (scope: OpamVariable.t -> OpamVariable.Full.t) name v vars =
-	let var: OpamVariable.Full.t = scope (OpamVariable.of_string name) in
-	vars |> OpamVariable.Full.Map.add var v
-
-let package_var pkgname = OpamVariable.Full.create (OpamPackage.Name.of_string pkgname)
-let global_var = OpamVariable.Full.global
-let self_var = OpamVariable.Full.self
-let add_global_var = add_var global_var
-let add_package_var pkgname = add_var (package_var pkgname)
-let add_self_var name = add_var self_var name
-
-let native_system_vars () =
-	let state = OpamVariable.Full.Map.empty in
-	let system_variables = OpamSysPoll.variables in
-	List.fold_left
-		(fun state ((name: OpamVariable.t), value) ->
-			(Lazy.force value) |> Option.map (fun value ->
-				OpamVariable.Full.Map.add (OpamVariable.Full.global name) value state
-			) |> Option.default state
-		)
-		state system_variables
-
-let nixos_vars () =
-	native_system_vars ()
-		|> add_global_var "os-family" (S "unknown")
-		|> add_global_var "os-distribution" (S "nixos")
-		|> add_global_var "os-version" (S "unknown")
-			(* I don't think we can easily get a number here, but it should
-			 * rarely matter *)
-
-let add_base_variables base_vars =
-	base_vars
-		|> add_global_var "make" (S "make")
-		|> add_global_var "opam-version" (S (OpamVersion.to_string OpamVersion.current))
-		|> add_global_var "pinned" (B false) (* probably ? *)
-		|> add_global_var "jobs" (S (getenv_opt "NIX_BUILD_CORES" |> Option.default "1"))
-		|> add_global_var "enable-ocaml-beta-repository" (B false)
-		(* With preinstalled packages suppose they can't write
-		   in the ocaml directory *)
-		|> add_global_var "preinstalled" (B true)
-		|> add_package_var "ocaml" "preinstalled" (B true)
-		|> add_package_var "ocaml" "native" (B true)
-		|> add_package_var "ocaml" "native-tools" (B true)
-		|> add_package_var "ocaml" "native-dynlink" (B true)
-
-let init_variables () = add_base_variables (nixos_vars ())
-
-let installed_pkg_var key = let open OpamVariable in match Full.scope key with
-	| Full.Package pkg when ((Full.variable key |> OpamVariable.to_string) = "installed") ->
-			Some pkg
-	| _ -> None
-
 let add_nix_inputs
 	~(add_native: importance -> string -> unit)
 	~(add_opam:importance -> string -> unit)
@@ -139,7 +96,7 @@ let add_nix_inputs
 		| Required -> "dep"
 		| Optional -> "optional dep"
 	in
-	let nixos_env = Vars.simple_lookup ~vars:(nixos_vars ()) in
+	let nixos_env = Vars.(simple_lookup ~vars:(nixos_vars ())) in
 	debug "Adding dependency: %s\n" (string_of_dependency dep);
 	match dep with
 		| NixDependency name ->
@@ -244,6 +201,16 @@ let url urlfile: (url, [> unsupported_archive]) Result.t =
 	| `rsync, transport, None -> Error (`unsupported_archive ("rsync transport: " ^ transport))
 	| `rsync, _, Some _ -> Error (`unsupported_archive "rsync with fragment")
 
+let _post_load_opam ~desc loaded =
+	if OPAM.format_errors loaded <> [] then (
+		OPAM.print_errors loaded;
+		failwith (Printf.sprintf "Invalid OPAM file contents:\n%s" desc)
+	);
+	loaded |> OpamFormatUpgrade.opam_file
+
+let load_opam_string str =
+	_post_load_opam ~desc:("\n" ^ str) (OPAM.read_from_string str)
+
 let load_opam path =
 	Util.debug "Loading opam file: %s\n" path;
 	if not (Sys.file_exists path) then raise (Invalid_package ("No opam file at " ^ path));
@@ -252,12 +219,7 @@ let load_opam path =
 	let dir = Dir.of_string (Filename.dirname path) in
 	let base = Base.of_string (Filename.basename path) in
 	let file = OpamFilename.create dir base |> OpamFile.make in
-	let loaded = OPAM.read file in
-	if OPAM.format_errors loaded <> [] then (
-		OPAM.print_errors loaded;
-		failwith (Printf.sprintf "Invalid OPAM file: %s" path)
-	);
-	loaded |> OpamFormatUpgrade.opam_file
+	_post_load_opam ~desc:path (OPAM.read file)
 
 let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t Lwt.t =
 	let open Nix_expr in

@@ -26,28 +26,16 @@ type universe = {
 
 let build_universe ~external_constraints ~base_packages ~constrained_versions ~direct_definitions () : universe =
 	let ocaml_version = external_constraints.ocaml_version in
-	let global_vars = Opam_metadata.init_variables () in
 	let lookup_var package =
 		let version = OpamPackage.version package in
 		let name = OpamPackage.name package in
-		Vars.(lookup {
-			ocaml_version;
-			packages = (Name.Map.of_list (
-				[
-					name, (Installed {
-						path = None; (* not yet known *)
-						version = Some version;
-					});
-					Name.of_string "ocaml", (Installed {
-						path = None; (* not yet known *)
-						version = Some ocaml_version;
-					})
-				] @ (base_packages |> List.map (fun name -> (name, Provided)))
-			));
-			prefix = None; (* not known *)
-			self = name;
-			vars = global_vars;
-		}) in
+		let vars = Vars.state ~is_building:false (Name.Map.of_list (
+			[
+				name, Vars.selected_package ~version name;
+				Vars.ocaml_name, Vars.selected_package ~version:ocaml_version Vars.ocaml_name
+			] @ (base_packages |> List.map (fun name -> (name, Vars.selected_package name)))
+		)) in
+		Vars.lookup vars ~self:(Some name) in
 		
 
 	let initial_packages = direct_definitions |> List.map (fun package ->
@@ -96,24 +84,26 @@ let load_package ~url pkg : loaded_package = (
 	{ loaded_opam = pkg.opam; loaded_url = url; src_expr; repository_expr }
 )
 
-let check_availability ~lookup_var pkg =
-	let available_filter = OPAM.available pkg.opam in
+let is_available ~lookup_var ~opam ~package =
+	let available_filter = OPAM.available opam in
 	let available =
-		try Ok (pkg.package.name <> (Name.of_string "opam")
-			&& OpamFilter.eval_to_bool (lookup_var pkg.package) available_filter
+		try Ok (OpamPackage.name package <> (Name.of_string "opam")
+			&& OpamFilter.eval_to_bool (lookup_var package) available_filter
 		) with e -> (
 			Error (`unavailable (Printexc.to_string e))
 		)
 	in
-	available |> Result.bind (fun available ->
-		if available then (
-			Ok pkg
-		) else (
+	available |> Result.bind (function
+		| true -> Ok ()
+		| false ->
 			let vars = OpamFilter.variables available_filter in
 			let vars_str = String.concat "/" (List.map OpamVariable.Full.to_string vars) in
 			Error (`unavailable (Printf.sprintf "incompatible with %s" vars_str))
-		)
 	)
+
+let check_availability ~lookup_var pkg =
+	is_available ~lookup_var ~opam:pkg.opam ~package:pkg.package
+		|> Result.map (fun () -> pkg)
 	
 module Context : Zi.S.CONTEXT with type t = universe = struct
 	type t = universe
@@ -166,5 +156,6 @@ module Context : Zi.S.CONTEXT with type t = universe = struct
 		|> OpamFilter.partial_filter_formula (env.lookup_var pkg)
 		|> OpamFilter.filter_deps ~build:true ~post:true ~test:false ~doc:false ~dev:false ~default:false
 end
+
 
 include Zi.Solver.Make(Context)

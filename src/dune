@@ -6,8 +6,10 @@
  (modules :standard \ main version_ml)
  (libraries str unix yojson
    opam-state opam-0install
-   lwt lwt.unix curl curl.lwt
-   fileutils))
+   lwt lwt.unix lwt_ppx curl curl.lwt
+   fileutils)
+ (preprocess (pps ppx_deriving ppx_deriving_yojson lwt_ppx))
+)
 
 (executable
  (name main)
