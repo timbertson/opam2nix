@@ -169,17 +169,9 @@ let parse_request : JSON.t -> request = fun json ->
 let load_direct ~name opam_source : Repo.lookup_result =
 	let (opam, opam_dir, opam_filename) = match opam_source with
 		| Opam_file path -> (
-			let isdir = Sys.is_directory path in
-			let opam_dir = if isdir then Some(path) else None in
-			let opam_path = if isdir
-				then Filename.concat path "opam"
-				else path
-			in
-
-			let opam = Opam_metadata.load_opam opam_path in
-
+			let opam = Opam_metadata.load_opam path in
 			let basename = Filename.basename path in
-			opam, opam_dir, Some(basename)
+			opam, Some(Filename.basename (Filename.dirname path)), Some(basename)
 		)
 		| Opam_contents c -> (
 			let opam = Opam_metadata.load_opam_string c in
