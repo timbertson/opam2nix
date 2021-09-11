@@ -1,0 +1,37 @@
+From 03bdaa42a936f208b5898353640d64d3f3cfd59e Mon Sep 17 00:00:00 2001
+From: Tim Cuthbertson <tim@gfxmonk.net>
+Date: Thu, 26 Aug 2021 16:59:00 +1000
+Subject: [PATCH] OpamFilter: handle converted variables correctly when
+ no_undef_expand is true
+
+---
+ src/format/opamFilter.ml | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/format/opamFilter.ml b/src/format/opamFilter.ml
+index 319708c5..7d3601e5 100644
+--- a/src/format/opamFilter.ml
++++ b/src/format/opamFilter.ml
+@@ -203,13 +203,15 @@ let resolve_ident_raw ?(no_undef_expand=false) env fident =
+       (Some true) names
+     >>| fun b -> B b
+   in
+-  match converter, no_undef_expand with
+-  | Some (iftrue, iffalse), false ->
++  match converter with
++  | Some (iftrue, iffalse) ->
+     (match value_opt >>= bool_of_value with
+      | Some true -> Some (S iftrue)
+      | Some false -> Some (S iffalse)
+-     | None -> Some (S iffalse))
+-  | _ -> value_opt
++     | None ->
++         if no_undef_expand then value_opt else Some (S iffalse)
++    )
++  | None -> value_opt
+ 
+ (* Resolves [FIdent] to string or bool, using its package and converter
+    specification *)
+-- 
+2.24.3 (Apple Git-128)
+

@@ -21,7 +21,7 @@ in
 		propagatedBuildInputs = [ opam-core opam-file-format re];
 	}))
 	.overrideAttrs (o: {
-		patches = [ ../../opam/0001-OpamFilter-handle-converted-variables-correctly-when.patch ];
+		patches = [ ./patches/0001-OpamFilter-handle-converted-variables-correctly-when.patch ];
 	})
 	;
 
