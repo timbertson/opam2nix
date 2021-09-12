@@ -30,7 +30,7 @@ let assert_string_var = let open OpamVariable in function
 	| other -> failwith ("Expected string, got " ^ (Option.to_string string_of_variable_contents other))
 
 let vardir env name =
-	Vars.lookup env.vars ~self:(Some (OpamPackage.name env.pkg)) (OpamVariable.Full.self (OpamVariable.of_string name))
+	Vars.lookup env.vars ~self:(Some (OpamPackage.name env.pkg)) (OpamVariable.Full.global (OpamVariable.of_string name))
 		|> assert_string_var
 		|> OpamFilename.Dir.of_string
 
