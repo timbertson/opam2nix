@@ -322,9 +322,21 @@ let nix_of_opam ~pkg ~deps ~(opam_src:opam_src) ~opam ~src ~url () : Nix_expr.t 
 		|> List.sort (fun (a,_) (b,_) -> String.compare a b)
 	in
 
-	let opam_inputs : Nix_expr.t AttrSet.t =
-		!opam_inputs |> InputMap.mapi (fun name importance ->
-			property_of_input (`Id "selection") (name, importance)) in
+	let opam_inputs : Nix_expr.attrset =
+		let (expr, inherits) =
+		InputMap.fold (fun name importance (exprs, inherits) ->
+			match importance with
+				| Optional -> (`Expr (name, `Property_or (`Id "selection", name, `Null)) :: exprs, inherits)
+				| Required ->
+					begin match String.split_on_char '.' name with
+					| [ name ] -> (exprs, name :: inherits)
+					| names ->
+						`Expr (name, `PropertyPath (`Id "selection", names)) :: exprs,
+						inherits
+					end) !opam_inputs ([], [])
+		in
+		`Inherit (Some (`Id "selection"), inherits) :: expr
+	in
 
 	let nix_deps = !nix_deps
 		|> sorted_bindings_of_input
