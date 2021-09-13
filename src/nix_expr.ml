@@ -109,20 +109,22 @@ let write dest (t:t) =
 		in
 		let property name = put ("." ^ (escape_key name)) in
 
-		let write_inherit expr keys =
-			nl ();
-			put "inherit";
-			space ();
-			begin match expr with
-				| None -> ();
-				| Some expr ->
-					put "(";
-					_write expr;
-					put ")";
-					space ();
-			end;
-			pp_print_list pp_print_string ~pp_sep:pp_print_space formatter keys;
-			put ";"
+		let write_inherit expr = function
+			| [] -> ()
+			| keys ->
+				nl ();
+				put "inherit";
+				space ();
+				begin match expr with
+					| None -> ();
+					| Some expr ->
+						put "(";
+						_write expr;
+						put ")";
+						space ();
+				end;
+				pp_print_list pp_print_string ~pp_sep:pp_print_space formatter keys;
+				put ";"
 		in
 
 		let write_attrs ~prefix a =
