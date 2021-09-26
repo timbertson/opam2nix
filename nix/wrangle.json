@@ -17,11 +17,11 @@
       "fetch": {
         "owner": "ocaml",
         "repo": "opam",
-        "rev": "11fcbc9e4bd7cca322f3020ed414531737012bd4",
-        "sha256": "04042ayhpi76g0zp4fihsy1da7szmfhykii892wq2307r8y886wv"
+        "rev": "ec3f9ca7ee6c8d32e79f8565add9b2197fef24a3",
+        "sha256": "1ymwxi36xwjbspc2gw7rr0ramr5iq9m0ib0iin5ky2pq0lrrn05g"
       },
       "owner": "ocaml",
-      "ref": "2.1.0-beta",
+      "ref": "ec3f9ca7ee6c8d32e79f8565add9b2197fef24a3",
       "repo": "opam",
       "type": "github"
     },
@@ -29,8 +29,8 @@
       "fetch": {
         "owner": "ocaml-opam",
         "repo": "opam-0install-solver",
-        "rev": "21abe5d2bed1e6c61f1d846c5bf4912044253457",
-        "sha256": "04d6gh2avq7gm941k3mnh1yxci52mhwzq91gx5x0bcp40hl6qs3v"
+        "rev": "4eede964fabba756e4c3c825f15da3bb499a9356",
+        "sha256": "0g1hlz2a4q04w5pp0sczay08dk8b4yffnb1cm8n7w98p7jx88kbn"
       },
       "owner": "ocaml-opam",
       "ref": "master",
@@ -41,11 +41,11 @@
       "fetch": {
         "owner": "ocaml",
         "repo": "opam-file-format",
-        "rev": "3fd6def4a066eb735ecebd3085093fa1d75e9f57",
-        "sha256": "0fqb99asnair0043hhc8r158d6krv5nzvymd0xwycr5y72yrp0hv"
+        "rev": "30f44cd793bd9a5b2dc5a249b5bb2c1966b1410a",
+        "sha256": "1fxhppdmrysr2nb5z3c448h17np48f3ga9jih33acj78r4rdblcs"
       },
       "owner": "ocaml",
-      "ref": "2.0.0",
+      "ref": "2.1.3",
       "repo": "opam-file-format",
       "type": "github"
     },
@@ -58,12 +58,24 @@
       "relativePath": ".",
       "type": "git-local"
     },
+    "spdx_licenses": {
+      "fetch": {
+        "owner": "kit-ty-kate",
+        "repo": "spdx_licenses",
+        "rev": "c6ba0493c25ce4d9ff8cb45b228ce412f4444aa0",
+        "sha256": "011r84db5mwjyjwbrbf8vajy9fnbmzyxjk15avglq0550dqjgv5z"
+      },
+      "owner": "kit-ty-kate",
+      "ref": "main",
+      "repo": "spdx_licenses",
+      "type": "github"
+    },
     "zeroinstall": {
       "fetch": {
         "owner": "0install",
         "repo": "0install",
-        "rev": "55710075f657043f517ae977cad07a4f70bd4dfd",
-        "sha256": "0rz5n6s8c53wy0j9kgq598nkwmzmayz2m6hwlr6ip9n1914cc5p1"
+        "rev": "c3fea4a48e65fa15fdb834a0b4c2281128da886d",
+        "sha256": "03gkdqy03yybqi67cl10azvfa6rcpbqa0b3rylj6jbfihf08zakh"
       },
       "owner": "0install",
       "ref": "master",

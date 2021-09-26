@@ -17,13 +17,9 @@ in
 		buildInputs = [cppo cmdliner];
 	});
 
-	format = { opam-core, opam-file-format, re}: (ocamlPackages.buildDunePackage (base "format" {
+	format = { opam-core, opam-file-format, re}: ocamlPackages.buildDunePackage (base "format" {
 		propagatedBuildInputs = [ opam-core opam-file-format re];
-	}))
-	.overrideAttrs (o: {
-		patches = [ ./patches/0001-OpamFilter-handle-converted-variables-correctly-when.patch ];
-	})
-	;
+	});
 
 	installer = { cmdliner, opam-format }: ocamlPackages.buildDunePackage (base "installer" {
 		propagatedBuildInputs = [ cmdliner opam-format ];
@@ -33,7 +29,7 @@ in
 		propagatedBuildInputs = [ opam-format ];
 	});
 
-	state = { opam-repository }: ocamlPackages.buildDunePackage (base "state" {
-		propagatedBuildInputs = [ opam-repository ];
+	state = { opam-repository, spdx_licenses }: ocamlPackages.buildDunePackage (base "state" {
+		propagatedBuildInputs = [ opam-repository spdx_licenses ];
 	});
 }

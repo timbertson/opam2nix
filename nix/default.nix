@@ -2,7 +2,7 @@
 	ocaml-ng, ocamlPackagesOverride ? ocaml-ng.ocamlPackages_4_12,
 	# sources from nix-wrangle:
 	self ? ../.,
-	opam, opam-file-format, opam-0install-solver, zeroinstall,
+	opam, opam-file-format, opam-0install-solver, zeroinstall, spdx_licenses
 }:
 let
 	opamSrc = opam;
@@ -49,9 +49,18 @@ let
 			stdenv.mkDerivation {
 				name = "opam-file-format";
 				src = opam-file-format;
-				buildInputs = [ocaml findlib];
+				propagatedBuildInputs = [ocaml findlib];
 				createFindlibDestdir = true;
 				installPhase = "make install PREFIX=$out LIBDIR=$out/lib/ocaml/${ocaml.version}/site-lib/";
+			}
+		) {};
+
+		spdx_licenses = callOcamlPackage ({buildDunePackage}:
+			buildDunePackage {
+				pname = "spdx_licenses";
+				version = "main";
+				src = spdx_licenses;
+				useDune2 = true;
 			}
 		) {};
 
