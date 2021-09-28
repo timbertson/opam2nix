@@ -283,7 +283,11 @@ let main idx args =
 
 	let direct_definitions = ref [] in
 	let opts = Arg.align [
-		("--repo-commit", Arg.String Obj.magic, "COMMIT opam-repository commit, default will fetch and use origin/HEAD");
+		("--repo-commit", Arg.String (fun commit ->
+		    repo_specs := StringMap.update "opam-repository" (function
+			| None -> assert false
+			| Some repo -> Some { repo with spec_commit = Some commit }) !repo_specs)
+		, "COMMIT opam-repository commit, default will fetch and use origin/HEAD");
 		("--repo",
 			(let key = ref "" in
 			Arg.Tuple [
