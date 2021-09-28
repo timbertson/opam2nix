@@ -4,12 +4,7 @@ let string_of_error (`download_failed desc) =
 
 let max_concurrency = 10
 
-module Ctx : sig
-	type t
-	val init : unit -> t
-	val destroy : t -> unit
-	val use : t -> (unit -> 'a Lwt.t) -> 'a Lwt.t
-end = struct
+module Ctx = struct
 	type t = unit Lwt_pool.t
 	let init () =
 		Curl.global_init Curl.CURLINIT_GLOBALALL;

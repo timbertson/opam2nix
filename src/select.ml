@@ -47,7 +47,7 @@ let newer_versions available pkg =
 let setup_repo ~cache ~repos_base ~key spec : Repo.t Lwt.t = (
 	let open Util in
 	let repo_path = Filename.concat repos_base key in
-	let repo_url = git_url spec in
+	let repo_url = Repo.git_url spec in
 	let clone_repo () =
 		Printf.eprintf "Cloning %s...\n" repo_url; flush stderr;
 		rm_r repo_path;

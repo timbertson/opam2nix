@@ -231,7 +231,7 @@ let nix_of_url ~cache (url:url) : (Nix_expr.t, Digest_cache.error) Result.t Lwt.
 				) |> Result.map (fun digest ->
 					`Call [
 						`Lit "pkgs.fetchurl";
-						`Attrs (AttrSet.build [ "url", str src; digest ])
+						attrset [ "url", str src; digest ]
 					]
 				)
 			)
@@ -322,7 +322,7 @@ let nix_of_opam ~pkg ~deps ~(opam_src:opam_src) ~opam ~src ~url () : Nix_expr.t 
 		|> List.sort (fun (a,_) (b,_) -> String.compare a b)
 	in
 
-	let opam_inputs : Nix_expr.attrset =
+	let opam_inputs : Nix_expr.AttrSet.t =
 		let (expr, inherits) =
 		InputMap.fold (fun name importance (exprs, inherits) ->
 			match importance with
@@ -344,7 +344,7 @@ let nix_of_opam ~pkg ~deps ~(opam_src:opam_src) ~opam ~src ~url () : Nix_expr.t 
 	in
 
 	(* TODO: separate build-only deps from propagated *)
-	`Attrs (AttrSet.build ([
+	attrset ([
 		"pname", Nix_expr.str (drvname_safe name);
 		"version", Nix_expr.str (drvname_safe version);
 		"src", (src |> Option.default `Null);
@@ -353,4 +353,4 @@ let nix_of_opam ~pkg ~deps ~(opam_src:opam_src) ~opam ~src ~url () : Nix_expr.t 
 			| `Dir expr -> expr
 			| `File expr -> expr
 		);
-	] @ (if nix_deps = [] then [] else ["buildInputs", `List nix_deps])))
+	] @ (if nix_deps = [] then [] else ["buildInputs", `List nix_deps]))

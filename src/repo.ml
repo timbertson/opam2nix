@@ -30,7 +30,6 @@ type package = {
 	url: URL.t option;
 }
 
-(* Loaded package, either from an opam repo or direct package supplied on the commandline *)
 type loaded_package = {
 	loaded_opam: OPAM.t;
 	repository_expr: unit -> Opam_metadata.opam_src Lwt.t;
@@ -38,8 +37,6 @@ type loaded_package = {
 	loaded_url: Opam_metadata.url option;
 }
 
-(* a direct package is passed on the commandline, and is
- * not from any repository *)
 type direct_package = {
 	direct_opam_relative: string;
 	direct_opam: OPAM.t;
@@ -59,8 +56,6 @@ let packages_dir = "packages"
 let full_path pkg = Filename.concat pkg.repo.repo_path pkg.rel_path
 
 let git_url spec = Printf.sprintf "https://github.com/%s/%s.git" spec.github_owner spec.github_name
-
-let package_desc pkg = OpamPackage.to_string pkg.package
 
 let load_url path =
 	if Sys.file_exists path then begin
