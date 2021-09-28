@@ -67,7 +67,7 @@ let key_of_opam_digest digest =
 	(digest |> OpamHash.kind |> OpamHash.string_of_kind |> String.lowercase_ascii)
 		^ ":" ^ (digest |> OpamHash.contents)
 
-let opam_digest_of_key key =
+let _opam_digest_of_key key =
 	match String.split_on_char ':' key with
 		| ["md5"; digest] -> OpamHash.md5 digest
 		| ["sha256"; digest] -> OpamHash.md5 digest
