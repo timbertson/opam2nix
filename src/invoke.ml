@@ -207,11 +207,6 @@ let fixup_lib_dir ~dest env =
 		)
 	)
 
-let isdir path =
-	let open Unix in
-	try (stat path).st_kind = S_DIR
-	with Unix_error(ENOENT, _, _) -> false
-
 let patch env =
 	(* copy all files into ./ if present *)
 	opam_file_path env.opam_src "files"
