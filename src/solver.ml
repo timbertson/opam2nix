@@ -74,10 +74,10 @@ let load_package ~url pkg : loaded_package = (
 			`Dir (Nix_expr.(`Call [
 				`Id "repoPath";
 				`PropertyPath (`Id "repos", [pkg.repo.repo_key; "src"]);
-				`Attrs (AttrSet.build [
+				attrset [
 					"package", str pkg.rel_path;
 					"hash", str digest;
-				])
+				]
 			]))
 		)
 	) in

@@ -40,15 +40,8 @@ and attr = [
 module AttrSet = struct
 	type t = attrset
 
-	let build pairs = List.fold_right (fun (k,v) acc ->
+	let build pairs : t = List.fold_right (fun (k,v) acc ->
 			(`Expr (k, v)) :: acc) pairs []
-
-	let keys t =
-		List.fold_right (fun attr acc ->
-			match attr with
-			| `Expr (k, _) -> k :: acc
-			| `Inherit (_, keys) -> keys @ acc
-		) [] t
 
 	let add name expr t = `Expr (name, expr) :: t
 
