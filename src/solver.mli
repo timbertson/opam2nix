@@ -16,9 +16,9 @@ type universe = {
 }
 
 val is_available
-	: lookup_var:(Opam_metadata.PackageMap.key -> OpamFilter.env)
+	: lookup_var:(OpamPackage.t -> OpamFilter.env)
 	-> opam:OpamFile.OPAM.t
-	-> package:Opam_metadata.PackageMap.key
+	-> package:OpamPackage.t
 	-> (unit, [> `unavailable of string ]) result
 
 val build_universe
@@ -35,6 +35,6 @@ val diagnostics : ?verbose:bool -> diagnostics -> string
 
 type selections
 
-val packages_of_result : selections -> Opam_metadata.PackageMap.key list
+val packages_of_result : selections -> OpamPackage.t list
 
 val solve : universe -> OpamPackage.Name.t list -> (selections, diagnostics) result

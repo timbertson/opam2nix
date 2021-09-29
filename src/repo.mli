@@ -45,7 +45,7 @@ type loaded_package = {
 	loaded_url: Opam_metadata.url option;
 }
 
-val load_url : string -> Opam_metadata.URL.t option
+val load_url : string -> OpamFile.URL.t option
 
 val lookup_package_versions : string -> string -> lookup_result list
 
