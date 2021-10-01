@@ -47,7 +47,7 @@ let newer_versions available pkg =
 let setup_repo ~cache ~repos_base ~key spec : Repo.t Lwt.t = (
 	let open Util in
 	let repo_path = Filename.concat repos_base key in
-	let repo_url = git_url spec in
+	let repo_url = Repo.git_url spec in
 	let clone_repo () =
 		Printf.eprintf "Cloning %s...\n" repo_url; flush stderr;
 		rm_r repo_path;
@@ -205,10 +205,10 @@ let write_solution ~external_constraints ~cache  ~universe installed dest =
 	) new_packages AttrSet.empty in
 
 	let attrs = [
-		"format-version", `Int 4;
-		"repos", `Id "repos";
-		"ocaml-version", str (external_constraints.ocaml_version |> Version.to_string);
-		"selection", `Attrs selection
+		`Expr ("format-version", `Int 4);
+		`Inherit (None, ["repos"]);
+		`Expr ("ocaml-version", str (external_constraints.ocaml_version |> Version.to_string));
+		`Expr ("selection", `Attrs selection)
 	] in
 
 	let sha256 digest = Lwt_main.run digest |> fun (`sha256 x) -> x in
@@ -239,7 +239,7 @@ let write_solution ~external_constraints ~cache  ~universe installed dest =
 			"repoPath", `Lit "self.repoPath";
 			"repos", `Attrs (AttrSet.build repo_attrsets);
 		],
-		`Attrs (AttrSet.build attrs);
+		`Attrs attrs;
 	)) in
 	Lwt_main.run (Digest_cache.save cache);
 	let oc = open_out dest in
@@ -283,7 +283,11 @@ let main idx args =
 
 	let direct_definitions = ref [] in
 	let opts = Arg.align [
-		("--repo-commit", Arg.String Obj.magic, "COMMIT opam-repository commit, default will fetch and use origin/HEAD");
+		("--repo-commit", Arg.String (fun commit ->
+		    repo_specs := StringMap.update "opam-repository" (function
+			| None -> assert false
+			| Some repo -> Some { repo with spec_commit = Some commit }) !repo_specs)
+		, "COMMIT opam-repository commit, default will fetch and use origin/HEAD");
 		("--repo",
 			(let key = ref "" in
 			Arg.Tuple [

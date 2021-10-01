@@ -12,24 +12,18 @@ module Version = OpamPackage.Version
 
 let ocaml_name = Name.of_string "ocaml"
 
-(* Information about a pacakge.
- * Post-solve, only name and version are known.
- * Path is only known at build time (i.e. during Invoke)
- *)
 type selected_package = {
 	name: Name.t;
 	sel_version: Version.t option;
 	path: OpamFilename.Dir.t option;
 }
 
-(* Pre-solve, only `ocaml` package is present, everything else comes from `vars *)
 type state = {
 	st_packages: selected_package Name.Map.t;
 	st_vars : OpamTypes.variable_contents OpamVariable.Full.Map.t;
 	ocaml_version: Version.t option;
-	(* Only set to true from invoke, otherwise unix user & group will not be undefined *)
 	is_building: bool;
-	st_partial: bool; (* false simply suppressed unresolved warnings *)
+	st_partial: bool;
 }
 
 let add_var (scope: OpamVariable.t -> OpamVariable.Full.t) name v vars =
@@ -38,10 +32,8 @@ let add_var (scope: OpamVariable.t -> OpamVariable.Full.t) name v vars =
 
 let package_var pkgname = OpamVariable.Full.create (OpamPackage.Name.of_string pkgname)
 let global_var = OpamVariable.Full.global
-let self_var = OpamVariable.Full.self
 let add_global_var = add_var global_var
 let add_package_var pkgname = add_var (package_var pkgname)
-let add_self_var name = add_var self_var name
 
 let native_system_vars () =
 	let state = OpamVariable.Full.Map.empty in
