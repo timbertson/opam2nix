@@ -12,21 +12,6 @@ type package_version = OpamPackage.Version.t
 let package_version_of_yojson j = [%of_yojson: string] j |> Result.map OpamPackage.Version.of_string
 
 type _package_raw = { name : string; version: string; } [@@deriving yojson]
-type package = OpamPackage.t
-let package_of_yojson j = _package_raw_of_yojson j |> Result.map (fun { name; version } ->
-	OpamPackage.create (OpamPackage.Name.of_string name) (OpamPackage.Version.of_string version)
-)
-
-type package_set = OpamPackage.Set.t
-let package_set_of_yojson = function
-	| `List items ->
-		List.fold_left (fun acc p ->
-			Result.bind (fun acc ->
-				(package_of_yojson p) |> Result.map (fun p -> p :: acc)
-			) acc
-		) (Ok []) items
-		|> Result.map OpamPackage.Set.of_list
-	| other -> Error ("Expected list of packages, got " ^ JSON.to_string other)
 
 type repository = {
 	repository_id: string [@key "id"];

@@ -12,26 +12,11 @@ type url = [
 let string_of_url : url -> string = function
 	| `http (url, _digest) -> url
 
-type url_type =
-	[ `http
-	| `git
-	| `darcs
-	| `hg
-	]
-
 type unsupported_archive = [ `unsupported_archive of string ]
 let string_of_unsupported_archive : unsupported_archive -> string =
 	function (`unsupported_archive msg) -> "Unsupported archive: " ^ msg
 
-let url_to_yojson (`http (url, _digests)) =
-	`Assoc [
-		url, `String url;
-		(* TODO: digests *)
-	]
-
 exception Invalid_package of string
-
-let var_prefix = "opam_var_"
 
 type dependency =
 	| NixDependency of string
@@ -43,8 +28,6 @@ type importance = Required | Optional
 type requirement = importance * dependency
 
 module ImportanceOrd = struct
-	type t = importance
-
 	let compare a b = match (a,b) with
 		| Required, Required | Optional, Optional -> 0
 		| Required, _ -> 1
@@ -85,8 +68,6 @@ let string_of_dependency = function
 let string_of_requirement = function
 	| Required, dep -> string_of_dependency dep
 	| Optional, dep -> "{" ^ (string_of_dependency dep) ^ "}"
-
-let string_of_importance = function Required -> "required" | Optional -> "optional"
 
 let add_nix_inputs
 	~(add_native: importance -> string -> unit)
