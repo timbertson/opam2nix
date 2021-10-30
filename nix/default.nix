@@ -63,8 +63,6 @@ let
 				useDune2 = true;
 			}
 		) {};
-
-		ocamlgraph = callOcamlPackage <nixpkgs/pkgs/development/ocaml-modules/ocamlgraph/default.nix> {} ;
 	};
 
 in callOcamlPackage ./opam2nix.nix { inherit self; }
