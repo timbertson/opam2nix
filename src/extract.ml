@@ -21,7 +21,7 @@ type repository = {
 type version_constraint = OpamFormula.version_constraint
 let version_constraint_of_yojson j = j
 	|> [%of_yojson: string * string]
-	|> Result.map (fun (op, v) -> OpamLexer.relop op, Version.of_string v)
+	|> Result.map (fun (op, v) -> OpamLexer.FullPos.relop op, Version.of_string v)
 
 type opam_source = Opam_file of string | Opam_contents of string
 
