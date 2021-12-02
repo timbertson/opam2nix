@@ -115,8 +115,19 @@ type solution = {
 	sln_packages: selected_package_map;
 }
 
-let url_to_yojson = function
-	| Some (`http (url, _digests)) -> `Assoc ["url", `String url]
+let digest_to_yojson : OpamHash.t -> JSON.t = fun h ->
+	let kind = match OpamHash.kind h with
+		| `MD5 -> "md5"
+		| `SHA256 -> "sha256"
+		| `SHA512 -> "sha512"
+	in
+	`List [`String kind; `String (OpamHash.contents h)]
+
+let url_to_yojson : Opam_metadata.url option -> JSON.t = function
+	| Some (`http (url, digests)) -> `Assoc [
+		"url", `String url;
+		"digests", `List (digests |> List.map digest_to_yojson)
+	]
 	| None -> `Null
 
 type depexts = {
