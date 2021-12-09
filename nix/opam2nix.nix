@@ -2,7 +2,7 @@
 ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
 opam-0install, buildDunePackage,
 ppx_deriving, lwt, lwt_ppx, ocurl, yojson, ppx_deriving_yojson, fileutils,
-gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree,
+gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree-2,
 coreutils, nix-update-source, self }:
 let
 version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
@@ -42,7 +42,7 @@ opam2nix = buildDunePackage {
 		gup
 		ounit
 		makeWrapper
-		ocaml-migrate-parsetree
+		ocaml-migrate-parsetree-2
 		coreutils
 	];
 };
