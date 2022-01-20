@@ -1,0 +1,111 @@
+{
+  "nodes": {
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1642681410,
+        "narHash": "sha256-fpre0bqTTiOZT6nAEoi81ibuMkjoaqLIVnf6wHnRyCk=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "cab4c601a79de3ad14fd0b393568b5c66ef721e5",
+        "type": "github"
+      },
+      "original": {
+        "id": "nixpkgs",
+        "ref": "release-21.11",
+        "type": "indirect"
+      }
+    },
+    "opam": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1642672777,
+        "narHash": "sha256-MUIcl2lEaxpn7IvBqEUTRrNvv2O6tcZrcqsCMgMF+Sk=",
+        "owner": "ocaml",
+        "repo": "opam",
+        "rev": "4b103bda2a91eb341f3d335994885b637e890822",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ocaml",
+        "repo": "opam",
+        "type": "github"
+      }
+    },
+    "opam-0install-solver": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1641833464,
+        "narHash": "sha256-CKtHqM2mqyFmEB3NCMyIhuEPCHRROALiWkEpLf8m+I4=",
+        "owner": "ocaml-opam",
+        "repo": "opam-0install-solver",
+        "rev": "2e14208fb739ca7e4f39a8e223cca9543106c4cc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ocaml-opam",
+        "repo": "opam-0install-solver",
+        "type": "github"
+      }
+    },
+    "opam-file-format": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1621614042,
+        "narHash": "sha256-qMJvOl7j9NJUAX/nUR8wZiySCoiOdhitBl7xZqHeGfA=",
+        "owner": "ocaml",
+        "repo": "opam-file-format",
+        "rev": "e6dd4b7dd19c65654d3e36eb4ee6f0f83862833b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ocaml",
+        "repo": "opam-file-format",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "opam": "opam",
+        "opam-0install-solver": "opam-0install-solver",
+        "opam-file-format": "opam-file-format",
+        "spdx_licenses": "spdx_licenses",
+        "zeroinstall": "zeroinstall"
+      }
+    },
+    "spdx_licenses": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1630859005,
+        "narHash": "sha256-v+wncQOlAEzfViVM2f2vy7rkpdrIrby49JLXshpBOQQ=",
+        "owner": "kit-ty-kate",
+        "repo": "spdx_licenses",
+        "rev": "c6ba0493c25ce4d9ff8cb45b228ce412f4444aa0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "kit-ty-kate",
+        "repo": "spdx_licenses",
+        "type": "github"
+      }
+    },
+    "zeroinstall": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1632564377,
+        "narHash": "sha256-cKqPgIPRLWkk9XksoPC6LBvl9lcgUHZMxMv7ATxu8w0=",
+        "owner": "0install",
+        "repo": "0install",
+        "rev": "c3fea4a48e65fa15fdb834a0b4c2281128da886d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "0install",
+        "repo": "0install",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
