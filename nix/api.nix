@@ -12,15 +12,14 @@ rec {
 	resolve = {
 		ocaml,
 		selection,
-		# NOTE: these aren't used, but are explicitly allowed for compatibility with `build` / `buildInputs`
-		override ? null,
-		builtinOverride ? null,
-		src ? null,
+		repo ? null,
+		...
 	}: args: let
 	in pkgs.mkShell {
 		buildInputs = [ opam2nix ];
 		shellHook = ''
 			opam2nix resolve \
+				${if builtins.isNull repo then "" else "--repo ${repo.key} ${repo.url}"} \
 				--dest ${builtins.toString selection} \
 				--ocaml-version ${ocaml.version} \
 				${lib.concatStringsSep " " (map (arg: "'${builtins.toString arg}'") args)}
@@ -31,7 +30,8 @@ rec {
 	build = { selection, ocaml,
 		override ? noopOverride,
 		builtinOverride ? ./overrides,
-		src ? false
+		src ? false,
+		...
 	}: let
 		# src can either be a plain attribute set, in which case we lookup each
 		# direct source by name. If it's a plain object (path or derivation),
