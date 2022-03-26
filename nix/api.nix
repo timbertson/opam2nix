@@ -12,6 +12,7 @@ rec {
 	resolve = {
 		ocaml,
 		selection,
+		repo ? null,
 		# NOTE: these aren't used, but are explicitly allowed for compatibility with `build` / `buildInputs`
 		override ? null,
 		builtinOverride ? null,
@@ -23,6 +24,7 @@ rec {
 			opam2nix resolve \
 				--dest ${builtins.toString selection} \
 				--ocaml-version ${ocaml.version} \
+				${if builtins.isNull repo then "" else "--repo ${repo.key} ${repo.url}"} \
 				${lib.concatStringsSep " " (map (arg: "'${builtins.toString arg}'") args)}
 			{ exit $?; } 2>/dev/null
 		'';
@@ -31,7 +33,9 @@ rec {
 	build = { selection, ocaml,
 		override ? noopOverride,
 		builtinOverride ? ./overrides,
-		src ? false
+		src ? false,
+		# Unused, accepted for compat with `resolve`
+		repo ? null,
 	}: let
 		# src can either be a plain attribute set, in which case we lookup each
 		# direct source by name. If it's a plain object (path or derivation),
