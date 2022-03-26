@@ -1,5 +1,5 @@
 {
-	ocaml-ng, ocamlPackagesOverride ? ocaml-ng.ocamlPackages_4_12,
+	ocaml-ng, ocamlPackagesOverride ? ocaml-ng.ocamlPackages_4_13,
 	# sources from nix-wrangle:
 	self ? ../.,
 	opam, opam-file-format, opam-0install-solver, zeroinstall, spdx_licenses
