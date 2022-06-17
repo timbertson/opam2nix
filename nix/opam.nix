@@ -8,7 +8,7 @@ let
 		pname = "opam-${name}";
 		version = "dev";
 		inherit useDune2 buildInputs propagatedBuildInputs src;
-		configureFlags = "--disable-checks";
+		configureFlags = ["--disable-checks"];
 	};
 in
 {
