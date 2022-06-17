@@ -70,8 +70,8 @@ let key_of_opam_digest digest =
 let _opam_digest_of_key key =
 	match String.split_on_char ':' key with
 		| ["md5"; digest] -> OpamHash.md5 digest
-		| ["sha256"; digest] -> OpamHash.md5 digest
-		| ["sha512"; digest] -> OpamHash.md5 digest
+		| ["sha256"; digest] -> OpamHash.sha256 digest
+		| ["sha512"; digest] -> OpamHash.sha512 digest
 		| _ -> failwith ("Can't parse opam digest: " ^ key)
 
 let json_of_cache (cache: nix_digest Cache.t) : JSON.t =
