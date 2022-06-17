@@ -45,20 +45,12 @@ let
 			}
 		) {};
 
-		opam-file-format = callOcamlPackage ({stdenv, ocaml, findlib }:
-			stdenv.mkDerivation {
-				name = "opam-file-format";
+		opam-file-format = callOcamlPackage ({buildDunePackage}:
+			buildDunePackage {
+				pname = "opam-file-format";
+				version = "dev";
 				src = opam-file-format;
-				propagatedBuildInputs = [ocaml findlib];
-				createFindlibDestdir = true;
-
-				# META file gets created halfway through the build without native archive,
-				# because those haven't been built yet. And then it doesn't get properly
-				# rebuilt because its deps aren't properly specified
-				installPhase = ''
-					touch src/META.in; make -C src META
-					make install PREFIX=$out LIBDIR=$out/lib/ocaml/${ocaml.version}/site-lib/
-				'';
+				useDune2 = true;
 			}
 		) {};
 
