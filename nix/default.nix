@@ -1,16 +1,14 @@
 {
+	pkgs,
 	ocaml-ng, ocamlPackagesOverride ? ocaml-ng.ocamlPackages_4_13,
-	# sources from nix-wrangle:
-	self ? ../.,
-	opam, opam-file-format, opam-0install-solver, zeroinstall, spdx_licenses
 }:
 let
-	opamSrc = opam;
+	sources = pkgs.callPackage ./sources.nix { sourcesFile = ./sources.json; };
 	ocamlPackages = ocamlPackagesOverride;
 in
 let
 	ocaml = ocamlPackages.ocaml;
-	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; src = opamSrc; };
+	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; src = sources.opam; };
 	callOcamlPackage = ocamlPackages.newScope {
 		inherit ocaml ocamlPackages;
 		dune = ocamlPackages.dune_2;
@@ -31,14 +29,14 @@ let
 				useDune2 = true;
 				pname = "0install-solver";
 				version = "master";
-				src = zeroinstall;
+				src = sources.zeroinstall;
 			}
 		) {};
 		
 		opam-0install = callOcamlPackage ({ buildDunePackage, fmt, cmdliner, opam-state, zeroinstall-solver }:
 			buildDunePackage {
 				pname = "opam-0install";
-				src = opam-0install-solver;
+				src = sources.opam-0install-solver;
 				version = "master";
 				useDune2 = true;
 				propagatedBuildInputs = [fmt cmdliner opam-state zeroinstall-solver];
@@ -49,7 +47,7 @@ let
 			buildDunePackage {
 				pname = "opam-file-format";
 				version = "dev";
-				src = opam-file-format;
+				src = sources.opam-file-format;
 				useDune2 = true;
 			}
 		) {};
@@ -58,10 +56,12 @@ let
 			buildDunePackage {
 				pname = "spdx_licenses";
 				version = "main";
-				src = spdx_licenses;
+				src = sources.spdx_licenses;
 				useDune2 = true;
 			}
 		) {};
 	};
 
-in callOcamlPackage ./opam2nix.nix { inherit self; }
+in callOcamlPackage ./opam2nix.nix {
+	opam2nixSrc = sources.local { url = ../.; ref = "HEAD"; };
+}

@@ -1,0 +1,62 @@
+{
+    "opam": {
+        "branch": "master",
+        "description": "opam is a source-based package manager. It supports multiple simultaneous compiler installations, flexible package constraints, and a Git-friendly development workflow.",
+        "homepage": "https://opam.ocaml.org",
+        "owner": "ocaml",
+        "repo": "opam",
+        "rev": "ec3f9ca7ee6c8d32e79f8565add9b2197fef24a3",
+        "sha256": "1ymwxi36xwjbspc2gw7rr0ramr5iq9m0ib0iin5ky2pq0lrrn05g",
+        "type": "tarball",
+        "url": "https://github.com/ocaml/opam/archive/ec3f9ca7ee6c8d32e79f8565add9b2197fef24a3.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "opam-0install-solver": {
+        "branch": "master",
+        "description": "a solver for opam packages using 0install's solver engine",
+        "homepage": null,
+        "owner": "ocaml-opam",
+        "repo": "opam-0install-solver",
+        "rev": "4eede964fabba756e4c3c825f15da3bb499a9356",
+        "sha256": "0g1hlz2a4q04w5pp0sczay08dk8b4yffnb1cm8n7w98p7jx88kbn",
+        "type": "tarball",
+        "url": "https://github.com/ocaml-opam/opam-0install-solver/archive/4eede964fabba756e4c3c825f15da3bb499a9356.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "opam-file-format": {
+        "branch": "master",
+        "description": "Parser and printer for the opam file syntax",
+        "homepage": null,
+        "owner": "ocaml",
+        "repo": "opam-file-format",
+        "rev": "30f44cd793bd9a5b2dc5a249b5bb2c1966b1410a",
+        "sha256": "1fxhppdmrysr2nb5z3c448h17np48f3ga9jih33acj78r4rdblcs",
+        "type": "tarball",
+        "url": "https://github.com/ocaml/opam-file-format/archive/30f44cd793bd9a5b2dc5a249b5bb2c1966b1410a.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "spdx_licenses": {
+        "branch": "main",
+        "description": null,
+        "homepage": null,
+        "owner": "kit-ty-kate",
+        "repo": "spdx_licenses",
+        "rev": "c6ba0493c25ce4d9ff8cb45b228ce412f4444aa0",
+        "sha256": "011r84db5mwjyjwbrbf8vajy9fnbmzyxjk15avglq0550dqjgv5z",
+        "type": "tarball",
+        "url": "https://github.com/kit-ty-kate/spdx_licenses/archive/c6ba0493c25ce4d9ff8cb45b228ce412f4444aa0.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "zeroinstall": {
+        "branch": "master",
+        "description": "the core 0install package",
+        "homepage": "https://0install.net/",
+        "owner": "0install",
+        "repo": "0install",
+        "rev": "c3fea4a48e65fa15fdb834a0b4c2281128da886d",
+        "sha256": "03gkdqy03yybqi67cl10azvfa6rcpbqa0b3rylj6jbfihf08zakh",
+        "type": "tarball",
+        "url": "https://github.com/0install/0install/archive/c3fea4a48e65fa15fdb834a0b4c2281128da886d.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    }
+}

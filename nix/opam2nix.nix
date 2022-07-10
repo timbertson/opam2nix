@@ -3,13 +3,13 @@ ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
 opam-0install, buildDunePackage,
 ppx_deriving, lwt, lwt_ppx, ocurl, yojson, ppx_deriving_yojson, fileutils,
 gup, ounit, makeWrapper, dune, ocaml-migrate-parsetree-2,
-coreutils, nix-update-source, self }:
+coreutils, nix-update-source, opam2nixSrc }:
 let
 version = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
 opam2nix = buildDunePackage {
 	pname = "opam2nix";
 	inherit version;
-	src = self;
+	src = opam2nixSrc;
 	useDune2 = true;
 	postInstall = ''
 		wrapProgram $out/bin/opam2nix \
