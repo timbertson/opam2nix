@@ -1,1 +1,1 @@
-{ pkgs ? import <nixpkgs> {}}: pkgs.callPackage ./nix {}
+{ pkgs ? import <nixpkgs> {}, ocamlPackagesOverride ? null }: pkgs.callPackage ./nix {}
