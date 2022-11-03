@@ -263,5 +263,6 @@ let main idx args =
 		| None -> failwith "No action given"
 	in
 	Unix.putenv "PREFIX" (destDir () |> OpamFilename.Dir.to_string);
+	Unix.putenv "OPAM_SWITCH_PREFIX" (destDir () |> OpamFilename.Dir.to_string);
 	action (load_env ())
 
