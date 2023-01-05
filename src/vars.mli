@@ -1,5 +1,11 @@
 val nixos_vars : unit -> OpamVariable.variable_contents OpamVariable.Full.Map.t
 
+val path_var : ocaml_version: OpamPackage.Version.t option
+	-> prefix: OpamFilename.Dir.t
+	-> scope: OpamPackage.Name.t option
+	-> string
+	-> OpamVariable.variable_contents option
+
 val simple_lookup : vars:OpamVariable.variable_contents OpamVariable.Full.Map.t
 	-> OpamVariable.Full.t
 	-> OpamVariable.variable_contents option
