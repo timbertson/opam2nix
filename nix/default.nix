@@ -11,7 +11,7 @@ let
 	opam = callOcamlPackage ./opam.nix { inherit ocamlPackages; src = sources.opam; };
 	callOcamlPackage = ocamlPackages.newScope {
 		inherit ocaml ocamlPackages;
-		dune = ocamlPackages.dune_2;
+		dune_2 = ocamlPackages.dune_2;
 		fileutils = ocamlPackages.fileutils.overrideAttrs (o: {
 			# disable tests, workaround for https://github.com/timbertson/opam2nix/issues/47
 			configureFlags = [];
