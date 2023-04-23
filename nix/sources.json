@@ -5,10 +5,10 @@
         "homepage": "https://opam.ocaml.org",
         "owner": "ocaml",
         "repo": "opam",
-        "rev": "ec3f9ca7ee6c8d32e79f8565add9b2197fef24a3",
-        "sha256": "1ymwxi36xwjbspc2gw7rr0ramr5iq9m0ib0iin5ky2pq0lrrn05g",
+        "rev": "f0a8f46c04aa0aaa8d08547c46f5c8e21b9dce0d",
+        "sha256": "1b8d76zm31bad0lkpiczgp6gvwr2d3dx4lsbg5bkr0m5yxg4zr9i",
         "type": "tarball",
-        "url": "https://github.com/ocaml/opam/archive/ec3f9ca7ee6c8d32e79f8565add9b2197fef24a3.tar.gz",
+        "url": "https://github.com/ocaml/opam/archive/f0a8f46c04aa0aaa8d08547c46f5c8e21b9dce0d.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "opam-0install-solver": {
@@ -17,10 +17,10 @@
         "homepage": null,
         "owner": "ocaml-opam",
         "repo": "opam-0install-solver",
-        "rev": "4eede964fabba756e4c3c825f15da3bb499a9356",
-        "sha256": "0g1hlz2a4q04w5pp0sczay08dk8b4yffnb1cm8n7w98p7jx88kbn",
+        "rev": "a17703ba83374975633d66bea2d40da51beabee5",
+        "sha256": "1fjfs8yklmjh8zn17zixy0igzc3gaa0pd3l7szzsb9wxz1w8wsyi",
         "type": "tarball",
-        "url": "https://github.com/ocaml-opam/opam-0install-solver/archive/4eede964fabba756e4c3c825f15da3bb499a9356.tar.gz",
+        "url": "https://github.com/ocaml-opam/opam-0install-solver/archive/a17703ba83374975633d66bea2d40da51beabee5.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "opam-file-format": {
@@ -29,10 +29,10 @@
         "homepage": null,
         "owner": "ocaml",
         "repo": "opam-file-format",
-        "rev": "30f44cd793bd9a5b2dc5a249b5bb2c1966b1410a",
-        "sha256": "1fxhppdmrysr2nb5z3c448h17np48f3ga9jih33acj78r4rdblcs",
+        "rev": "303ab85afb67c7c22ea548b87241b08616b9f6f2",
+        "sha256": "0s2wv92664prpsgc3fcrif72n1fyfp8pzw3ywlz47xkxh0qnkbr9",
         "type": "tarball",
-        "url": "https://github.com/ocaml/opam-file-format/archive/30f44cd793bd9a5b2dc5a249b5bb2c1966b1410a.tar.gz",
+        "url": "https://github.com/ocaml/opam-file-format/archive/303ab85afb67c7c22ea548b87241b08616b9f6f2.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "spdx_licenses": {
@@ -41,10 +41,22 @@
         "homepage": null,
         "owner": "kit-ty-kate",
         "repo": "spdx_licenses",
-        "rev": "c6ba0493c25ce4d9ff8cb45b228ce412f4444aa0",
-        "sha256": "011r84db5mwjyjwbrbf8vajy9fnbmzyxjk15avglq0550dqjgv5z",
+        "rev": "ebc88c503f2bfb9abc4c3d7748d428e82dcda6b1",
+        "sha256": "07g9dhlsgw0riiiiw1iq8hwlpk7v8gbrbf0xg7h0j0jcvfl19fqf",
         "type": "tarball",
-        "url": "https://github.com/kit-ty-kate/spdx_licenses/archive/c6ba0493c25ce4d9ff8cb45b228ce412f4444aa0.tar.gz",
+        "url": "https://github.com/kit-ty-kate/spdx_licenses/archive/ebc88c503f2bfb9abc4c3d7748d428e82dcda6b1.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "swhid_core": {
+        "branch": "main",
+        "description": null,
+        "homepage": null,
+        "owner": "OCamlPro",
+        "repo": "swhid_core",
+        "rev": "33f9164b07c43cb3d3c24d6c8a8341ad54df0239",
+        "sha256": "0f07ybykdmfr7f2p7xcqsfszdckf4zv2wylbx99m2ab8frhvdqnp",
+        "type": "tarball",
+        "url": "https://github.com/OCamlPro/swhid_core/archive/33f9164b07c43cb3d3c24d6c8a8341ad54df0239.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "zeroinstall": {
@@ -53,10 +65,10 @@
         "homepage": "https://0install.net/",
         "owner": "0install",
         "repo": "0install",
-        "rev": "c3fea4a48e65fa15fdb834a0b4c2281128da886d",
-        "sha256": "03gkdqy03yybqi67cl10azvfa6rcpbqa0b3rylj6jbfihf08zakh",
+        "rev": "225587eef889a3082e0cc53fa64500f56cca0028",
+        "sha256": "1sbs4splqzk6npkxwkhkqyai45yfxahbs0xsas9masf9kfkvdpzr",
         "type": "tarball",
-        "url": "https://github.com/0install/0install/archive/c3fea4a48e65fa15fdb834a0b4c2281128da886d.tar.gz",
+        "url": "https://github.com/0install/0install/archive/225587eef889a3082e0cc53fa64500f56cca0028.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }

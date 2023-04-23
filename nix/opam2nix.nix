@@ -1,5 +1,5 @@
 { lib, nix, targetPackages, callPackage,
-ocaml, findlib, utop, opam-installer, opam-solver, opam-state,
+ocaml, findlib, utop, opam-installer, opam-solver, opam-state, opam-core,
 opam-0install, buildDunePackage,
 ppx_deriving, lwt, lwt_ppx, ocurl, yojson, ppx_deriving_yojson, fileutils,
 gup, ounit, makeWrapper, ocaml-migrate-parsetree-2,
@@ -19,6 +19,7 @@ opam2nix = buildDunePackage {
 	passthru = let
 		makeApi = args: callPackage ./api.nix ({ inherit opam2nix; } // args);
 		defaultApi = makeApi {};
+		inherit opam-core;
 	in ({
 		format_version = import ./format_version.nix;
 		devInputs = [ utop ];

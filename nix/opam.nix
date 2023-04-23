@@ -3,18 +3,18 @@ let
 	base = name: {
 		propagatedBuildInputs ? [],
 		buildInputs ? [],
-		useDune2 ? true,
+		duneVersion ? "3",
 		... } @ attrs: attrs // {
 		pname = "opam-${name}";
 		version = "dev";
-		inherit useDune2 buildInputs propagatedBuildInputs src;
+		inherit duneVersion buildInputs propagatedBuildInputs src;
 		configureFlags = ["--disable-checks"];
 	};
 in
 {
-	core = { cppo, dune_2, ocamlgraph, re, cmdliner }: ocamlPackages.buildDunePackage (base "core" {
-		propagatedBuildInputs = [ ocamlgraph re ];
-		buildInputs = [cppo cmdliner];
+	core = { cppo, ocamlgraph, re, cmdliner, uutf, swhid_core, jsonm, sha }: ocamlPackages.buildDunePackage (base "core" {
+		propagatedBuildInputs = [ ocamlgraph re uutf swhid_core jsonm sha ];
+		buildInputs = [cppo cmdliner ];
 	});
 
 	format = { opam-core, opam-file-format, re}: ocamlPackages.buildDunePackage (base "format" {

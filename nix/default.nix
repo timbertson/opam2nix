@@ -26,10 +26,19 @@ let
 
 		zeroinstall-solver = callOcamlPackage ({ buildDunePackage }:
 			buildDunePackage {
-				useDune2 = true;
+				duneVersion = "3";
 				pname = "0install-solver";
 				version = "master";
 				src = sources.zeroinstall;
+			}
+		) {};
+
+		swhid_core = callOcamlPackage ({ buildDunePackage }:
+			buildDunePackage {
+				duneVersion = "3";
+				pname = "swhid_core";
+				version = "master";
+				src = sources.swhid_core;
 			}
 		) {};
 		
@@ -38,7 +47,7 @@ let
 				pname = "opam-0install";
 				src = sources.opam-0install-solver;
 				version = "master";
-				useDune2 = true;
+				duneVersion = "3";
 				propagatedBuildInputs = [fmt cmdliner opam-state zeroinstall-solver];
 			}
 		) {};
@@ -48,7 +57,7 @@ let
 				pname = "opam-file-format";
 				version = "dev";
 				src = sources.opam-file-format;
-				useDune2 = true;
+				duneVersion = "3";
 			}
 		) {};
 
@@ -57,7 +66,7 @@ let
 				pname = "spdx_licenses";
 				version = "main";
 				src = sources.spdx_licenses;
-				useDune2 = true;
+				duneVersion = "3";
 			}
 		) {};
 	};
