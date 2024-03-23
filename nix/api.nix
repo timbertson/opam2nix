@@ -78,6 +78,7 @@ rec {
 		initOverride = pkgs.newScope {
 			inherit opam2nix ocaml;
 			selection = finalSelection;
+			pkgconfig = null;
 		};
 
 		applyOverride = override: selection:
